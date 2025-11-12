@@ -13,8 +13,8 @@ import (
 func NewDownCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "down",
-		Short: "Stop services",
-		Long:  `Stop all services (infrastructure keeps running).`,
+		Short: "Stop everything and remove data",
+		Long:  `Stop all services, tear down infrastructure, and remove all volumes (clean slate).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(configPath)
 			if err != nil {

@@ -67,7 +67,6 @@ func main() {
 	rootCmd.AddCommand(commands.NewBuildCommand(log, configPath))
 	rootCmd.AddCommand(commands.NewUpCommand(log, configPath))
 	rootCmd.AddCommand(commands.NewDownCommand(log, configPath))
-	rootCmd.AddCommand(commands.NewCleanCommand(log, configPath))
 	rootCmd.AddCommand(commands.NewPsCommand(log, configPath))
 	rootCmd.AddCommand(commands.NewLogsCommand(log, configPath))
 	rootCmd.AddCommand(commands.NewRestartCommand(log, configPath))

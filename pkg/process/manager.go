@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -180,26 +181,56 @@ func (m *Manager) Stop(name string) error {
 	return nil
 }
 
-// StopAll stops all managed processes
+// StopAll stops all managed processes, including orphaned processes from PID files
 func (m *Manager) StopAll() error {
-	m.mu.RLock()
+	m.log.Info("stopping all managed processes")
+
+	// First, reload PIDs from disk to catch any orphaned processes
+	// that weren't in memory (e.g., from previous xcli sessions)
+	m.mu.Lock()
+	pidDir := filepath.Join(m.stateDir, "pids")
+	entries, err := os.ReadDir(pidDir)
+	if err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() && filepath.Ext(entry.Name()) == ".pid" {
+				name := entry.Name()[:len(entry.Name())-4]
+				// Only load if not already in memory
+				if _, exists := m.processes[name]; !exists {
+					m.log.WithField("name", name).Debug(
+						"found orphaned PID file, attempting to load",
+					)
+					m.loadPID(name)
+				}
+			}
+		}
+	}
+
+	// Get all process names
 	names := make([]string, 0, len(m.processes))
 	for name := range m.processes {
 		names = append(names, name)
 	}
-	m.mu.RUnlock()
+	m.mu.Unlock()
 
+	m.log.WithField("count", len(names)).Info("stopping processes")
+
+	// Stop all processes
 	var errs []error
 	for _, name := range names {
 		if err := m.Stop(name); err != nil {
-			errs = append(errs, err)
+			m.log.WithFields(logrus.Fields{
+				"name":  name,
+				"error": err,
+			}).Warn("failed to stop process")
+			errs = append(errs, fmt.Errorf("stop %s: %w", name, err))
 		}
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("failed to stop some processes: %v", errs)
+		return fmt.Errorf("failed to stop %d processes: %v", len(errs), errs)
 	}
 
+	m.log.Info("all processes stopped successfully")
 	return nil
 }
 
@@ -348,41 +379,54 @@ func (m *Manager) loadPID(name string) {
 	pidFile := filepath.Join(m.stateDir, "pids", fmt.Sprintf("%s.pid", name))
 	data, err := os.ReadFile(pidFile)
 	if err != nil {
+		m.log.WithFields(logrus.Fields{
+			"name":    name,
+			"pidFile": pidFile,
+		}).Debug("failed to read PID file")
 		return
 	}
 
-	lines := string(data)
-	parts := filepath.SplitList(lines)
-	if len(parts) < 2 {
-		// Try splitting by newline instead
-		parts = []string{}
-		for _, line := range []string{lines} {
-			if line != "" {
-				parts = append(parts, line)
-			}
+	// Parse PID file: format is "PID\nLOGFILE\n"
+	content := string(data)
+	lines := []string{}
+	for _, line := range []string{} {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			lines = append(lines, trimmed)
 		}
-		// Simple split by newline
-		var pidStr, logFile string
-		fmt.Sscanf(lines, "%s\n%s", &pidStr, &logFile)
-		parts = []string{pidStr, logFile}
 	}
 
-	if len(parts) < 2 {
-		m.removePID(name)
-		return
-	}
-
+	// Split by newline and filter empty lines
 	var pid int
-	if _, err := fmt.Sscanf(parts[0], "%d", &pid); err != nil {
+	var logFile string
+	_, err = fmt.Sscanf(content, "%d\n%s\n", &pid, &logFile)
+	if err != nil {
+		m.log.WithFields(logrus.Fields{
+			"name":    name,
+			"pidFile": pidFile,
+			"content": content,
+		}).Warn("failed to parse PID file, removing")
 		m.removePID(name)
 		return
 	}
 
-	logFile := parts[1]
+	// Validate PID
+	if pid <= 0 {
+		m.log.WithFields(logrus.Fields{
+			"name": name,
+			"pid":  pid,
+		}).Warn("invalid PID in file, removing")
+		m.removePID(name)
+		return
+	}
 
 	// Check if process is still running
 	process, err := os.FindProcess(pid)
 	if err != nil {
+		m.log.WithFields(logrus.Fields{
+			"name": name,
+			"pid":  pid,
+		}).Debug("failed to find process, removing PID file")
 		m.removePID(name)
 		return
 	}
@@ -390,6 +434,10 @@ func (m *Manager) loadPID(name string) {
 	// Try to signal the process (signal 0 doesn't actually send a signal)
 	if err := process.Signal(syscall.Signal(0)); err != nil {
 		// Process not running
+		m.log.WithFields(logrus.Fields{
+			"name": name,
+			"pid":  pid,
+		}).Debug("process not running, removing PID file")
 		m.removePID(name)
 		return
 	}
@@ -401,4 +449,9 @@ func (m *Manager) loadPID(name string) {
 		LogFile: logFile,
 		Started: time.Now(), // We don't know the real start time
 	}
+
+	m.log.WithFields(logrus.Fields{
+		"name": name,
+		"pid":  pid,
+	}).Debug("loaded existing process from PID file")
 }
