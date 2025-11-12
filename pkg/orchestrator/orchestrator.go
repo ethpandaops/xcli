@@ -223,6 +223,32 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 	return nil
 }
 
+// hasCustomConfig checks if a custom config exists in the custom-configs directory.
+// Returns true and the path if found, false otherwise.
+func (o *Orchestrator) hasCustomConfig(filename string) (bool, string) {
+	customPath := filepath.Join(o.stateDir, "custom-configs", filename)
+	if _, err := os.Stat(customPath); err == nil {
+		return true, customPath
+	}
+
+	return false, ""
+}
+
+// copyCustomConfig copies a custom config file to the configs directory.
+func (o *Orchestrator) copyCustomConfig(customPath, destPath string) error {
+	data, err := os.ReadFile(customPath)
+	if err != nil {
+		return fmt.Errorf("failed to read custom config: %w", err)
+	}
+
+	//nolint:gosec // Config file permissions are intentionally 0644 for readability
+	if err := os.WriteFile(destPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write custom config: %w", err)
+	}
+
+	return nil
+}
+
 // generateConfigs generates configuration files for all services.
 func (o *Orchestrator) generateConfigs() error {
 	configsDir := filepath.Join(o.stateDir, "configs")
@@ -235,40 +261,70 @@ func (o *Orchestrator) generateConfigs() error {
 	// Generate configs for each network
 	for _, network := range o.cfg.EnabledNetworks() {
 		// CBT config
-		cbtConfig, err := generator.GenerateCBTConfig(network.Name)
-		if err != nil {
-			return fmt.Errorf("failed to generate CBT config for %s: %w", network.Name, err)
-		}
+		cbtFilename := fmt.Sprintf("cbt-%s.yaml", network.Name)
+		cbtPath := filepath.Join(configsDir, cbtFilename)
 
-		cbtPath := filepath.Join(configsDir, fmt.Sprintf("cbt-%s.yaml", network.Name))
-		//nolint:gosec // Config file permissions are intentionally 0644 for readability
-		if err := os.WriteFile(cbtPath, []byte(cbtConfig), 0644); err != nil {
-			return fmt.Errorf("failed to write CBT config: %w", err)
+		if hasCustom, customPath := o.hasCustomConfig(cbtFilename); hasCustom {
+			o.log.WithField("network", network.Name).Info("using custom CBT config")
+
+			if err := o.copyCustomConfig(customPath, cbtPath); err != nil {
+				return fmt.Errorf("failed to copy custom CBT config for %s: %w", network.Name, err)
+			}
+		} else {
+			cbtConfig, err := generator.GenerateCBTConfig(network.Name)
+			if err != nil {
+				return fmt.Errorf("failed to generate CBT config for %s: %w", network.Name, err)
+			}
+
+			//nolint:gosec // Config file permissions are intentionally 0644 for readability
+			if err := os.WriteFile(cbtPath, []byte(cbtConfig), 0644); err != nil {
+				return fmt.Errorf("failed to write CBT config: %w", err)
+			}
 		}
 
 		// cbt-api config
-		apiConfig, apiErr := generator.GenerateCBTAPIConfig(network.Name)
-		if apiErr != nil {
-			return fmt.Errorf("failed to generate cbt-api config for %s: %w", network.Name, apiErr)
-		}
+		apiFilename := fmt.Sprintf("cbt-api-%s.yaml", network.Name)
+		apiPath := filepath.Join(configsDir, apiFilename)
 
-		apiPath := filepath.Join(configsDir, fmt.Sprintf("cbt-api-%s.yaml", network.Name))
-		//nolint:gosec // Config file permissions are intentionally 0644 for readability
-		if apiErr := os.WriteFile(apiPath, []byte(apiConfig), 0644); apiErr != nil {
-			return fmt.Errorf("failed to write cbt-api config: %w", apiErr)
+		if hasCustom, customPath := o.hasCustomConfig(apiFilename); hasCustom {
+			o.log.WithField("network", network.Name).Info("using custom cbt-api config")
+
+			if err := o.copyCustomConfig(customPath, apiPath); err != nil {
+				return fmt.Errorf("failed to copy custom cbt-api config for %s: %w", network.Name, err)
+			}
+		} else {
+			apiConfig, apiErr := generator.GenerateCBTAPIConfig(network.Name)
+			if apiErr != nil {
+				return fmt.Errorf("failed to generate cbt-api config for %s: %w", network.Name, apiErr)
+			}
+
+			//nolint:gosec // Config file permissions are intentionally 0644 for readability
+			if apiErr := os.WriteFile(apiPath, []byte(apiConfig), 0644); apiErr != nil {
+				return fmt.Errorf("failed to write cbt-api config: %w", apiErr)
+			}
 		}
 	}
 
 	// lab-backend config
-	backendConfig, err := generator.GenerateLabBackendConfig()
-	if err != nil {
-		return fmt.Errorf("failed to generate lab-backend config: %w", err)
-	}
+	backendFilename := "lab-backend.yaml"
+	backendPath := filepath.Join(configsDir, backendFilename)
 
-	backendPath := filepath.Join(configsDir, "lab-backend.yaml")
-	//nolint:gosec // Config file permissions are intentionally 0644 for readability
-	if err := os.WriteFile(backendPath, []byte(backendConfig), 0644); err != nil {
-		return fmt.Errorf("failed to write lab-backend config: %w", err)
+	if hasCustom, customPath := o.hasCustomConfig(backendFilename); hasCustom {
+		o.log.Info("using custom lab-backend config")
+
+		if err := o.copyCustomConfig(customPath, backendPath); err != nil {
+			return fmt.Errorf("failed to copy custom lab-backend config: %w", err)
+		}
+	} else {
+		backendConfig, err := generator.GenerateLabBackendConfig()
+		if err != nil {
+			return fmt.Errorf("failed to generate lab-backend config: %w", err)
+		}
+
+		//nolint:gosec // Config file permissions are intentionally 0644 for readability
+		if err := os.WriteFile(backendPath, []byte(backendConfig), 0644); err != nil {
+			return fmt.Errorf("failed to write lab-backend config: %w", err)
+		}
 	}
 
 	o.log.Info("service configurations generated")
