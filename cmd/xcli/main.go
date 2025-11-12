@@ -40,8 +40,8 @@ func main() {
 	// Create root command
 	rootCmd := &cobra.Command{
 		Use:     "xcli",
-		Short:   "Local development orchestration tool for ethPandaOps lab stack",
-		Long:    `xcli orchestrates the complete local development environment for the lab stack, including ClickHouse, CBT, cbt-api, lab-backend, and lab frontend.`,
+		Short:   "Local development orchestration tool for ethPandaOps",
+		Long:    `xcli orchestrates local development environments for ethPandaOps projects.`,
 		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date),
 	}
 
@@ -62,16 +62,10 @@ func main() {
 		return nil
 	}
 
-	// Add commands
-	rootCmd.AddCommand(commands.NewInitCommand(log))
-	rootCmd.AddCommand(commands.NewBuildCommand(log, configPath))
-	rootCmd.AddCommand(commands.NewUpCommand(log, configPath))
-	rootCmd.AddCommand(commands.NewDownCommand(log, configPath))
-	rootCmd.AddCommand(commands.NewPsCommand(log, configPath))
-	rootCmd.AddCommand(commands.NewLogsCommand(log, configPath))
-	rootCmd.AddCommand(commands.NewRestartCommand(log, configPath))
-	rootCmd.AddCommand(commands.NewStatusCommand(log, configPath))
-	rootCmd.AddCommand(commands.NewModeCommand(log, configPath))
+	// Add stack commands
+	rootCmd.AddCommand(commands.NewLabCommand(log, configPath))
+
+	// Add global config command (shows all stack configs)
 	rootCmd.AddCommand(commands.NewConfigCommand(log, configPath))
 
 	// Execute

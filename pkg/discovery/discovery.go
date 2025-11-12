@@ -23,11 +23,11 @@ func NewDiscovery(log logrus.FieldLogger, basePath string) *Discovery {
 	}
 }
 
-// DiscoverRepos attempts to find all required repositories
-func (d *Discovery) DiscoverRepos() (*config.ReposConfig, error) {
-	d.log.Info("discovering repositories")
+// DiscoverRepos attempts to find all required lab repositories
+func (d *Discovery) DiscoverRepos() (*config.LabReposConfig, error) {
+	d.log.Info("discovering lab repositories")
 
-	repos := &config.ReposConfig{
+	repos := &config.LabReposConfig{
 		CBT:        filepath.Join(d.basePath, "cbt"),
 		XatuCBT:    filepath.Join(d.basePath, "xatu-cbt"),
 		CBTAPI:     filepath.Join(d.basePath, "cbt-api"),

@@ -9,19 +9,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewStatusCommand creates the status command
-func NewStatusCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
+// NewLabPsCommand creates the lab ps command
+func NewLabPsCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	return &cobra.Command{
-		Use:   "status",
-		Short: "Show stack health status",
-		Long:  `Show health status of infrastructure and services.`,
+		Use:   "ps",
+		Short: "List running lab services",
+		Long:  `List all running lab services and their status.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			orch := orchestrator.NewOrchestrator(log, cfg)
+			if cfg.Lab == nil {
+				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
+			}
+
+			orch := orchestrator.NewOrchestrator(log, cfg.Lab)
 			return orch.Status(cmd.Context())
 		},
 	}

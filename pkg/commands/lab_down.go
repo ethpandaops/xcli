@@ -9,19 +9,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewDownCommand creates the down command
-func NewDownCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
+// NewLabDownCommand creates the lab down command
+func NewLabDownCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "down",
-		Short: "Stop everything and remove data",
-		Long:  `Stop all services, tear down infrastructure, and remove all volumes (clean slate).`,
+		Short: "Stop lab stack and remove data",
+		Long:  `Stop all lab services, tear down infrastructure, and remove all volumes (clean slate).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			orch := orchestrator.NewOrchestrator(log, cfg)
+			if cfg.Lab == nil {
+				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
+			}
+
+			orch := orchestrator.NewOrchestrator(log, cfg.Lab)
 			return orch.Down(cmd.Context())
 		},
 	}

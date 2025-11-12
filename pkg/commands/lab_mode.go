@@ -9,8 +9,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewModeCommand creates the mode command
-func NewModeCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
+// NewLabModeCommand creates the lab mode command
+func NewLabModeCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mode <local|hybrid>",
 		Short: "Switch between local and hybrid mode",
@@ -28,12 +28,16 @@ func NewModeCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
+			if cfg.Lab == nil {
+				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
+			}
+
 			// Update mode
-			cfg.Mode = mode
+			cfg.Lab.Mode = mode
 			if mode == "hybrid" {
-				cfg.Infrastructure.ClickHouse.Xatu.Mode = "external"
+				cfg.Lab.Infrastructure.ClickHouse.Xatu.Mode = "external"
 			} else {
-				cfg.Infrastructure.ClickHouse.Xatu.Mode = "local"
+				cfg.Lab.Infrastructure.ClickHouse.Xatu.Mode = "local"
 			}
 
 			// Save config
@@ -41,17 +45,17 @@ func NewModeCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 				return fmt.Errorf("failed to save config: %w", err)
 			}
 
-			log.WithField("mode", mode).Info("Mode updated")
+			log.WithField("mode", mode).Info("mode updated")
 			fmt.Printf("\n✓ Mode switched to: %s\n", mode)
 			fmt.Println("\nRestart stack to apply changes (infrastructure will be rebuilt):")
-			fmt.Println("  xcli down && xcli up\n")
+			fmt.Println("  xcli lab down && xcli lab up\n")
 
 			// Optionally restart services automatically
 			fmt.Print("Restart services now? (y/N): ")
 			var response string
 			fmt.Scanln(&response)
 			if response == "y" || response == "Y" {
-				orch := orchestrator.NewOrchestrator(log, cfg)
+				orch := orchestrator.NewOrchestrator(log, cfg.Lab)
 				// Tear down infrastructure completely
 				// This is necessary because local vs hybrid mode use different infrastructure
 				if err := orch.Down(cmd.Context()); err != nil {

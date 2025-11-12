@@ -16,11 +16,11 @@ var templatesFS embed.FS
 // Generator generates service configuration files
 type Generator struct {
 	log logrus.FieldLogger
-	cfg *config.Config
+	cfg *config.LabConfig
 }
 
 // NewGenerator creates a new Generator instance
-func NewGenerator(log logrus.FieldLogger, cfg *config.Config) *Generator {
+func NewGenerator(log logrus.FieldLogger, cfg *config.LabConfig) *Generator {
 	return &Generator{
 		log: log.WithField("component", "config-generator"),
 		cfg: cfg,
