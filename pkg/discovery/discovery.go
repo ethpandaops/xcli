@@ -9,13 +9,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Discovery handles repository discovery
+// Discovery handles repository discovery.
 type Discovery struct {
 	log      logrus.FieldLogger
 	basePath string
 }
 
-// NewDiscovery creates a new Discovery instance
+// NewDiscovery creates a new Discovery instance.
 func NewDiscovery(log logrus.FieldLogger, basePath string) *Discovery {
 	return &Discovery{
 		log:      log.WithField("component", "discovery"),
@@ -23,7 +23,7 @@ func NewDiscovery(log logrus.FieldLogger, basePath string) *Discovery {
 	}
 }
 
-// DiscoverRepos attempts to find all required lab repositories
+// DiscoverRepos attempts to find all required lab repositories.
 func (d *Discovery) DiscoverRepos() (*config.LabReposConfig, error) {
 	d.log.Info("discovering lab repositories")
 
@@ -48,6 +48,7 @@ func (d *Discovery) DiscoverRepos() (*config.LabReposConfig, error) {
 		if err := d.validateRepo(name, *path); err != nil {
 			return nil, fmt.Errorf("failed to validate %s: %w", name, err)
 		}
+
 		d.log.WithFields(logrus.Fields{
 			"repo": name,
 			"path": *path,
@@ -57,7 +58,7 @@ func (d *Discovery) DiscoverRepos() (*config.LabReposConfig, error) {
 	return repos, nil
 }
 
-// validateRepo checks if a repository exists and has expected structure
+// validateRepo checks if a repository exists and has expected structure.
 func (d *Discovery) validateRepo(name, path string) error {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
@@ -70,6 +71,7 @@ func (d *Discovery) validateRepo(name, path string) error {
 		if os.IsNotExist(err) {
 			return fmt.Errorf("repository not found at %s", absPath)
 		}
+
 		return fmt.Errorf("failed to stat directory: %w", err)
 	}
 
@@ -108,20 +110,22 @@ func (d *Discovery) validateRepo(name, path string) error {
 	return nil
 }
 
-// fileExists checks if a file exists
+// fileExists checks if a file exists.
 func (d *Discovery) fileExists(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil {
 		return false
 	}
+
 	return !info.IsDir()
 }
 
-// dirExists checks if a directory exists
+// dirExists checks if a directory exists.
 func (d *Discovery) dirExists(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil {
 		return false
 	}
+
 	return info.IsDir()
 }

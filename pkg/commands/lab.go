@@ -5,7 +5,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewLabCommand creates the lab command namespace
+// NewLabCommand creates the lab command namespace.
 func NewLabCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "lab",

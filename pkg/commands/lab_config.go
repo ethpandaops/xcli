@@ -9,7 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// NewLabConfigCommand creates the lab config command
+// NewLabConfigCommand creates the lab config command.
 func NewLabConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
@@ -37,6 +37,7 @@ func NewLabConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Comma
 			}
 
 			fmt.Println(string(data))
+
 			return nil
 		},
 	})
@@ -57,18 +58,22 @@ func NewLabConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Comma
 
 			if err := cfg.Lab.Validate(); err != nil {
 				fmt.Printf("✗ Lab configuration is invalid:\n  %v\n", err)
+
 				return err
 			}
 
 			fmt.Println("✓ Lab configuration is valid")
 			fmt.Printf("\nMode: %s\n", cfg.Lab.Mode)
 			fmt.Printf("Networks: ")
+
 			for i, net := range cfg.Lab.EnabledNetworks() {
 				if i > 0 {
 					fmt.Print(", ")
 				}
+
 				fmt.Print(net.Name)
 			}
+
 			fmt.Println()
 
 			return nil

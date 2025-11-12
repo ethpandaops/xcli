@@ -13,13 +13,13 @@ import (
 //go:embed templates/*
 var templatesFS embed.FS
 
-// Generator generates service configuration files
+// Generator generates service configuration files.
 type Generator struct {
 	log logrus.FieldLogger
 	cfg *config.LabConfig
 }
 
-// NewGenerator creates a new Generator instance
+// NewGenerator creates a new Generator instance.
 func NewGenerator(log logrus.FieldLogger, cfg *config.LabConfig) *Generator {
 	return &Generator{
 		log: log.WithField("component", "config-generator"),
@@ -27,15 +27,17 @@ func NewGenerator(log logrus.FieldLogger, cfg *config.LabConfig) *Generator {
 	}
 }
 
-// GenerateCBTConfig generates CBT configuration for a network
+// GenerateCBTConfig generates CBT configuration for a network.
 func (g *Generator) GenerateCBTConfig(network string) (string, error) {
 	// Assign metrics ports: 9100, 9101, 9102, etc. (leave room for other services)
 	metricsPort := 9100
 	redisDB := 0
+
 	for i, net := range g.cfg.EnabledNetworks() {
 		if net.Name == network {
 			metricsPort = 9100 + i
 			redisDB = i // mainnet=0, sepolia=1, holesky=2, etc.
+
 			break
 		}
 	}
@@ -64,15 +66,17 @@ func (g *Generator) GenerateCBTConfig(network string) (string, error) {
 	return buf.String(), nil
 }
 
-// GenerateCBTAPIConfig generates cbt-api configuration for a network
+// GenerateCBTAPIConfig generates cbt-api configuration for a network.
 func (g *Generator) GenerateCBTAPIConfig(network string) (string, error) {
 	port := g.cfg.GetCBTAPIPort(network)
 
 	// Assign metrics ports: 9200, 9201, 9202, etc. (separate range from CBT engines)
 	metricsPort := 9200
+
 	for i, net := range g.cfg.EnabledNetworks() {
 		if net.Name == network {
 			metricsPort = 9200 + i
+
 			break
 		}
 	}
@@ -96,7 +100,7 @@ func (g *Generator) GenerateCBTAPIConfig(network string) (string, error) {
 	return buf.String(), nil
 }
 
-// GenerateLabBackendConfig generates lab-backend configuration
+// GenerateLabBackendConfig generates lab-backend configuration.
 func (g *Generator) GenerateLabBackendConfig() (string, error) {
 	networks := make([]map[string]interface{}, 0, len(g.cfg.Networks))
 	for _, net := range g.cfg.EnabledNetworks() {

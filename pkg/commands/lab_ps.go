@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewLabPsCommand creates the lab ps command
+// NewLabPsCommand creates the lab ps command.
 func NewLabPsCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "ps",
@@ -26,6 +26,7 @@ func NewLabPsCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 			}
 
 			orch := orchestrator.NewOrchestrator(log, cfg.Lab)
+
 			return orch.Status(cmd.Context())
 		},
 	}

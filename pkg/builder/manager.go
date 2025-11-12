@@ -12,14 +12,14 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Manager handles building all repositories
+// Manager handles building all repositories.
 type Manager struct {
 	log     logrus.FieldLogger
 	cfg     *config.LabConfig
 	verbose bool
 }
 
-// NewManager creates a new build manager
+// NewManager creates a new build manager.
 func NewManager(log logrus.FieldLogger, cfg *config.LabConfig) *Manager {
 	return &Manager{
 		log:     log.WithField("component", "builder"),
@@ -28,22 +28,24 @@ func NewManager(log logrus.FieldLogger, cfg *config.LabConfig) *Manager {
 	}
 }
 
-// SetVerbose sets verbose mode for build commands
+// SetVerbose sets verbose mode for build commands.
 func (m *Manager) SetVerbose(verbose bool) {
 	m.verbose = verbose
 }
 
-// runCmd runs a command with appropriate output handling
+// runCmd runs a command with appropriate output handling.
 func (m *Manager) runCmd(cmd *exec.Cmd) error {
 	if m.verbose {
 		// Verbose mode: show all output in real-time
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+
 		return cmd.Run()
 	}
 
 	// Quiet mode: capture output, only show if command fails
 	var output bytes.Buffer
+
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 
@@ -52,6 +54,7 @@ func (m *Manager) runCmd(cmd *exec.Cmd) error {
 		if output.Len() > 0 {
 			os.Stderr.Write(output.Bytes())
 		}
+
 		return err
 	}
 
@@ -59,7 +62,7 @@ func (m *Manager) runCmd(cmd *exec.Cmd) error {
 	return nil
 }
 
-// BuildAll builds all repositories in the correct order
+// BuildAll builds all repositories in the correct order.
 func (m *Manager) BuildAll(ctx context.Context, force bool) error {
 	m.log.Info("building all repositories")
 
@@ -82,25 +85,28 @@ func (m *Manager) BuildAll(ctx context.Context, force bool) error {
 	return nil
 }
 
-// buildXatuCBT builds the xatu-cbt binary
+// buildXatuCBT builds the xatu-cbt binary.
 func (m *Manager) buildXatuCBT(ctx context.Context, force bool) error {
 	binary := filepath.Join(m.cfg.Repos.XatuCBT, "bin", "xatu-cbt")
 
 	if !force && m.binaryExists(binary) {
 		m.log.WithField("repo", "xatu-cbt").Info("binary exists, skipping build")
+
 		return nil
 	}
 
 	m.log.WithField("repo", "xatu-cbt").Info("building project")
+
 	return m.runMake(ctx, m.cfg.Repos.XatuCBT, "build")
 }
 
-// buildCBT builds the cbt binary
+// buildCBT builds the cbt binary.
 func (m *Manager) buildCBT(ctx context.Context, force bool) error {
 	binary := filepath.Join(m.cfg.Repos.CBT, "bin", "cbt")
 
 	if !force && m.binaryExists(binary) {
 		m.log.WithField("repo", "cbt").Info("binary exists, skipping build")
+
 		return nil
 	}
 
@@ -122,42 +128,48 @@ func (m *Manager) buildCBT(ctx context.Context, force bool) error {
 	return nil
 }
 
-// BuildCBTAPI builds cbt-api (called AFTER proto generation)
+// BuildCBTAPI builds cbt-api (called AFTER proto generation).
 func (m *Manager) BuildCBTAPI(ctx context.Context, force bool) error {
 	binary := filepath.Join(m.cfg.Repos.CBTAPI, "bin", "server")
 
 	if !force && m.binaryExists(binary) {
 		m.log.WithField("repo", "cbt-api").Info("binary exists, skipping build")
+
 		return nil
 	}
 
 	m.log.WithField("repo", "cbt-api").Info("building project")
+
 	return m.runMake(ctx, m.cfg.Repos.CBTAPI, "build-binary")
 }
 
-// buildLabBackend builds lab-backend binary
+// buildLabBackend builds lab-backend binary.
 func (m *Manager) buildLabBackend(ctx context.Context, force bool) error {
 	binary := filepath.Join(m.cfg.Repos.LabBackend, "bin", "lab-backend")
 
 	if !force && m.binaryExists(binary) {
 		m.log.WithField("repo", "lab-backend").Info("binary exists, skipping build")
+
 		return nil
 	}
 
 	m.log.WithField("repo", "lab-backend").Info("building project")
+
 	return m.runMake(ctx, m.cfg.Repos.LabBackend, "build")
 }
 
-// installLabDeps installs lab frontend dependencies
+// installLabDeps installs lab frontend dependencies.
 func (m *Manager) installLabDeps(ctx context.Context, force bool) error {
 	nodeModules := filepath.Join(m.cfg.Repos.Lab, "node_modules")
 
 	if !force && m.dirExists(nodeModules) {
 		m.log.WithField("repo", "lab").Info("dependencies exist, skipping install")
+
 		return nil
 	}
 
 	m.log.WithField("repo", "lab").Info("installing dependencies")
+
 	cmd := exec.CommandContext(ctx, "pnpm", "install")
 	cmd.Dir = m.cfg.Repos.Lab
 
@@ -168,7 +180,7 @@ func (m *Manager) installLabDeps(ctx context.Context, force bool) error {
 	return nil
 }
 
-// GenerateProtos generates protobuf files for cbt-api
+// GenerateProtos generates protobuf files for cbt-api.
 func (m *Manager) GenerateProtos(ctx context.Context) error {
 	// Skip xatu-cbt proto generation - it calls infra start internally which we've already done
 	// The xatu-cbt binary doesn't need protos to run
@@ -184,6 +196,7 @@ func (m *Manager) GenerateProtos(ctx context.Context) error {
 
 	// Use the generated config file
 	configPath := filepath.Join(".xcli", "configs", fmt.Sprintf("cbt-api-%s.yaml", network.Name))
+
 	absConfigPath, err := filepath.Abs(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to get absolute config path: %w", err)
@@ -191,6 +204,7 @@ func (m *Manager) GenerateProtos(ctx context.Context) error {
 
 	cmd := exec.CommandContext(ctx, "make", "proto")
 	cmd.Dir = m.cfg.Repos.CBTAPI
+
 	cmd.Env = append(os.Environ(), fmt.Sprintf("CONFIG_FILE=%s", absConfigPath))
 
 	if err := m.runCmd(cmd); err != nil {
@@ -198,28 +212,31 @@ func (m *Manager) GenerateProtos(ctx context.Context) error {
 	}
 
 	m.log.Info("proto generation complete")
+
 	return nil
 }
 
-// binaryExists checks if a binary file exists
+// binaryExists checks if a binary file exists.
 func (m *Manager) binaryExists(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil {
 		return false
 	}
+
 	return !info.IsDir() && info.Mode()&0111 != 0 // Check if executable
 }
 
-// dirExists checks if a directory exists
+// dirExists checks if a directory exists.
 func (m *Manager) dirExists(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil {
 		return false
 	}
+
 	return info.IsDir()
 }
 
-// runMake runs make with a target in a directory
+// runMake runs make with a target in a directory.
 func (m *Manager) runMake(ctx context.Context, dir string, target string) error {
 	cmd := exec.CommandContext(ctx, "make", target)
 	cmd.Dir = dir
@@ -231,7 +248,7 @@ func (m *Manager) runMake(ctx context.Context, dir string, target string) error 
 	return nil
 }
 
-// CheckBinariesExist checks if all required binaries exist
+// CheckBinariesExist checks if all required binaries exist.
 func (m *Manager) CheckBinariesExist() map[string]bool {
 	return map[string]bool{
 		"xatu-cbt":    m.binaryExists(filepath.Join(m.cfg.Repos.XatuCBT, "bin", "xatu-cbt")),

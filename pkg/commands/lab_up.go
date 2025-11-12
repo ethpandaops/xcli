@@ -9,17 +9,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewLabUpCommand creates the lab up command
+// NewLabUpCommand creates the lab up command.
 func NewLabUpCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
-	var mode string
-	var noBuild bool
-	var rebuild bool
-	var verbose bool
+	var (
+		mode    string
+		noBuild bool
+		rebuild bool
+		verbose bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "up",
 		Short: "Start the lab stack",
-		Long:  `Start infrastructure and all services in the lab development stack.
+		Long: `Start infrastructure and all services in the lab development stack.
 
 By default, this command will automatically build any missing binaries. Use flags to control build behavior.`,
 		RunE: func(cmd *cobra.Command, args []string) error {

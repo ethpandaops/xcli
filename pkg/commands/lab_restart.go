@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewLabRestartCommand creates the lab restart command
+// NewLabRestartCommand creates the lab restart command.
 func NewLabRestartCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "restart <service>",
@@ -27,6 +27,7 @@ func NewLabRestartCommand(log logrus.FieldLogger, configPath string) *cobra.Comm
 			}
 
 			orch := orchestrator.NewOrchestrator(log, cfg.Lab)
+
 			return orch.Restart(cmd.Context(), args[0])
 		},
 	}
