@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/ethpandaops/xcli/pkg/config"
+	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -18,8 +19,8 @@ func NewLabModeCommand(log logrus.FieldLogger, configPath string) *cobra.Command
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mode := args[0]
-			if mode != "local" && mode != "hybrid" {
-				return fmt.Errorf("invalid mode: %s (must be 'local' or 'hybrid')", mode)
+			if mode != constants.ModeLocal && mode != constants.ModeHybrid {
+				return fmt.Errorf("invalid mode: %s (must be '%s' or '%s')", mode, constants.ModeLocal, constants.ModeHybrid)
 			}
 
 			// Load config
@@ -32,12 +33,37 @@ func NewLabModeCommand(log logrus.FieldLogger, configPath string) *cobra.Command
 				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
 			}
 
-			// Update mode
+			// Update mode and ClickHouse mode
+			// Note: We only change the mode fields, preserving any external credentials
+			// so users can switch back and forth without losing their config
+			oldMode := cfg.Lab.Mode
 			cfg.Lab.Mode = mode
-			if mode == "hybrid" {
-				cfg.Lab.Infrastructure.ClickHouse.Xatu.Mode = "external"
+
+			hasExternalCredentials := true
+
+			if mode == constants.ModeHybrid {
+				cfg.Lab.Infrastructure.ClickHouse.Xatu.Mode = constants.InfraModeExternal
+
+				// Check if external credentials are configured
+				if cfg.Lab.Infrastructure.ClickHouse.Xatu.ExternalURL == "" {
+					hasExternalCredentials = false
+
+					fmt.Println("\n⚠ Warning: Switching to hybrid mode but no external ClickHouse URL configured")
+					fmt.Println("You'll need to set this in .xcli.yaml before running 'xcli lab up':")
+					fmt.Println("  lab:")
+					fmt.Println("    infrastructure:")
+					fmt.Println("      clickhouse:")
+					fmt.Println("        xatu:")
+					fmt.Println("          externalUrl: \"https://username:password@host:port\"")
+					fmt.Println("          externalDatabase: \"default\"")
+				}
 			} else {
-				cfg.Lab.Infrastructure.ClickHouse.Xatu.Mode = "local"
+				cfg.Lab.Infrastructure.ClickHouse.Xatu.Mode = constants.InfraModeLocal
+
+				// Inform user that external credentials are preserved
+				if oldMode == constants.ModeHybrid && cfg.Lab.Infrastructure.ClickHouse.Xatu.ExternalURL != "" {
+					fmt.Println("\n✓ External ClickHouse credentials preserved for future hybrid mode use")
+				}
 			}
 
 			// Save config
@@ -47,6 +73,15 @@ func NewLabModeCommand(log logrus.FieldLogger, configPath string) *cobra.Command
 
 			log.WithField("mode", mode).Info("mode updated")
 			fmt.Printf("\n✓ Mode switched to: %s\n", mode)
+
+			// Don't offer to restart if switching to hybrid without credentials
+			if mode == constants.ModeHybrid && !hasExternalCredentials {
+				fmt.Println("\nPlease configure external ClickHouse credentials in .xcli.yaml")
+				fmt.Println("Then run: xcli lab down && xcli lab up")
+
+				return nil
+			}
+
 			fmt.Println("\nRestart stack to apply changes (infrastructure will be rebuilt):")
 			fmt.Println("  xcli lab down && xcli lab up")
 

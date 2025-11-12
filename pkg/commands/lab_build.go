@@ -37,7 +37,8 @@ For a complete build including proto generation, use 'xcli lab up --rebuild'.`,
 				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
 			}
 
-			if err := cfg.Lab.Validate(); err != nil {
+			// Only validate repo paths for build command - infrastructure config not needed
+			if err := cfg.Lab.ValidateRepos(); err != nil {
 				return fmt.Errorf("invalid lab configuration: %w", err)
 			}
 

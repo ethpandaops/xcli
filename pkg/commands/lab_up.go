@@ -2,6 +2,9 @@ package commands
 
 import (
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
@@ -51,6 +54,27 @@ By default, this command will automatically build any missing binaries. Use flag
 
 			// Set verbose mode
 			orch.SetVerbose(verbose)
+
+			// Setup signal handling for graceful shutdown
+			sigChan := make(chan os.Signal, 1)
+			signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+			// Start signal handler in background
+			go func() {
+				sig := <-sigChan
+				log.WithField("signal", sig.String()).Info("received shutdown signal")
+				fmt.Println("\n\n⚠ Interrupt received, shutting down gracefully...")
+				fmt.Println("(Press Ctrl+C again to force quit)")
+
+				// Stop all services
+				if err := orch.StopServices(); err != nil {
+					log.WithError(err).Error("failed to stop services gracefully")
+					os.Exit(1)
+				}
+
+				fmt.Println("✓ All services stopped")
+				os.Exit(0)
+			}()
 
 			// Start everything
 			return orch.Up(cmd.Context(), noBuild, rebuild)

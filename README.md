@@ -57,10 +57,18 @@ xcli lab build               # Build all repositories
 ### Service Management
 
 ```bash
+# View logs
 xcli lab logs                    # View all logs
 xcli lab logs lab-backend        # View specific service logs
 xcli lab logs -f lab-backend     # Follow logs
 
+# Start/stop individual services
+xcli lab start lab-backend       # Start a specific service
+xcli lab stop lab-frontend       # Stop a specific service
+xcli lab start cbt-mainnet       # Start CBT engine for mainnet
+xcli lab stop cbt-api-sepolia    # Stop cbt-api for sepolia
+
+# Restart services
 xcli lab restart lab-backend     # Restart a specific service
 xcli lab restart cbt-api-mainnet # Restart mainnet cbt-api
 ```
@@ -88,6 +96,22 @@ xcli lab build -f                # Force rebuild
 
 ## Common Workflows
 
+### Start/Stop Individual Services
+
+Manage services independently without affecting the whole stack:
+
+```bash
+# Stop a service temporarily
+xcli lab stop lab-frontend
+
+# Start it again later
+xcli lab start lab-frontend
+
+# Useful for debugging - stop resource-intensive services
+xcli lab stop cbt-mainnet
+xcli lab stop cbt-api-mainnet
+```
+
 ### Restart a Single Service
 
 After making code changes to a specific service:
@@ -97,7 +121,11 @@ After making code changes to a specific service:
 xcli lab restart lab-backend
 
 # Example: After editing CBT transformation
-xcli lab restart cbt-engine-mainnet
+xcli lab restart cbt-mainnet
+
+# Note: Restart only works if service is already running
+# If service crashed, use 'start' instead
+xcli lab start cbt-mainnet
 ```
 
 ### Regenerate Protos
@@ -127,13 +155,13 @@ Enable or disable networks in `.xcli.yaml`:
 networks:
   - name: mainnet
     enabled: true
-    port_offset: 0
+    portOffset: 0
   - name: sepolia
     enabled: true
-    port_offset: 1
+    portOffset: 1
   - name: holesky
     enabled: true
-    port_offset: 2  # CBT: 8083, cbt-api: 8093
+    portOffset: 2  # CBT: 8083, cbt-api: 8093
 ```
 
 Then restart:
@@ -157,7 +185,8 @@ xcli lab mode hybrid
 #   clickhouse:
 #     xatu:
 #       mode: external
-#       external_url: "https://user:pass@host:8443"
+#       externalUrl: "https://user:pass@host:8443"
+#       externalDatabase: "default"
 
 # Restart services
 xcli lab down && xcli lab up
@@ -171,7 +200,7 @@ xcli lab logs
 
 # Specific service
 xcli lab logs lab-backend
-xcli lab logs cbt-engine-mainnet
+xcli lab logs cbt-mainnet
 xcli lab logs cbt-api-sepolia
 
 # Follow logs (live tail)
@@ -203,9 +232,9 @@ The `.xcli.yaml` file is created by `xcli lab init` and can be customized:
 lab:
   repos:
     cbt: ../cbt
-    xatu_cbt: ../xatu-cbt
-    cbt_api: ../cbt-api
-    lab_backend: ../lab-backend
+    xatuCbt: ../xatu-cbt
+    cbtApi: ../cbt-api
+    labBackend: ../lab-backend
     lab: ../lab
 
   mode: local  # or "hybrid"
@@ -213,16 +242,16 @@ lab:
   networks:
     - name: mainnet
       enabled: true
-      port_offset: 0
+      portOffset: 0
     - name: sepolia
       enabled: true
-      port_offset: 1
+      portOffset: 1
 
   ports:
-    lab_backend: 8080
-    lab_frontend: 5173
-    cbt_base: 8081      # Base port for CBT engines
-    cbt_api_base: 8091  # Base port for cbt-api services
+    labBackend: 8080
+    labFrontend: 5173
+    cbtBase: 8081      # Base port for CBT engines
+    cbtApiBase: 8091  # Base port for cbt-api services
 
   infrastructure:
     clickhouse:
@@ -237,19 +266,3 @@ lab:
 ```
 
 See [`.xcli.example.yaml`](.xcli.example.yaml) for full options.
-
-## Troubleshooting
-
-### Services won't start
-
-```bash
-# Check logs
-xcli lab logs
-
-# Validate config
-xcli lab config validate
-
-# Clean restart
-xcli lab down
-xcli lab up
-```
