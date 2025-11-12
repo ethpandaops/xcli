@@ -1,0 +1,80 @@
+{{- define "lab-backend-config" -}}
+server:
+  port: {{ .Port }}
+  host: "0.0.0.0"
+  read_timeout: 30s
+  write_timeout: 30s
+  shutdown_timeout: 10s
+  log_level: "info"
+
+redis:
+  address: "localhost:6380"
+  password: ""
+  db: 0
+  dial_timeout: 5s
+  read_timeout: 3s
+  write_timeout: 3s
+  pool_size: 10
+
+leader:
+  lock_key: "lab:leader:lock"
+  lock_ttl: 30s
+  renew_interval: 10s
+  retry_interval: 5s
+
+cartographoor:
+  source_url: "https://ethpandaops-platform-production-cartographoor.ams3.cdn.digitaloceanspaces.com/networks.json"
+  refresh_interval: 5m
+  request_timeout: 30s
+  networks_ttl: 0s
+
+bounds:
+  refresh_interval: 10s
+  request_timeout: 30s
+  bounds_ttl: 0s
+
+rate_limiting:
+  enabled: true
+  failure_mode: "fail_open"
+  exempt_ips:
+    - "127.0.0.1"
+    - "::1"
+  rules:
+    - name: "bounds_endpoint"
+      path_pattern: "^/api/v1/.*/bounds$"
+      limit: 60
+      window: "1m"
+    - name: "api_proxy"
+      path_pattern: "^/api/v1/.*"
+      limit: 300
+      window: "1m"
+    - name: "default"
+      path_pattern: ".*"
+      limit: 100
+      window: "1m"
+
+networks:
+{{- range .Networks }}
+  - name: {{ .Name }}
+    target_url: "http://localhost:{{ .Port }}/api/v1"
+{{- end }}
+
+headers:
+  policies:
+    - name: "api_config"
+      path_pattern: "^/api/v1/config$"
+      headers:
+        Cache-Control: "public, max-age=1, s-maxage=60, stale-while-revalidate=300"
+    - name: "api_proxy"
+      path_pattern: "^/api/v1/.+/.+"
+      headers:
+        Cache-Control: "public, max-age=1, s-maxage=5, stale-while-revalidate=1"
+    - name: "health_metrics"
+      path_pattern: "^/(health|metrics)$"
+      headers:
+        Cache-Control: "no-cache, no-store, must-revalidate"
+    - name: "default"
+      path_pattern: ".*"
+      headers:
+        Cache-Control: "public, max-age=1"
+{{- end -}}

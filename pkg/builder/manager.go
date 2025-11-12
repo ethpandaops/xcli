@@ -1,0 +1,243 @@
+package builder
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+
+	"github.com/ethpandaops/xcli/pkg/config"
+	"github.com/sirupsen/logrus"
+)
+
+// Manager handles building all repositories
+type Manager struct {
+	log     logrus.FieldLogger
+	cfg     *config.Config
+	verbose bool
+}
+
+// NewManager creates a new build manager
+func NewManager(log logrus.FieldLogger, cfg *config.Config) *Manager {
+	return &Manager{
+		log:     log.WithField("component", "builder"),
+		cfg:     cfg,
+		verbose: false,
+	}
+}
+
+// SetVerbose sets verbose mode for build commands
+func (m *Manager) SetVerbose(verbose bool) {
+	m.verbose = verbose
+}
+
+// runCmd runs a command with appropriate output handling
+func (m *Manager) runCmd(cmd *exec.Cmd) error {
+	if m.verbose {
+		// Verbose mode: show all output in real-time
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+
+	// Quiet mode: capture output, only show if command fails
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+
+	if err := cmd.Run(); err != nil {
+		// Command failed - show captured output
+		if output.Len() > 0 {
+			os.Stderr.Write(output.Bytes())
+		}
+		return err
+	}
+
+	// Command succeeded - no output
+	return nil
+}
+
+// BuildAll builds all repositories in the correct order
+func (m *Manager) BuildAll(ctx context.Context, force bool) error {
+	m.log.Info("building all repositories")
+
+	if err := m.buildXatuCBT(ctx, force); err != nil {
+		return fmt.Errorf("failed to build xatu-cbt: %w", err)
+	}
+
+	if err := m.buildCBT(ctx, force); err != nil {
+		return fmt.Errorf("failed to build cbt: %w", err)
+	}
+
+	if err := m.buildLabBackend(ctx, force); err != nil {
+		return fmt.Errorf("failed to build lab-backend: %w", err)
+	}
+
+	if err := m.installLabDeps(ctx, force); err != nil {
+		return fmt.Errorf("failed to install lab dependencies: %w", err)
+	}
+
+	return nil
+}
+
+// buildXatuCBT builds the xatu-cbt binary
+func (m *Manager) buildXatuCBT(ctx context.Context, force bool) error {
+	binary := filepath.Join(m.cfg.Repos.XatuCBT, "bin", "xatu-cbt")
+
+	if !force && m.binaryExists(binary) {
+		m.log.WithField("repo", "xatu-cbt").Info("binary exists, skipping build")
+		return nil
+	}
+
+	m.log.WithField("repo", "xatu-cbt").Info("building project")
+	return m.runMake(ctx, m.cfg.Repos.XatuCBT, "build")
+}
+
+// buildCBT builds the cbt binary
+func (m *Manager) buildCBT(ctx context.Context, force bool) error {
+	binary := filepath.Join(m.cfg.Repos.CBT, "bin", "cbt")
+
+	if !force && m.binaryExists(binary) {
+		m.log.WithField("repo", "cbt").Info("binary exists, skipping build")
+		return nil
+	}
+
+	m.log.WithField("repo", "cbt").Info("building project")
+
+	// CBT doesn't have a Makefile build target, build directly
+	binDir := filepath.Join(m.cfg.Repos.CBT, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		return fmt.Errorf("failed to create bin directory: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", binary, ".")
+	cmd.Dir = m.cfg.Repos.CBT
+
+	if err := m.runCmd(cmd); err != nil {
+		return fmt.Errorf("go build failed: %w", err)
+	}
+
+	return nil
+}
+
+// BuildCBTAPI builds cbt-api (called AFTER proto generation)
+func (m *Manager) BuildCBTAPI(ctx context.Context, force bool) error {
+	binary := filepath.Join(m.cfg.Repos.CBTAPI, "bin", "server")
+
+	if !force && m.binaryExists(binary) {
+		m.log.WithField("repo", "cbt-api").Info("binary exists, skipping build")
+		return nil
+	}
+
+	m.log.WithField("repo", "cbt-api").Info("building project")
+	return m.runMake(ctx, m.cfg.Repos.CBTAPI, "build-binary")
+}
+
+// buildLabBackend builds lab-backend binary
+func (m *Manager) buildLabBackend(ctx context.Context, force bool) error {
+	binary := filepath.Join(m.cfg.Repos.LabBackend, "bin", "lab-backend")
+
+	if !force && m.binaryExists(binary) {
+		m.log.WithField("repo", "lab-backend").Info("binary exists, skipping build")
+		return nil
+	}
+
+	m.log.WithField("repo", "lab-backend").Info("building project")
+	return m.runMake(ctx, m.cfg.Repos.LabBackend, "build")
+}
+
+// installLabDeps installs lab frontend dependencies
+func (m *Manager) installLabDeps(ctx context.Context, force bool) error {
+	nodeModules := filepath.Join(m.cfg.Repos.Lab, "node_modules")
+
+	if !force && m.dirExists(nodeModules) {
+		m.log.WithField("repo", "lab").Info("dependencies exist, skipping install")
+		return nil
+	}
+
+	m.log.WithField("repo", "lab").Info("installing dependencies")
+	cmd := exec.CommandContext(ctx, "pnpm", "install")
+	cmd.Dir = m.cfg.Repos.Lab
+
+	if err := m.runCmd(cmd); err != nil {
+		return fmt.Errorf("pnpm install failed: %w", err)
+	}
+
+	return nil
+}
+
+// GenerateProtos generates protobuf files for cbt-api
+func (m *Manager) GenerateProtos(ctx context.Context) error {
+	// Skip xatu-cbt proto generation - it calls infra start internally which we've already done
+	// The xatu-cbt binary doesn't need protos to run
+
+	// Generate cbt-api protos (only for first network, they're network-agnostic)
+	// We'll use mainnet as the source for table schemas
+	network := m.cfg.EnabledNetworks()[0]
+
+	m.log.WithFields(logrus.Fields{
+		"repo":    "cbt-api",
+		"network": network.Name,
+	}).Info("generating protos")
+
+	// Use the generated config file
+	configPath := filepath.Join(".xcli", "configs", fmt.Sprintf("cbt-api-%s.yaml", network.Name))
+	absConfigPath, err := filepath.Abs(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute config path: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, "make", "proto")
+	cmd.Dir = m.cfg.Repos.CBTAPI
+	cmd.Env = append(os.Environ(), fmt.Sprintf("CONFIG_FILE=%s", absConfigPath))
+
+	if err := m.runCmd(cmd); err != nil {
+		return fmt.Errorf("failed to generate cbt-api protos: %w", err)
+	}
+
+	m.log.Info("proto generation complete")
+	return nil
+}
+
+// binaryExists checks if a binary file exists
+func (m *Manager) binaryExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir() && info.Mode()&0111 != 0 // Check if executable
+}
+
+// dirExists checks if a directory exists
+func (m *Manager) dirExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
+}
+
+// runMake runs make with a target in a directory
+func (m *Manager) runMake(ctx context.Context, dir string, target string) error {
+	cmd := exec.CommandContext(ctx, "make", target)
+	cmd.Dir = dir
+
+	if err := m.runCmd(cmd); err != nil {
+		return fmt.Errorf("make %s failed: %w", target, err)
+	}
+
+	return nil
+}
+
+// CheckBinariesExist checks if all required binaries exist
+func (m *Manager) CheckBinariesExist() map[string]bool {
+	return map[string]bool{
+		"xatu-cbt":    m.binaryExists(filepath.Join(m.cfg.Repos.XatuCBT, "bin", "xatu-cbt")),
+		"cbt":         m.binaryExists(filepath.Join(m.cfg.Repos.CBT, "bin", "cbt")),
+		"cbt-api":     m.binaryExists(filepath.Join(m.cfg.Repos.CBTAPI, "bin", "server")),
+		"lab-backend": m.binaryExists(filepath.Join(m.cfg.Repos.LabBackend, "bin", "lab-backend")),
+		"lab-deps":    m.dirExists(filepath.Join(m.cfg.Repos.Lab, "node_modules")),
+	}
+}
