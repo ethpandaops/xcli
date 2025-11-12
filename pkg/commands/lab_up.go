@@ -9,8 +9,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewUpCommand creates the up command
-func NewUpCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
+// NewLabUpCommand creates the lab up command
+func NewLabUpCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	var mode string
 	var noBuild bool
 	var rebuild bool
@@ -29,18 +29,23 @@ By default, this command will automatically build any missing binaries. Use flag
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			// Override mode if specified
-			if mode != "" {
-				cfg.Mode = mode
+			// Check lab config exists
+			if cfg.Lab == nil {
+				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
 			}
 
-			// Validate config
-			if err := cfg.Validate(); err != nil {
-				return fmt.Errorf("invalid configuration: %w", err)
+			// Override mode if specified
+			if mode != "" {
+				cfg.Lab.Mode = mode
+			}
+
+			// Validate lab config
+			if err := cfg.Lab.Validate(); err != nil {
+				return fmt.Errorf("invalid lab configuration: %w", err)
 			}
 
 			// Create orchestrator
-			orch := orchestrator.NewOrchestrator(log, cfg)
+			orch := orchestrator.NewOrchestrator(log, cfg.Lab)
 
 			// Set verbose mode
 			orch.SetVerbose(verbose)

@@ -15,12 +15,12 @@ import (
 // Manager handles building all repositories
 type Manager struct {
 	log     logrus.FieldLogger
-	cfg     *config.Config
+	cfg     *config.LabConfig
 	verbose bool
 }
 
 // NewManager creates a new build manager
-func NewManager(log logrus.FieldLogger, cfg *config.Config) *Manager {
+func NewManager(log logrus.FieldLogger, cfg *config.LabConfig) *Manager {
 	return &Manager{
 		log:     log.WithField("component", "builder"),
 		cfg:     cfg,

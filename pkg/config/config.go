@@ -9,18 +9,32 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config represents the xcli configuration
+// Config represents the xcli root configuration
+// It contains stack-specific configurations and optional workspace-level settings
 type Config struct {
-	Repos          ReposConfig          `yaml:"repos"`
+	// Lab stack configuration
+	Lab *LabConfig `yaml:"lab,omitempty"`
+
+	// Future stacks can be added here:
+	// Contributoor *ContributoorConfig `yaml:"contributoor,omitempty"`
+	// Xatu *XatuConfig `yaml:"xatu,omitempty"`
+
+	// Workspace-level settings (optional, for future use)
+	// Workspace *WorkspaceConfig `yaml:"workspace,omitempty"`
+}
+
+// LabConfig represents the lab stack configuration
+type LabConfig struct {
+	Repos          LabReposConfig       `yaml:"repos"`
 	Mode           string               `yaml:"mode"`
 	Networks       []NetworkConfig      `yaml:"networks"`
 	Infrastructure InfrastructureConfig `yaml:"infrastructure"`
-	Ports          PortsConfig          `yaml:"ports"`
-	Dev            DevConfig            `yaml:"dev"`
+	Ports          LabPortsConfig       `yaml:"ports"`
+	Dev            LabDevConfig         `yaml:"dev"`
 }
 
-// ReposConfig contains paths to all repositories
-type ReposConfig struct {
+// LabReposConfig contains paths to lab repositories
+type LabReposConfig struct {
 	CBT        string `yaml:"cbt"`
 	XatuCBT    string `yaml:"xatu_cbt"`
 	CBTAPI     string `yaml:"cbt_api"`
@@ -67,24 +81,31 @@ type VolumesConfig struct {
 	Persist bool `yaml:"persist"`
 }
 
-// PortsConfig contains port assignments
-type PortsConfig struct {
+// LabPortsConfig contains lab stack port assignments
+type LabPortsConfig struct {
 	LabBackend  int `yaml:"lab_backend"`
 	LabFrontend int `yaml:"lab_frontend"`
 	CBTBase     int `yaml:"cbt_base"`
 	CBTAPIBase  int `yaml:"cbt_api_base"`
 }
 
-// DevConfig contains development features
-type DevConfig struct {
+// LabDevConfig contains lab stack development features
+type LabDevConfig struct {
 	LabRebuildOnChange bool `yaml:"lab_rebuild_on_change"`
 	HotReload          bool `yaml:"hot_reload"`
 }
 
-// Default returns a configuration with sensible defaults
+// Default returns a root configuration with sensible defaults
 func Default() *Config {
 	return &Config{
-		Repos: ReposConfig{
+		Lab: DefaultLab(),
+	}
+}
+
+// DefaultLab returns a lab configuration with sensible defaults
+func DefaultLab() *LabConfig {
+	return &LabConfig{
+		Repos: LabReposConfig{
 			CBT:        "../cbt",
 			XatuCBT:    "../xatu-cbt",
 			CBTAPI:     "../cbt-api",
@@ -104,13 +125,13 @@ func Default() *Config {
 			Redis:   RedisConfig{Port: 6380},
 			Volumes: VolumesConfig{Persist: true},
 		},
-		Ports: PortsConfig{
+		Ports: LabPortsConfig{
 			LabBackend:  8080,
 			LabFrontend: 5173,
 			CBTBase:     8081,
 			CBTAPIBase:  8091,
 		},
-		Dev: DevConfig{
+		Dev: LabDevConfig{
 			LabRebuildOnChange: false,
 			HotReload:          true,
 		},
@@ -118,13 +139,11 @@ func Default() *Config {
 }
 
 // Load reads and parses a config file
+// Supports both old (flat) and new (namespaced) config formats for backward compatibility
 func Load(path string) (*Config, error) {
-	// Start with defaults
-	cfg := Default()
-
 	// Check if file exists
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return cfg, nil
+		return Default(), nil
 	}
 
 	// Read file
@@ -133,12 +152,35 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// Parse YAML
-	if err := yaml.Unmarshal(data, cfg); err != nil {
+	// Try to parse as new format first
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	return cfg, nil
+	// Check if this is an old format config (has top-level "repos" field instead of "lab")
+	// by attempting to parse as LabConfig
+	var legacyCheck struct {
+		Repos *LabReposConfig `yaml:"repos,omitempty"`
+		Lab   *LabConfig      `yaml:"lab,omitempty"`
+	}
+	if err := yaml.Unmarshal(data, &legacyCheck); err == nil {
+		if legacyCheck.Repos != nil && legacyCheck.Lab == nil {
+			// Old format detected - migrate it
+			var labCfg LabConfig
+			if err := yaml.Unmarshal(data, &labCfg); err != nil {
+				return nil, fmt.Errorf("failed to parse legacy config: %w", err)
+			}
+			cfg.Lab = &labCfg
+		}
+	}
+
+	// Apply defaults for missing sections
+	if cfg.Lab == nil {
+		cfg.Lab = DefaultLab()
+	}
+
+	return &cfg, nil
 }
 
 // Save writes the configuration to a file
@@ -163,8 +205,24 @@ func (c *Config) Save(path string) error {
 	return nil
 }
 
-// Validate checks if the configuration is valid
+// Validate checks if the root configuration is valid
 func (c *Config) Validate() error {
+	// Validate lab config if present
+	if c.Lab != nil {
+		if err := c.Lab.Validate(); err != nil {
+			return fmt.Errorf("lab config validation failed: %w", err)
+		}
+	}
+
+	// Future: Validate other stacks when added
+	// if c.Contributoor != nil { ... }
+	// if c.Xatu != nil { ... }
+
+	return nil
+}
+
+// Validate checks if the lab configuration is valid
+func (c *LabConfig) Validate() error {
 	// Check mode
 	if c.Mode != "local" && c.Mode != "hybrid" {
 		return fmt.Errorf("invalid mode: %s (must be 'local' or 'hybrid')", c.Mode)
@@ -206,10 +264,11 @@ func (c *Config) Validate() error {
 		if c.Infrastructure.ClickHouse.Xatu.ExternalURL == "" {
 			return fmt.Errorf("external_url is required for hybrid mode with external Xatu cluster\n" +
 				"Add to .xcli.yaml:\n" +
-				"  infrastructure:\n" +
-				"    clickhouse:\n" +
-				"      xatu:\n" +
-				"        external_url: \"https://username:password@prod-xatu.example.com:8443\"")
+				"  lab:\n" +
+				"    infrastructure:\n" +
+				"      clickhouse:\n" +
+				"        xatu:\n" +
+				"          external_url: \"https://username:password@prod-xatu.example.com:8443\"")
 		}
 
 		// Validate URL format
@@ -229,7 +288,7 @@ func (c *Config) Validate() error {
 }
 
 // EnabledNetworks returns a slice of enabled networks
-func (c *Config) EnabledNetworks() []NetworkConfig {
+func (c *LabConfig) EnabledNetworks() []NetworkConfig {
 	enabled := make([]NetworkConfig, 0, len(c.Networks))
 	for _, net := range c.Networks {
 		if net.Enabled {
@@ -240,7 +299,7 @@ func (c *Config) EnabledNetworks() []NetworkConfig {
 }
 
 // GetCBTPort returns the CBT port for a given network
-func (c *Config) GetCBTPort(network string) int {
+func (c *LabConfig) GetCBTPort(network string) int {
 	for _, net := range c.Networks {
 		if net.Name == network && net.Enabled {
 			return c.Ports.CBTBase + net.PortOffset
@@ -250,7 +309,7 @@ func (c *Config) GetCBTPort(network string) int {
 }
 
 // GetCBTAPIPort returns the cbt-api port for a given network
-func (c *Config) GetCBTAPIPort(network string) int {
+func (c *LabConfig) GetCBTAPIPort(network string) int {
 	for _, net := range c.Networks {
 		if net.Name == network && net.Enabled {
 			return c.Ports.CBTAPIBase + net.PortOffset

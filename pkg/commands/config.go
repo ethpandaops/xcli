@@ -9,18 +9,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// NewConfigCommand creates the config command
+// NewConfigCommand creates the config command (global - shows all stacks)
 func NewConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
-		Short: "Manage configuration",
-		Long:  `View and validate configuration.`,
+		Short: "Manage configuration (all stacks)",
+		Long:  `View and validate configuration for all stacks.`,
 	}
 
 	// config show subcommand
 	cmd.AddCommand(&cobra.Command{
 		Use:   "show",
-		Short: "Show current configuration",
+		Short: "Show current configuration (all stacks)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(configPath)
 			if err != nil {
@@ -40,7 +40,7 @@ func NewConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Command 
 	// config validate subcommand
 	cmd.AddCommand(&cobra.Command{
 		Use:   "validate",
-		Short: "Validate configuration",
+		Short: "Validate configuration (all stacks)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(configPath)
 			if err != nil {
@@ -53,15 +53,24 @@ func NewConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Command 
 			}
 
 			fmt.Println("✓ Configuration is valid")
-			fmt.Printf("\nMode: %s\n", cfg.Mode)
-			fmt.Printf("Networks: ")
-			for i, net := range cfg.EnabledNetworks() {
-				if i > 0 {
-					fmt.Print(", ")
+
+			// Show summary for each stack
+			if cfg.Lab != nil {
+				fmt.Printf("\nLab Stack:\n")
+				fmt.Printf("  Mode: %s\n", cfg.Lab.Mode)
+				fmt.Printf("  Networks: ")
+				for i, net := range cfg.Lab.EnabledNetworks() {
+					if i > 0 {
+						fmt.Print(", ")
+					}
+					fmt.Print(net.Name)
 				}
-				fmt.Print(net.Name)
+				fmt.Println()
 			}
-			fmt.Println()
+
+			// Future stacks can be added here
+			// if cfg.Contributoor != nil { ... }
+			// if cfg.Xatu != nil { ... }
 
 			return nil
 		},

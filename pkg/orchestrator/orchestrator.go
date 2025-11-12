@@ -18,7 +18,7 @@ import (
 // Orchestrator manages the complete lab stack
 type Orchestrator struct {
 	log      logrus.FieldLogger
-	cfg      *config.Config
+	cfg      *config.LabConfig
 	infra    *infrastructure.Manager
 	proc     *process.Manager
 	builder  *builder.Manager
@@ -27,7 +27,7 @@ type Orchestrator struct {
 }
 
 // NewOrchestrator creates a new Orchestrator instance
-func NewOrchestrator(log logrus.FieldLogger, cfg *config.Config) *Orchestrator {
+func NewOrchestrator(log logrus.FieldLogger, cfg *config.LabConfig) *Orchestrator {
 	stateDir := ".xcli"
 	return &Orchestrator{
 		log:      log.WithField("component", "orchestrator"),

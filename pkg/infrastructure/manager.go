@@ -16,13 +16,13 @@ import (
 // Manager handles infrastructure via xatu-cbt
 type Manager struct {
 	log         logrus.FieldLogger
-	cfg         *config.Config
+	cfg         *config.LabConfig
 	xatuCBTPath string
 	verbose     bool
 }
 
 // NewManager creates a new infrastructure manager
-func NewManager(log logrus.FieldLogger, cfg *config.Config) *Manager {
+func NewManager(log logrus.FieldLogger, cfg *config.LabConfig) *Manager {
 	xatuCBTPath := cfg.Repos.XatuCBT + "/bin/xatu-cbt"
 	return &Manager{
 		log:         log.WithField("component", "infrastructure"),

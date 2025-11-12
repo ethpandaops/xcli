@@ -9,12 +9,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewRestartCommand creates the restart command
-func NewRestartCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
+// NewLabRestartCommand creates the lab restart command
+func NewLabRestartCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "restart <service>",
-		Short: "Restart a service",
-		Long:  `Restart a specific service.`,
+		Short: "Restart a lab service",
+		Long:  `Restart a specific lab service.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(configPath)
@@ -22,7 +22,11 @@ func NewRestartCommand(log logrus.FieldLogger, configPath string) *cobra.Command
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			orch := orchestrator.NewOrchestrator(log, cfg)
+			if cfg.Lab == nil {
+				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
+			}
+
+			orch := orchestrator.NewOrchestrator(log, cfg.Lab)
 			return orch.Restart(cmd.Context(), args[0])
 		},
 	}

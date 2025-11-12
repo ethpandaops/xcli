@@ -1,34 +1,12 @@
 # xcli
 
-Local development orchestration tool for the ethPandaOps lab stack.
-
-## Overview
-
-`xcli` orchestrates the complete local development environment for the lab stack, including:
-
-- **ClickHouse clusters** (CBT and Xatu)
-- **CBT transformation engines** (per network)
-- **cbt-api** REST API servers (per network)
-- **lab-backend** API gateway and frontend server
-- **lab** React frontend (Vite dev server)
-- **Redis** for caching and task queues
-- **Zookeeper** for ClickHouse cluster coordination
-
-## Features
-
-- **Full local isolation**: Complete end-to-end development environment
-- **Hybrid mode**: Use production/external data with local transformations
-- **Multi-network support**: Mainnet, Sepolia, and more
-- **Persistent data**: Named volumes survive restarts
-- **Easy service management**: Start, stop, restart individual services
-- **Auto-configuration**: Discovers repositories and generates configs
-- **Health monitoring**: Check service status and health
+Local development orchestration tool for ethPandaOps projects.
 
 ## Prerequisites
 
 - **Docker** and **Docker Compose** v2+
 - **Go** 1.23+ (for building)
-- All five repositories checked out side-by-side:
+- All required repositories checked out side-by-side:
   ```
   ethpandaops/
   ├── cbt/
@@ -41,200 +19,109 @@ Local development orchestration tool for the ethPandaOps lab stack.
 
 ## Installation
 
-### From source
-
 ```bash
-# Clone the repository
-git clone https://github.com/ethpandaops/xcli
-cd xcli
-
-# Build and install
-make install
-
-# Or just build locally
+# Build from source
 make build
-./bin/xcli --help
-```
 
-### Using go install
-
-```bash
-go install github.com/ethpandaops/xcli/cmd/xcli@latest
+# Or install globally
+make install
 ```
 
 ## Quick Start
 
-### 1. Initialize
-
 ```bash
-cd xcli
-xcli init
+# 1. Initialize (discovers repos, creates .xcli.yaml)
+xcli lab init
+
+# 2. Start everything
+xcli lab up
+
+# 3. Access services
+# Lab Frontend:  http://localhost:5173
+# Lab Backend:   http://localhost:8080
+# cbt-api:       http://localhost:8091 (mainnet), 8092 (sepolia)
 ```
 
-This will:
-- Discover all required repositories in the parent directory
-- Validate repository structure
-- Create `.xcli.yaml` configuration file
+## Commands
 
-### 2. Review Configuration
-
-Edit `.xcli.yaml` to customize:
-- Networks to enable/disable
-- Operating mode (local vs hybrid)
-- Port assignments
-- External data source connection (for hybrid mode)
-
-### 3. Start the Stack
+### Lab Stack Management
 
 ```bash
-xcli up
+xcli lab init                # Initialize lab configuration
+xcli lab up                  # Start the lab stack
+xcli lab down                # Stop and remove data
+xcli lab ps                  # List running services
+xcli lab build               # Build all repositories
 ```
 
-This will:
-- Generate docker-compose configuration
-- Generate service configs (CBT, cbt-api, lab-backend)
-- Generate ClickHouse cluster configs
-- Start all services in dependency order
-- Wait for services to become healthy
-
-### 4. Access Services
-
-Once started, you can access:
-
-- **Lab Frontend**: http://localhost:5173
-- **Lab Backend**: http://localhost:8080
-- **cbt-api (mainnet)**: http://localhost:8091
-- **cbt-api (sepolia)**: http://localhost:8092
-- **CBT Engine (mainnet)**: http://localhost:8081
-- **CBT Engine (sepolia)**: http://localhost:8082
-- **ClickHouse CBT**: http://localhost:8123
-- **ClickHouse Xatu**: http://localhost:8125 (if local mode)
-
-### 5. Monitor Status
+### Service Management
 
 ```bash
-# View service status
-xcli ps
+xcli lab logs                    # View all logs
+xcli lab logs lab-backend        # View specific service logs
+xcli lab logs -f lab-backend     # Follow logs
 
-# Check health of all services
-xcli status
-
-# View logs
-xcli logs                    # All services
-xcli logs cbt-api-mainnet    # Specific service
-xcli logs -f lab-backend     # Follow logs
+xcli lab restart lab-backend     # Restart a specific service
+xcli lab restart cbt-api-mainnet # Restart mainnet cbt-api
 ```
 
-### 6. Development Workflow
+### Configuration
 
 ```bash
-# Restart a service after making changes
-xcli restart cbt-api-mainnet
+xcli lab config show             # Show lab configuration
+xcli lab config validate         # Validate configuration
+xcli lab mode local              # Switch to local mode
+xcli lab mode hybrid             # Switch to hybrid mode
 
-# Rebuild and restart lab frontend
-cd ../lab
-pnpm build
-cd ../xcli
-xcli restart lab-backend
-
-# Regenerate cbt-api protos
-cd ../cbt-api
-make proto
-cd ../xcli
-xcli restart cbt-api-mainnet
+xcli config show                 # Show all stack configs
+xcli config validate             # Validate all stacks
 ```
 
-### 7. Stop and Clean
+### Build Options
 
 ```bash
-# Stop services (keeps data)
-xcli down
-
-# Stop and remove all data
-xcli clean
+xcli lab up --rebuild            # Force rebuild all binaries
+xcli lab up --no-build           # Skip build (fail if binaries missing)
+xcli lab up -v                   # Verbose mode (show build output)
+xcli lab build -f                # Force rebuild
 ```
 
-## Operating Modes
+## Common Workflows
 
-### Local Mode (Default)
+### Restart a Single Service
 
-All services run locally:
-- Local Xatu ClickHouse cluster (with sample/test data)
-- Local CBT ClickHouse cluster
-- All transformations and APIs
+After making code changes to a specific service:
 
-**Use case**: Fully isolated development, testing migrations and transformations
+```bash
+# Example: After editing lab-backend code
+xcli lab restart lab-backend
 
-### Hybrid Mode Setup
+# Example: After editing CBT transformation
+xcli lab restart cbt-engine-mainnet
+```
 
-Hybrid mode runs the entire lab stack locally EXCEPT the Xatu ClickHouse cluster, which connects to an external datasource (production or staging).
+### Regenerate Protos
 
-#### Use Cases
-- Testing CBT transformations with production data
-- Debugging issues with real-world datasets
-- Developing locally without ingesting full beacon chain data
+When proto definitions change in the CBT schema:
 
-#### Configuration
+```bash
+# 1. Ensure infrastructure is running (needed for proto generation)
+xcli lab ps
 
-1. Set mode to hybrid in `.xcli.yaml`:
-   ```yaml
-   mode: hybrid
-   ```
+# 2. If not running, start infrastructure
+xcli lab up
 
-2. Configure external Xatu datasource:
-   ```yaml
-   infrastructure:
-     clickhouse:
-       xatu:
-         mode: external
-         external_url: "https://readonly:password@prod-xatu.example.com:8443"
-         external_database: "default"
-         external_username: "readonly"
-         external_password: "supersecret"
-   ```
+# 3. Rebuild (which regenerates protos)
+xcli lab build -f
 
-3. Obtain credentials:
-   - Production: Contact DevOps for read-only credentials
-   - Staging: Check team documentation
+# 4. Restart cbt-api services
+xcli lab restart cbt-api-mainnet
+xcli lab restart cbt-api-sepolia
+```
 
-4. Start the stack:
-   ```bash
-   xcli up
-   ```
+### Work with Multiple Networks
 
-#### What Runs Locally vs. Externally
-
-| Component | Local | External |
-|-----------|-------|----------|
-| CBT ClickHouse Cluster | ✓ | |
-| Xatu ClickHouse Cluster | | ✓ |
-| Zookeeper Ensemble | ✓ | |
-| Redis | ✓ | |
-| CBT Engine | ✓ | |
-| CBT API | ✓ | |
-| Lab Backend | ✓ | |
-| Lab Frontend | ✓ | |
-
-#### Troubleshooting
-
-**Error: "external_url is required for hybrid mode"**
-- Add `external_url` field to `.xcli.yaml` under `infrastructure.clickhouse.xatu`
-
-**Connection timeout to external Xatu**
-- Verify credentials are correct
-- Check network connectivity: `curl https://prod-xatu.example.com:8443`
-- Confirm firewall allows outbound HTTPS on port 8443
-
-**Services still starting local Xatu cluster**
-- Verify `xatu.mode` is set to `external`
-- Check logs: `xcli logs | grep "xatu-clickhouse"`
-- Ensure xcli and xatu-cbt are up to date
-
-## Network Management
-
-### Adding a Network
-
-Edit `.xcli.yaml`:
+Enable or disable networks in `.xcli.yaml`:
 
 ```yaml
 networks:
@@ -252,257 +139,117 @@ networks:
 Then restart:
 
 ```bash
-xcli down && xcli up
+xcli lab down
+xcli lab up
 ```
 
-### Disabling a Network
+### Switch Between Local and Hybrid Mode
 
-Set `enabled: false` for any network, then restart.
-
-## Commands
-
-### Core Commands
-
-- `xcli init` - Initialize configuration
-- `xcli up` - Start all services
-- `xcli down` - Stop services (preserve data)
-- `xcli clean` - Stop services and remove volumes
-- `xcli ps` - Show service status
-- `xcli logs [service]` - View logs
-- `xcli restart <service>` - Restart a service
-- `xcli status` - Check service health
-- `xcli mode <local|hybrid>` - Switch operating mode
-
-### Configuration Commands
-
-- `xcli config show` - Display current configuration
-- `xcli config validate` - Validate configuration
-
-### Flags
-
-- `-c, --config <path>` - Path to config file (default: `.xcli.yaml`)
-- `-l, --log-level <level>` - Log level: debug, info, warn, error (default: info)
-- `-h, --help` - Show help
-- `-v, --version` - Show version
-
-### Examples
+**Local mode**: Everything runs locally (default)
+**Hybrid mode**: Connect to external Xatu data, run transformations locally
 
 ```bash
-# Start in hybrid mode
-xcli up --mode=hybrid
+# Switch to hybrid mode
+xcli lab mode hybrid
 
-# Start without detaching (see all logs)
-xcli up --detach=false
+# Edit .xcli.yaml to add external connection
+# infrastructure:
+#   clickhouse:
+#     xatu:
+#       mode: external
+#       external_url: "https://user:pass@host:8443"
 
-# Use custom config
-xcli --config=.xcli.custom.yaml up
-
-# Debug mode
-xcli --log-level=debug up
-
-# View logs for all cbt-api instances
-xcli logs | grep cbt-api
+# Restart services
+xcli lab down && xcli lab up
 ```
 
-## Architecture
+### View Service Logs
 
-### Data Flow
+```bash
+# All services
+xcli lab logs
 
-```
-┌─────────────────────────────────────────────────────────┐
-│ External Data (Xatu Cluster) - Hybrid Mode             │
-│ OR Local Xatu Cluster - Local Mode                     │
-└────────────────┬────────────────────────────────────────┘
-                 │
-                 ▼
-┌─────────────────────────────────────────────────────────┐
-│ CBT Engines (per network)                              │
-│ - Read external models                                  │
-│ - Run transformations (fct_*, dim_*)                   │
-│ - Write to CBT cluster                                 │
-└────────────────┬────────────────────────────────────────┘
-                 │
-                 ▼
-┌─────────────────────────────────────────────────────────┐
-│ CBT ClickHouse Cluster                                  │
-│ - Transformation tables (fct_*, dim_*)                 │
-│ - Admin tables (cbt_incremental, cbt_scheduled)        │
-└────────────────┬────────────────────────────────────────┘
-                 │
-                 ▼
-┌─────────────────────────────────────────────────────────┐
-│ cbt-api (per network)                                   │
-│ - Discovers tables from ClickHouse                      │
-│ - Exposes REST endpoints with filtering/pagination     │
-└────────────────┬────────────────────────────────────────┘
-                 │
-                 ▼
-┌─────────────────────────────────────────────────────────┐
-│ lab-backend                                             │
-│ - Routes /api/v1/{network}/* to cbt-api instances      │
-│ - Serves lab frontend                                   │
-│ - Network and feature configuration                     │
-└────────────────┬────────────────────────────────────────┘
-                 │
-                 ▼
-┌─────────────────────────────────────────────────────────┐
-│ lab (Frontend)                                          │
-│ - Network selection                                     │
-│ - Data visualization                                    │
-│ - API integration                                       │
-└─────────────────────────────────────────────────────────┘
+# Specific service
+xcli lab logs lab-backend
+xcli lab logs cbt-engine-mainnet
+xcli lab logs cbt-api-sepolia
+
+# Follow logs (live tail)
+xcli lab logs -f lab-backend
 ```
 
-### Service Dependencies
+### Check Service Status
 
-Services start in this order:
+```bash
+# List running services and their status
+xcli lab ps
+```
 
-1. **Infrastructure**: Zookeeper, ClickHouse clusters, Redis
-2. **CBT Engines**: Transform data (depends on ClickHouse + Redis)
-3. **cbt-api**: Expose REST APIs (depends on CBT ClickHouse)
-4. **lab-backend**: API gateway (depends on cbt-api + Redis)
-5. **lab**: Frontend dev server (independent)
+### Clean Restart
+
+```bash
+# Stop and remove all data
+xcli lab down
+
+# Start fresh
+xcli lab up
+```
+
+## Configuration
+
+The `.xcli.yaml` file is created by `xcli lab init` and can be customized:
+
+```yaml
+lab:
+  repos:
+    cbt: ../cbt
+    xatu_cbt: ../xatu-cbt
+    cbt_api: ../cbt-api
+    lab_backend: ../lab-backend
+    lab: ../lab
+
+  mode: local  # or "hybrid"
+
+  networks:
+    - name: mainnet
+      enabled: true
+      port_offset: 0
+    - name: sepolia
+      enabled: true
+      port_offset: 1
+
+  ports:
+    lab_backend: 8080
+    lab_frontend: 5173
+    cbt_base: 8081      # Base port for CBT engines
+    cbt_api_base: 8091  # Base port for cbt-api services
+
+  infrastructure:
+    clickhouse:
+      xatu:
+        mode: local  # or "external" for hybrid
+      cbt:
+        mode: local
+    redis:
+      port: 6380
+    volumes:
+      persist: true  # Keep data between restarts
+```
+
+See [`.xcli.example.yaml`](.xcli.example.yaml) for full options.
 
 ## Troubleshooting
 
 ### Services won't start
 
 ```bash
-# Check Docker is running
-docker ps
+# Check logs
+xcli lab logs
 
-# Check service logs
-xcli logs
+# Validate config
+xcli lab config validate
 
-# Validate configuration
-xcli config validate
-
-# Try a clean restart
-xcli clean
-xcli up
+# Clean restart
+xcli lab down
+xcli lab up
 ```
-
-### Port conflicts
-
-Edit `.xcli.yaml` to change port assignments:
-
-```yaml
-ports:
-  lab_backend: 9080  # Changed from 8080
-  lab_frontend: 5174  # Changed from 5173
-```
-
-### Can't find repositories
-
-Ensure all repos are checked out in the same parent directory:
-
-```bash
-# Should show all 5 repos
-ls ../
-# Expected: cbt, xatu-cbt, cbt-api, lab-backend, lab
-
-# Re-run discovery
-xcli init
-```
-
-### ClickHouse won't start
-
-```bash
-# Check if ports are available
-lsof -i :8123  # Should be empty
-
-# Check Docker resources
-docker system df
-
-# Clean up old volumes
-xcli clean
-```
-
-### Hybrid mode connection fails
-
-Verify external ClickHouse connection:
-
-```bash
-# Test connection (from external URL in config)
-curl -u username:password https://external-clickhouse:8443/ping
-
-# Check CBT engine logs
-xcli logs cbt-engine-mainnet
-```
-
-## Development
-
-### Building from Source
-
-```bash
-# Install dependencies
-make deps
-
-# Build
-make build
-
-# Run tests
-make test
-
-# Lint
-make lint
-
-# Install locally
-make install
-```
-
-### Project Structure
-
-```
-xcli/
-├── cmd/xcli/          # CLI entry point
-├── pkg/
-│   ├── commands/         # CLI commands
-│   ├── config/           # Configuration management
-│   ├── compose/          # Docker compose generation
-│   │   └── templates/    # Compose and config templates
-│   ├── discovery/        # Repository discovery
-│   └── orchestrator/     # Service orchestration
-├── .xcli.example.yaml # Example configuration
-├── Makefile             # Build automation
-└── README.md            # This file
-```
-
-### Contributing
-
-1. Follow ethPandaOps Go standards
-2. Add tests for new features
-3. Update README for user-facing changes
-4. Use conventional commit messages
-
-## Configuration Reference
-
-See [`.xcli.example.yaml`](.xcli.example.yaml) for a fully documented configuration example.
-
-### Key Configuration Options
-
-- **repos**: Paths to all required repositories
-- **mode**: `local` or `hybrid` operating mode
-- **networks**: List of networks to enable with port offsets
-- **infrastructure.clickhouse**: ClickHouse cluster configuration
-- **infrastructure.redis**: Redis configuration
-- **infrastructure.volumes.persist**: Whether to persist data between restarts
-- **ports**: Port assignments for all services
-- **dev**: Development-specific features
-
-## License
-
-See [LICENSE](LICENSE) file.
-
-## Support
-
-- Issues: https://github.com/ethpandaops/xcli/issues
-- Docs: https://docs.ethpandaops.io
-
-## Related Projects
-
-- [cbt](https://github.com/ethpandaops/cbt) - ClickHouse transformation tool
-- [xatu-cbt](https://github.com/ethpandaops/xatu-cbt) - CBT models for Xatu
-- [cbt-api](https://github.com/ethpandaops/cbt-api) - REST API generator
-- [lab-backend](https://github.com/ethpandaops/lab-backend) - API gateway
-- [lab](https://github.com/ethpandaops/lab) - Frontend application

@@ -9,13 +9,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewBuildCommand creates the build command
-func NewBuildCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
+// NewLabBuildCommand creates the lab build command
+func NewLabBuildCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	var force bool
 
 	cmd := &cobra.Command{
 		Use:   "build",
-		Short: "Build all repositories",
+		Short: "Build all lab repositories",
 		Long: `Build all required binaries for the lab stack.
 
 This command builds:
@@ -26,27 +26,31 @@ This command builds:
 - lab (installs frontend dependencies)
 
 Note: This command does NOT start infrastructure or generate protos.
-For a complete build including proto generation, use 'xcli up --rebuild'.`,
+For a complete build including proto generation, use 'xcli lab up --rebuild'.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			if err := cfg.Validate(); err != nil {
-				return fmt.Errorf("invalid configuration: %w", err)
+			if cfg.Lab == nil {
+				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
 			}
 
-			buildMgr := builder.NewManager(log, cfg)
+			if err := cfg.Lab.Validate(); err != nil {
+				return fmt.Errorf("invalid lab configuration: %w", err)
+			}
 
-			fmt.Println("building all repositories")
+			buildMgr := builder.NewManager(log, cfg.Lab)
+
+			fmt.Println("building all lab repositories")
 			if err := buildMgr.BuildAll(cmd.Context(), force); err != nil {
 				return fmt.Errorf("build failed: %w", err)
 			}
 
 			fmt.Println("\n✓ Build complete!")
 			fmt.Println("\nNote: cbt-api protos not generated (requires infrastructure).")
-			fmt.Println("Run 'xcli up' to start infrastructure and complete the build.")
+			fmt.Println("Run 'xcli lab up' to start infrastructure and complete the build.")
 
 			return nil
 		},
