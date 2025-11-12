@@ -20,6 +20,8 @@ func NewLabCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	cmd.AddCommand(NewLabBuildCommand(log, configPath))
 	cmd.AddCommand(NewLabPsCommand(log, configPath))
 	cmd.AddCommand(NewLabLogsCommand(log, configPath))
+	cmd.AddCommand(NewLabStartCommand(log, configPath))
+	cmd.AddCommand(NewLabStopCommand(log, configPath))
 	cmd.AddCommand(NewLabRestartCommand(log, configPath))
 	cmd.AddCommand(NewLabModeCommand(log, configPath))
 	cmd.AddCommand(NewLabConfigCommand(log, configPath))

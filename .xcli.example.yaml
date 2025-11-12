@@ -4,9 +4,9 @@
 # Repository paths (auto-discovered or manually specified)
 repos:
   cbt: ../cbt
-  xatu_cbt: ../xatu-cbt
-  cbt_api: ../cbt-api
-  lab_backend: ../lab-backend
+  xatuCbt: ../xatu-cbt
+  cbtApi: ../cbt-api
+  labBackend: ../lab-backend
   lab: ../lab
 
 # Operating mode: "local" or "hybrid"
@@ -19,14 +19,14 @@ mode: local
 networks:
   - name: mainnet
     enabled: true
-    port_offset: 0  # CBT: 8081, cbt-api: 8091
+    portOffset: 0  # CBT: 8081, cbt-api: 8091
   - name: sepolia
     enabled: true
-    port_offset: 1  # CBT: 8082, cbt-api: 8092
+    portOffset: 1  # CBT: 8082, cbt-api: 8092
   # Add more networks as needed:
   # - name: holesky
   #   enabled: false
-  #   port_offset: 2
+  #   portOffset: 2
 
 # Infrastructure configuration
 infrastructure:
@@ -52,10 +52,10 @@ infrastructure:
 #       #   HTTP:  http://username:password@host:8123
 #       #   HTTPS: https://username:password@host:8443
 #       #   Native: clickhouse://username:password@host:9000
-#       external_url: "https://readonly:supersecret@prod-xatu.example.com:8443"
-#       external_database: "default"
-#       external_username: "readonly"
-#       external_password: "supersecret"
+#       externalUrl: "https://readonly:supersecret@prod-xatu.example.com:8443"
+#       externalDatabase: "default"
+#       externalUsername: "readonly"
+#       externalPassword: "supersecret"
 #     cbt:
 #       mode: local  # CBT cluster always runs locally
 
@@ -72,12 +72,12 @@ infrastructure:
 
 # Port configuration
 ports:
-  lab_backend: 8080
-  lab_frontend: 5173
-  cbt_base: 8081      # Base port for CBT engines (+ network offset)
-  cbt_api_base: 8091  # Base port for cbt-api services (+ network offset)
+  labBackend: 8080
+  labFrontend: 5173
+  cbtBase: 8081      # Base port for CBT engines (+ network offset)
+  cbtApiBase: 8091  # Base port for cbt-api services (+ network offset)
 
 # Development features
 dev:
-  lab_rebuild_on_change: false  # Auto-rebuild lab frontend on changes
-  hot_reload: true              # Enable hot reload for services that support it
+  labRebuildOnChange: false  # Auto-rebuild lab frontend on changes
+  hotReload: true              # Enable hot reload for services that support it

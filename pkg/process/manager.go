@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/sirupsen/logrus"
 )
 
@@ -58,13 +59,13 @@ func (m *Manager) Start(ctx context.Context, name string, cmd *exec.Cmd) error {
 		delete(m.processes, name)
 	}
 
-	// Setup log file
-	logFile := filepath.Join(m.stateDir, "logs", fmt.Sprintf("%s.log", name))
+	// Setup log file - truncate to start fresh
+	logFile := filepath.Join(m.stateDir, constants.DirLogs, fmt.Sprintf(constants.LogFileTemplate, name))
 	if err := os.MkdirAll(filepath.Dir(logFile), 0755); err != nil {
 		return fmt.Errorf("failed to create log directory: %w", err)
 	}
 
-	logFd, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	logFd, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
@@ -191,7 +192,7 @@ func (m *Manager) StopAll() error {
 	// First, reload PIDs from disk to catch any orphaned processes
 	// that weren't in memory (e.g., from previous xcli sessions)
 	m.mu.Lock()
-	pidDir := filepath.Join(m.stateDir, "pids")
+	pidDir := filepath.Join(m.stateDir, constants.DirPIDs)
 
 	entries, err := os.ReadDir(pidDir)
 	if err == nil {
@@ -250,6 +251,13 @@ func (m *Manager) Restart(ctx context.Context, name string) error {
 		m.mu.RUnlock()
 
 		return fmt.Errorf("process %s is not running", name)
+	}
+
+	// Check if we have the command info (processes loaded from PID files don't have this)
+	if p.Cmd == nil {
+		m.mu.RUnlock()
+
+		return fmt.Errorf("cannot restart process %s: loaded from PID file without command info. Stop and restart the entire stack instead", name)
 	}
 
 	// Copy the command for restart
@@ -343,14 +351,14 @@ func (m *Manager) TailLogs(ctx context.Context, name string, follow bool) error 
 
 // savePID saves a process PID to disk.
 func (m *Manager) savePID(name string, pid int, logFile string) {
-	pidDir := filepath.Join(m.stateDir, "pids")
+	pidDir := filepath.Join(m.stateDir, constants.DirPIDs)
 	if err := os.MkdirAll(pidDir, 0755); err != nil {
 		m.log.WithError(err).Warn("Failed to create PID directory")
 
 		return
 	}
 
-	pidFile := filepath.Join(pidDir, fmt.Sprintf("%s.pid", name))
+	pidFile := filepath.Join(pidDir, fmt.Sprintf(constants.PIDFileTemplate, name))
 	data := fmt.Sprintf("%d\n%s\n", pid, logFile)
 	//nolint:gosec // PID file permissions are intentionally 0644 for readability
 	if err := os.WriteFile(pidFile, []byte(data), 0644); err != nil {
@@ -360,13 +368,13 @@ func (m *Manager) savePID(name string, pid int, logFile string) {
 
 // removePID removes a PID file.
 func (m *Manager) removePID(name string) {
-	pidFile := filepath.Join(m.stateDir, "pids", fmt.Sprintf("%s.pid", name))
+	pidFile := filepath.Join(m.stateDir, constants.DirPIDs, fmt.Sprintf(constants.PIDFileTemplate, name))
 	os.Remove(pidFile)
 }
 
 // loadPIDs loads PIDs from disk and checks if processes are still running.
 func (m *Manager) loadPIDs() {
-	pidDir := filepath.Join(m.stateDir, "pids")
+	pidDir := filepath.Join(m.stateDir, constants.DirPIDs)
 
 	entries, err := os.ReadDir(pidDir)
 	if err != nil {
@@ -381,9 +389,28 @@ func (m *Manager) loadPIDs() {
 	}
 }
 
+// CleanLogs removes all log files.
+func (m *Manager) CleanLogs() error {
+	logsDir := filepath.Join(m.stateDir, constants.DirLogs)
+
+	// Check if logs directory exists
+	if _, err := os.Stat(logsDir); os.IsNotExist(err) {
+		return nil // Nothing to clean
+	}
+
+	// Remove all log files
+	if err := os.RemoveAll(logsDir); err != nil {
+		return fmt.Errorf("failed to remove logs directory: %w", err)
+	}
+
+	m.log.Info("cleaned all log files")
+
+	return nil
+}
+
 // loadPID loads a single PID from disk.
 func (m *Manager) loadPID(name string) {
-	pidFile := filepath.Join(m.stateDir, "pids", fmt.Sprintf("%s.pid", name))
+	pidFile := filepath.Join(m.stateDir, constants.DirPIDs, fmt.Sprintf(constants.PIDFileTemplate, name))
 
 	data, err := os.ReadFile(pidFile)
 	if err != nil {

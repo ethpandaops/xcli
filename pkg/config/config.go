@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ethpandaops/xcli/pkg/constants"
 	"gopkg.in/yaml.v3"
 )
 
@@ -112,15 +113,15 @@ func DefaultLab() *LabConfig {
 			LabBackend: "../lab-backend",
 			Lab:        "../lab",
 		},
-		Mode: "local",
+		Mode: constants.ModeLocal,
 		Networks: []NetworkConfig{
 			{Name: "mainnet", Enabled: true, PortOffset: 0},
 			{Name: "sepolia", Enabled: true, PortOffset: 1},
 		},
 		Infrastructure: InfrastructureConfig{
 			ClickHouse: ClickHouseConfig{
-				Xatu: ClickHouseClusterConfig{Mode: "local"},
-				CBT:  ClickHouseClusterConfig{Mode: "local"},
+				Xatu: ClickHouseClusterConfig{Mode: constants.InfraModeLocal},
+				CBT:  ClickHouseClusterConfig{Mode: constants.InfraModeLocal},
 			},
 			Redis:   RedisConfig{Port: 6380},
 			Volumes: VolumesConfig{Persist: true},
@@ -223,14 +224,8 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// Validate checks if the lab configuration is valid.
-func (c *LabConfig) Validate() error {
-	// Check mode
-	if c.Mode != "local" && c.Mode != "hybrid" {
-		return fmt.Errorf("invalid mode: %s (must be 'local' or 'hybrid')", c.Mode)
-	}
-
-	// Check repo paths exist
+// ValidateRepos checks if repository paths are valid.
+func (c *LabConfig) ValidateRepos() error {
 	repos := map[string]string{
 		"cbt":         c.Repos.CBT,
 		"xatu-cbt":    c.Repos.XatuCBT,
@@ -250,6 +245,21 @@ func (c *LabConfig) Validate() error {
 		}
 	}
 
+	return nil
+}
+
+// Validate checks if the lab configuration is valid.
+func (c *LabConfig) Validate() error {
+	// Check mode
+	if c.Mode != constants.ModeLocal && c.Mode != constants.ModeHybrid {
+		return fmt.Errorf("invalid mode: %s (must be '%s' or '%s')", c.Mode, constants.ModeLocal, constants.ModeHybrid)
+	}
+
+	// Check repo paths exist
+	if err := c.ValidateRepos(); err != nil {
+		return err
+	}
+
 	// Check at least one network is enabled
 	hasEnabled := false
 
@@ -266,15 +276,15 @@ func (c *LabConfig) Validate() error {
 	}
 
 	// Validate hybrid mode configuration
-	if c.Mode == "hybrid" && c.Infrastructure.ClickHouse.Xatu.Mode == "external" {
+	if c.Mode == constants.ModeHybrid && c.Infrastructure.ClickHouse.Xatu.Mode == constants.InfraModeExternal {
 		if c.Infrastructure.ClickHouse.Xatu.ExternalURL == "" {
-			return fmt.Errorf("external_url is required for hybrid mode with external Xatu cluster\n" +
+			return fmt.Errorf("externalUrl is required for hybrid mode with external Xatu cluster\n" +
 				"Add to .xcli.yaml:\n" +
 				"  lab:\n" +
 				"    infrastructure:\n" +
 				"      clickhouse:\n" +
 				"        xatu:\n" +
-				"          external_url: \"https://username:password@prod-xatu.example.com:8443\"")
+				"          externalUrl: \"https://username:password@prod-xatu.example.com:8443\"")
 		}
 
 		// Validate URL format
