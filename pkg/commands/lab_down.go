@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewLabDownCommand creates the lab down command
+// NewLabDownCommand creates the lab down command.
 func NewLabDownCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "down",
@@ -26,6 +26,7 @@ func NewLabDownCommand(log logrus.FieldLogger, configPath string) *cobra.Command
 			}
 
 			orch := orchestrator.NewOrchestrator(log, cfg.Lab)
+
 			return orch.Down(cmd.Context())
 		},
 	}

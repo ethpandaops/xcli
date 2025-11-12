@@ -25,6 +25,7 @@ func main() {
 	// Setup signal handling
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
 	go func() {
 		<-sigChan
 		cancel()
@@ -46,8 +47,10 @@ func main() {
 	}
 
 	// Global flags
-	var configPath string
-	var logLevel string
+	var (
+		configPath string
+		logLevel   string
+	)
 
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", ".xcli.yaml", "Path to config file")
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "Log level (debug, info, warn, error)")
@@ -58,7 +61,9 @@ func main() {
 		if err != nil {
 			return fmt.Errorf("invalid log level: %w", err)
 		}
+
 		log.SetLevel(level)
+
 		return nil
 	}
 

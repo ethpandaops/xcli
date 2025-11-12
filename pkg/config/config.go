@@ -10,7 +10,7 @@ import (
 )
 
 // Config represents the xcli root configuration
-// It contains stack-specific configurations and optional workspace-level settings
+// It contains stack-specific configurations and optional workspace-level settings.
 type Config struct {
 	// Lab stack configuration
 	Lab *LabConfig `yaml:"lab,omitempty"`
@@ -23,7 +23,7 @@ type Config struct {
 	// Workspace *WorkspaceConfig `yaml:"workspace,omitempty"`
 }
 
-// LabConfig represents the lab stack configuration
+// LabConfig represents the lab stack configuration.
 type LabConfig struct {
 	Repos          LabReposConfig       `yaml:"repos"`
 	Mode           string               `yaml:"mode"`
@@ -33,76 +33,76 @@ type LabConfig struct {
 	Dev            LabDevConfig         `yaml:"dev"`
 }
 
-// LabReposConfig contains paths to lab repositories
+// LabReposConfig contains paths to lab repositories.
 type LabReposConfig struct {
 	CBT        string `yaml:"cbt"`
-	XatuCBT    string `yaml:"xatu_cbt"`
-	CBTAPI     string `yaml:"cbt_api"`
-	LabBackend string `yaml:"lab_backend"`
+	XatuCBT    string `yaml:"xatuCbt"`
+	CBTAPI     string `yaml:"cbtApi"`
+	LabBackend string `yaml:"labBackend"`
 	Lab        string `yaml:"lab"`
 }
 
-// NetworkConfig represents a network configuration
+// NetworkConfig represents a network configuration.
 type NetworkConfig struct {
 	Name       string `yaml:"name"`
 	Enabled    bool   `yaml:"enabled"`
-	PortOffset int    `yaml:"port_offset"`
+	PortOffset int    `yaml:"portOffset"`
 }
 
-// InfrastructureConfig contains infrastructure settings
+// InfrastructureConfig contains infrastructure settings.
 type InfrastructureConfig struct {
 	ClickHouse ClickHouseConfig `yaml:"clickhouse"`
 	Redis      RedisConfig      `yaml:"redis"`
 	Volumes    VolumesConfig    `yaml:"volumes"`
 }
 
-// ClickHouseConfig contains ClickHouse cluster configuration
+// ClickHouseConfig contains ClickHouse cluster configuration.
 type ClickHouseConfig struct {
 	Xatu ClickHouseClusterConfig `yaml:"xatu"`
 	CBT  ClickHouseClusterConfig `yaml:"cbt"`
 }
 
-// ClickHouseClusterConfig represents a ClickHouse cluster
+// ClickHouseClusterConfig represents a ClickHouse cluster.
 type ClickHouseClusterConfig struct {
 	Mode             string `yaml:"mode"` // "local" or "external"
-	ExternalURL      string `yaml:"external_url,omitempty"`
-	ExternalDatabase string `yaml:"external_database,omitempty"`
-	ExternalUsername string `yaml:"external_username,omitempty"`
-	ExternalPassword string `yaml:"external_password,omitempty"`
+	ExternalURL      string `yaml:"externalUrl,omitempty"`
+	ExternalDatabase string `yaml:"externalDatabase,omitempty"`
+	ExternalUsername string `yaml:"externalUsername,omitempty"`
+	ExternalPassword string `yaml:"externalPassword,omitempty"`
 }
 
-// RedisConfig contains Redis configuration
+// RedisConfig contains Redis configuration.
 type RedisConfig struct {
 	Port int `yaml:"port"`
 }
 
-// VolumesConfig contains volume settings
+// VolumesConfig contains volume settings.
 type VolumesConfig struct {
 	Persist bool `yaml:"persist"`
 }
 
-// LabPortsConfig contains lab stack port assignments
+// LabPortsConfig contains lab stack port assignments.
 type LabPortsConfig struct {
-	LabBackend  int `yaml:"lab_backend"`
-	LabFrontend int `yaml:"lab_frontend"`
-	CBTBase     int `yaml:"cbt_base"`
-	CBTAPIBase  int `yaml:"cbt_api_base"`
+	LabBackend  int `yaml:"labBackend"`
+	LabFrontend int `yaml:"labFrontend"`
+	CBTBase     int `yaml:"cbtBase"`
+	CBTAPIBase  int `yaml:"cbtApiBase"`
 }
 
-// LabDevConfig contains lab stack development features
+// LabDevConfig contains lab stack development features.
 type LabDevConfig struct {
-	LabRebuildOnChange bool `yaml:"lab_rebuild_on_change"`
-	HotReload          bool `yaml:"hot_reload"`
+	LabRebuildOnChange bool `yaml:"labRebuildOnChange"`
+	HotReload          bool `yaml:"hotReload"`
 }
 
-// Default returns a root configuration with sensible defaults
+// Default returns a root configuration with sensible defaults.
 func Default() *Config {
 	return &Config{
 		Lab: DefaultLab(),
 	}
 }
 
-// DefaultLab returns a lab configuration with sensible defaults
+// DefaultLab returns a lab configuration with sensible defaults.
 func DefaultLab() *LabConfig {
 	return &LabConfig{
 		Repos: LabReposConfig{
@@ -139,7 +139,7 @@ func DefaultLab() *LabConfig {
 }
 
 // Load reads and parses a config file
-// Supports both old (flat) and new (namespaced) config formats for backward compatibility
+// Supports both old (flat) and new (namespaced) config formats for backward compatibility.
 func Load(path string) (*Config, error) {
 	// Check if file exists
 	if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -171,6 +171,7 @@ func Load(path string) (*Config, error) {
 			if err := yaml.Unmarshal(data, &labCfg); err != nil {
 				return nil, fmt.Errorf("failed to parse legacy config: %w", err)
 			}
+
 			cfg.Lab = &labCfg
 		}
 	}
@@ -183,7 +184,7 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// Save writes the configuration to a file
+// Save writes the configuration to a file.
 func (c *Config) Save(path string) error {
 	// Marshal to YAML
 	data, err := yaml.Marshal(c)
@@ -198,6 +199,7 @@ func (c *Config) Save(path string) error {
 	}
 
 	// Write file
+	//nolint:gosec // Config file permissions are intentionally 0644 for readability
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
@@ -205,7 +207,7 @@ func (c *Config) Save(path string) error {
 	return nil
 }
 
-// Validate checks if the root configuration is valid
+// Validate checks if the root configuration is valid.
 func (c *Config) Validate() error {
 	// Validate lab config if present
 	if c.Lab != nil {
@@ -221,7 +223,7 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// Validate checks if the lab configuration is valid
+// Validate checks if the lab configuration is valid.
 func (c *LabConfig) Validate() error {
 	// Check mode
 	if c.Mode != "local" && c.Mode != "hybrid" {
@@ -242,6 +244,7 @@ func (c *LabConfig) Validate() error {
 		if err != nil {
 			return fmt.Errorf("invalid path for %s: %w", name, err)
 		}
+
 		if _, err := os.Stat(absPath); os.IsNotExist(err) {
 			return fmt.Errorf("repository %s not found at: %s", name, absPath)
 		}
@@ -249,12 +252,15 @@ func (c *LabConfig) Validate() error {
 
 	// Check at least one network is enabled
 	hasEnabled := false
+
 	for _, net := range c.Networks {
 		if net.Enabled {
 			hasEnabled = true
+
 			break
 		}
 	}
+
 	if !hasEnabled {
 		return fmt.Errorf("at least one network must be enabled")
 	}
@@ -287,7 +293,7 @@ func (c *LabConfig) Validate() error {
 	return nil
 }
 
-// EnabledNetworks returns a slice of enabled networks
+// EnabledNetworks returns a slice of enabled networks.
 func (c *LabConfig) EnabledNetworks() []NetworkConfig {
 	enabled := make([]NetworkConfig, 0, len(c.Networks))
 	for _, net := range c.Networks {
@@ -295,25 +301,28 @@ func (c *LabConfig) EnabledNetworks() []NetworkConfig {
 			enabled = append(enabled, net)
 		}
 	}
+
 	return enabled
 }
 
-// GetCBTPort returns the CBT port for a given network
+// GetCBTPort returns the CBT port for a given network.
 func (c *LabConfig) GetCBTPort(network string) int {
 	for _, net := range c.Networks {
 		if net.Name == network && net.Enabled {
 			return c.Ports.CBTBase + net.PortOffset
 		}
 	}
+
 	return 0
 }
 
-// GetCBTAPIPort returns the cbt-api port for a given network
+// GetCBTAPIPort returns the cbt-api port for a given network.
 func (c *LabConfig) GetCBTAPIPort(network string) int {
 	for _, net := range c.Networks {
 		if net.Name == network && net.Enabled {
 			return c.Ports.CBTAPIBase + net.PortOffset
 		}
 	}
+
 	return 0
 }

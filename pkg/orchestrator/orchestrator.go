@@ -15,7 +15,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Orchestrator manages the complete lab stack
+// Orchestrator manages the complete lab stack.
 type Orchestrator struct {
 	log      logrus.FieldLogger
 	cfg      *config.LabConfig
@@ -26,9 +26,10 @@ type Orchestrator struct {
 	verbose  bool
 }
 
-// NewOrchestrator creates a new Orchestrator instance
+// NewOrchestrator creates a new Orchestrator instance.
 func NewOrchestrator(log logrus.FieldLogger, cfg *config.LabConfig) *Orchestrator {
 	stateDir := ".xcli"
+
 	return &Orchestrator{
 		log:      log.WithField("component", "orchestrator"),
 		cfg:      cfg,
@@ -40,20 +41,21 @@ func NewOrchestrator(log logrus.FieldLogger, cfg *config.LabConfig) *Orchestrato
 	}
 }
 
-// SetVerbose sets verbose mode for build/setup command output
+// SetVerbose sets verbose mode for build/setup command output.
 func (o *Orchestrator) SetVerbose(verbose bool) {
 	o.verbose = verbose
 	o.builder.SetVerbose(verbose)
 	o.infra.SetVerbose(verbose)
 }
 
-// Up starts the complete stack
+// Up starts the complete stack.
 func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) error {
 	o.log.Info("starting lab stack")
 
 	// Phase 0: Build bootstrap tooling (xatu-cbt) and other non-proto services
 	if !skipBuild {
 		o.log.Info("building repositories")
+
 		if err := o.builder.BuildAll(ctx, forceBuild); err != nil {
 			return fmt.Errorf("failed to build repositories: %w", err)
 		}
@@ -69,6 +71,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 
 	// Phase 1: Start infrastructure
 	o.log.Info("starting infrastructure")
+
 	if err := o.infra.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start infrastructure: %w", err)
 	}
@@ -82,6 +85,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 
 	// Phase 3: Generate configs (needed for proto generation)
 	o.log.Info("generating service configurations")
+
 	if err := o.generateConfigs(); err != nil {
 		return fmt.Errorf("failed to generate configs: %w", err)
 	}
@@ -107,26 +111,30 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	fmt.Println("\nServices:")
 	fmt.Printf("  Lab Frontend:  http://localhost:%d\n", o.cfg.Ports.LabFrontend)
 	fmt.Printf("  Lab Backend:   http://localhost:%d\n", o.cfg.Ports.LabBackend)
+
 	for _, net := range o.cfg.EnabledNetworks() {
 		fmt.Printf("  CBT API (%s): http://localhost:%d\n", net.Name, o.cfg.GetCBTAPIPort(net.Name))
 	}
+
 	fmt.Println()
 
 	return nil
 }
 
-// Down stops all services and tears down infrastructure (removes volumes)
+// Down stops all services and tears down infrastructure (removes volumes).
 func (o *Orchestrator) Down(ctx context.Context) error {
 	o.log.Info("tearing down stack")
 
 	// Stop services first
 	o.log.Info("stopping services")
+
 	if err := o.proc.StopAll(); err != nil {
 		o.log.WithError(err).Warn("failed to stop services")
 	}
 
 	// Reset infrastructure (stops containers and removes volumes)
 	o.log.Info("resetting infrastructure")
+
 	if err := o.infra.Reset(ctx); err != nil {
 		return fmt.Errorf("failed to reset infrastructure: %w", err)
 	}
@@ -139,36 +147,40 @@ func (o *Orchestrator) Down(ctx context.Context) error {
 	return nil
 }
 
-// Restart restarts a specific service
+// Restart restarts a specific service.
 func (o *Orchestrator) Restart(ctx context.Context, service string) error {
 	return o.proc.Restart(ctx, service)
 }
 
-// Logs shows logs for a service
+// Logs shows logs for a service.
 func (o *Orchestrator) Logs(ctx context.Context, service string, follow bool) error {
 	if service == "" {
 		// Show all logs
 		processes := o.proc.List()
 		for _, p := range processes {
 			fmt.Printf("==> %s <==\n", p.Name)
+
 			if err := o.proc.TailLogs(ctx, p.Name, false); err != nil {
 				o.log.WithError(err).Warnf("Failed to read logs for %s", p.Name)
 			}
+
 			fmt.Println()
 		}
+
 		return nil
 	}
 
 	return o.proc.TailLogs(ctx, service, follow)
 }
 
-// Status shows service status
+// Status shows service status.
 func (o *Orchestrator) Status(ctx context.Context) error {
 	// Show current mode
 	fmt.Printf("Mode: %s\n\n", o.cfg.Mode)
 
 	// Show infrastructure status
 	fmt.Println("Infrastructure:")
+
 	infraStatus := o.infra.Status()
 
 	// In hybrid mode, handle Xatu ClickHouse differently
@@ -184,6 +196,7 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 		if running {
 			status = "✓ running"
 		}
+
 		fmt.Printf("  %-20s %s\n", name, status)
 	}
 
@@ -197,6 +210,7 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 
 	// Show services
 	fmt.Println("\nServices:")
+
 	processes := o.proc.List()
 	if len(processes) == 0 {
 		fmt.Println("  No services running")
@@ -209,7 +223,7 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 	return nil
 }
 
-// generateConfigs generates configuration files for all services
+// generateConfigs generates configuration files for all services.
 func (o *Orchestrator) generateConfigs() error {
 	configsDir := filepath.Join(o.stateDir, "configs")
 	if err := os.MkdirAll(configsDir, 0755); err != nil {
@@ -225,19 +239,23 @@ func (o *Orchestrator) generateConfigs() error {
 		if err != nil {
 			return fmt.Errorf("failed to generate CBT config for %s: %w", network.Name, err)
 		}
+
 		cbtPath := filepath.Join(configsDir, fmt.Sprintf("cbt-%s.yaml", network.Name))
+		//nolint:gosec // Config file permissions are intentionally 0644 for readability
 		if err := os.WriteFile(cbtPath, []byte(cbtConfig), 0644); err != nil {
 			return fmt.Errorf("failed to write CBT config: %w", err)
 		}
 
 		// cbt-api config
-		apiConfig, err := generator.GenerateCBTAPIConfig(network.Name)
-		if err != nil {
-			return fmt.Errorf("failed to generate cbt-api config for %s: %w", network.Name, err)
+		apiConfig, apiErr := generator.GenerateCBTAPIConfig(network.Name)
+		if apiErr != nil {
+			return fmt.Errorf("failed to generate cbt-api config for %s: %w", network.Name, apiErr)
 		}
+
 		apiPath := filepath.Join(configsDir, fmt.Sprintf("cbt-api-%s.yaml", network.Name))
-		if err := os.WriteFile(apiPath, []byte(apiConfig), 0644); err != nil {
-			return fmt.Errorf("failed to write cbt-api config: %w", err)
+		//nolint:gosec // Config file permissions are intentionally 0644 for readability
+		if apiErr := os.WriteFile(apiPath, []byte(apiConfig), 0644); apiErr != nil {
+			return fmt.Errorf("failed to write cbt-api config: %w", apiErr)
 		}
 	}
 
@@ -246,16 +264,19 @@ func (o *Orchestrator) generateConfigs() error {
 	if err != nil {
 		return fmt.Errorf("failed to generate lab-backend config: %w", err)
 	}
+
 	backendPath := filepath.Join(configsDir, "lab-backend.yaml")
+	//nolint:gosec // Config file permissions are intentionally 0644 for readability
 	if err := os.WriteFile(backendPath, []byte(backendConfig), 0644); err != nil {
 		return fmt.Errorf("failed to write lab-backend config: %w", err)
 	}
 
 	o.log.Info("service configurations generated")
+
 	return nil
 }
 
-// startServices starts all service processes
+// startServices starts all service processes.
 func (o *Orchestrator) startServices(ctx context.Context) error {
 	o.log.Info("starting services")
 
@@ -290,7 +311,7 @@ func (o *Orchestrator) startServices(ctx context.Context) error {
 	return nil
 }
 
-// startCBTEngine starts a CBT engine for a network
+// startCBTEngine starts a CBT engine for a network.
 func (o *Orchestrator) startCBTEngine(ctx context.Context, network string) error {
 	cbtBinary := filepath.Join(o.cfg.Repos.CBT, "bin", "cbt")
 	if _, err := os.Stat(cbtBinary); os.IsNotExist(err) {
@@ -304,12 +325,13 @@ func (o *Orchestrator) startCBTEngine(ctx context.Context, network string) error
 
 	cmd := exec.CommandContext(ctx, cbtBinary, "--config", configPath)
 	cmd.Dir = o.cfg.Repos.CBT
+
 	cmd.Env = append(os.Environ(), fmt.Sprintf("NETWORK=%s", network))
 
 	return o.proc.Start(ctx, fmt.Sprintf("cbt-%s", network), cmd)
 }
 
-// startCBTAPI starts cbt-api for a network
+// startCBTAPI starts cbt-api for a network.
 func (o *Orchestrator) startCBTAPI(ctx context.Context, network string) error {
 	apiBinary := filepath.Join(o.cfg.Repos.CBTAPI, "bin", "server")
 	if _, err := os.Stat(apiBinary); os.IsNotExist(err) {
@@ -327,7 +349,7 @@ func (o *Orchestrator) startCBTAPI(ctx context.Context, network string) error {
 	return o.proc.Start(ctx, fmt.Sprintf("cbt-api-%s", network), cmd)
 }
 
-// startLabBackend starts lab-backend
+// startLabBackend starts lab-backend.
 func (o *Orchestrator) startLabBackend(ctx context.Context) error {
 	backendBinary := filepath.Join(o.cfg.Repos.LabBackend, "bin", "lab-backend")
 	if _, err := os.Stat(backendBinary); os.IsNotExist(err) {
@@ -345,7 +367,7 @@ func (o *Orchestrator) startLabBackend(ctx context.Context) error {
 	return o.proc.Start(ctx, "lab-backend", cmd)
 }
 
-// startLabFrontend starts the lab frontend dev server
+// startLabFrontend starts the lab frontend dev server.
 func (o *Orchestrator) startLabFrontend(ctx context.Context) error {
 	// Check if pnpm is available
 	if _, err := exec.LookPath("pnpm"); err != nil {
@@ -356,9 +378,11 @@ func (o *Orchestrator) startLabFrontend(ctx context.Context) error {
 	nodeModules := filepath.Join(o.cfg.Repos.Lab, "node_modules")
 	if _, err := os.Stat(nodeModules); os.IsNotExist(err) {
 		o.log.Warn("node_modules not found, running pnpm install")
+
 		installCmd := exec.CommandContext(ctx, "pnpm", "install")
 		installCmd.Dir = o.cfg.Repos.Lab
 		installCmd.Stdout = os.Stdout
+
 		installCmd.Stderr = os.Stderr
 		if err := installCmd.Run(); err != nil {
 			return fmt.Errorf("failed to run pnpm install: %w", err)

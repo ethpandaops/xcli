@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewLabModeCommand creates the lab mode command
+// NewLabModeCommand creates the lab mode command.
 func NewLabModeCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mode <local|hybrid>",
@@ -48,12 +48,14 @@ func NewLabModeCommand(log logrus.FieldLogger, configPath string) *cobra.Command
 			log.WithField("mode", mode).Info("mode updated")
 			fmt.Printf("\n✓ Mode switched to: %s\n", mode)
 			fmt.Println("\nRestart stack to apply changes (infrastructure will be rebuilt):")
-			fmt.Println("  xcli lab down && xcli lab up\n")
+			fmt.Println("  xcli lab down && xcli lab up")
 
 			// Optionally restart services automatically
 			fmt.Print("Restart services now? (y/N): ")
+
 			var response string
-			fmt.Scanln(&response)
+
+			_, _ = fmt.Scanln(&response)
 			if response == "y" || response == "Y" {
 				orch := orchestrator.NewOrchestrator(log, cfg.Lab)
 				// Tear down infrastructure completely
@@ -65,6 +67,7 @@ func NewLabModeCommand(log logrus.FieldLogger, configPath string) *cobra.Command
 				if err := orch.Up(cmd.Context(), false, false); err != nil {
 					return fmt.Errorf("failed to start services: %w", err)
 				}
+
 				fmt.Println("\n✓ Services restarted in new mode")
 			}
 

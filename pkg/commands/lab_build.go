@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewLabBuildCommand creates the lab build command
+// NewLabBuildCommand creates the lab build command.
 func NewLabBuildCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	var force bool
 
@@ -44,6 +44,7 @@ For a complete build including proto generation, use 'xcli lab up --rebuild'.`,
 			buildMgr := builder.NewManager(log, cfg.Lab)
 
 			fmt.Println("building all lab repositories")
+
 			if err := buildMgr.BuildAll(cmd.Context(), force); err != nil {
 				return fmt.Errorf("build failed: %w", err)
 			}

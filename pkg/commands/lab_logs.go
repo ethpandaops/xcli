@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewLabLogsCommand creates the lab logs command
+// NewLabLogsCommand creates the lab logs command.
 func NewLabLogsCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	var follow bool
 
@@ -33,6 +33,7 @@ func NewLabLogsCommand(log logrus.FieldLogger, configPath string) *cobra.Command
 			}
 
 			orch := orchestrator.NewOrchestrator(log, cfg.Lab)
+
 			return orch.Logs(cmd.Context(), service, follow)
 		},
 	}

@@ -13,7 +13,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Manager handles infrastructure via xatu-cbt
+// Manager handles infrastructure via xatu-cbt.
 type Manager struct {
 	log         logrus.FieldLogger
 	cfg         *config.LabConfig
@@ -21,9 +21,10 @@ type Manager struct {
 	verbose     bool
 }
 
-// NewManager creates a new infrastructure manager
+// NewManager creates a new infrastructure manager.
 func NewManager(log logrus.FieldLogger, cfg *config.LabConfig) *Manager {
 	xatuCBTPath := cfg.Repos.XatuCBT + "/bin/xatu-cbt"
+
 	return &Manager{
 		log:         log.WithField("component", "infrastructure"),
 		cfg:         cfg,
@@ -32,22 +33,24 @@ func NewManager(log logrus.FieldLogger, cfg *config.LabConfig) *Manager {
 	}
 }
 
-// SetVerbose sets verbose mode for infrastructure commands
+// SetVerbose sets verbose mode for infrastructure commands.
 func (m *Manager) SetVerbose(verbose bool) {
 	m.verbose = verbose
 }
 
-// runCmd runs a command with appropriate output handling
+// runCmd runs a command with appropriate output handling.
 func (m *Manager) runCmd(cmd *exec.Cmd) error {
 	if m.verbose {
 		// Verbose mode: show all output in real-time
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+
 		return cmd.Run()
 	}
 
 	// Quiet mode: capture output, only show if command fails
 	var output bytes.Buffer
+
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 
@@ -56,6 +59,7 @@ func (m *Manager) runCmd(cmd *exec.Cmd) error {
 		if output.Len() > 0 {
 			os.Stderr.Write(output.Bytes())
 		}
+
 		return err
 	}
 
@@ -63,11 +67,12 @@ func (m *Manager) runCmd(cmd *exec.Cmd) error {
 	return nil
 }
 
-// Start starts infrastructure via xatu-cbt
+// Start starts infrastructure via xatu-cbt.
 func (m *Manager) Start(ctx context.Context) error {
 	// Check if infrastructure is already running
 	if m.IsRunning() {
 		m.log.Info("infrastructure is already running")
+
 		return nil
 	}
 
@@ -84,6 +89,7 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	m.log.WithField("xatu_mode", xatuMode).Info("starting infrastructure")
 
+	//nolint:gosec // xatuCBTPath is from config and validated during discovery
 	cmd := exec.CommandContext(ctx, m.xatuCBTPath, "infra", "start", "--xatu-mode", xatuMode)
 	cmd.Dir = m.cfg.Repos.XatuCBT
 
@@ -97,13 +103,15 @@ func (m *Manager) Start(ctx context.Context) error {
 	}
 
 	m.log.Info("infrastructure started successfully")
+
 	return nil
 }
 
-// Stop stops infrastructure via xatu-cbt
+// Stop stops infrastructure via xatu-cbt.
 func (m *Manager) Stop(ctx context.Context) error {
 	m.log.Info("stopping infrastructure")
 
+	//nolint:gosec // xatuCBTPath is from config and validated during discovery
 	cmd := exec.CommandContext(ctx, m.xatuCBTPath, "infra", "stop")
 	cmd.Dir = m.cfg.Repos.XatuCBT
 
@@ -112,10 +120,11 @@ func (m *Manager) Stop(ctx context.Context) error {
 	}
 
 	m.log.Info("infrastructure stopped")
+
 	return nil
 }
 
-// Reset resets infrastructure (clean slate)
+// Reset resets infrastructure (clean slate).
 func (m *Manager) Reset(ctx context.Context) error {
 	m.log.Info("resetting infrastructure")
 
@@ -125,6 +134,7 @@ func (m *Manager) Reset(ctx context.Context) error {
 	}
 
 	// Remove volumes
+	//nolint:gosec // xatuCBTPath is from config and validated during discovery
 	cmd := exec.CommandContext(ctx, m.xatuCBTPath, "infra", "clean")
 	cmd.Dir = m.cfg.Repos.XatuCBT
 
@@ -133,16 +143,19 @@ func (m *Manager) Reset(ctx context.Context) error {
 	}
 
 	m.log.Info("infrastructure reset complete")
+
 	return nil
 }
 
-// SetupNetwork runs migrations for a network
+// SetupNetwork runs migrations for a network.
 func (m *Manager) SetupNetwork(ctx context.Context, network string) error {
 	m.log.WithField("network", network).Info("running network setup")
 
 	// xatu-cbt network setup uses NETWORK env var, not --network flag
+	//nolint:gosec // xatuCBTPath is from config and validated during discovery
 	cmd := exec.CommandContext(ctx, m.xatuCBTPath, "network", "setup", "--force")
 	cmd.Dir = m.cfg.Repos.XatuCBT
+
 	cmd.Env = append(os.Environ(), fmt.Sprintf("NETWORK=%s", network))
 
 	if err := m.runCmd(cmd); err != nil {
@@ -152,7 +165,7 @@ func (m *Manager) SetupNetwork(ctx context.Context, network string) error {
 	return nil
 }
 
-// IsRunning checks if infrastructure is running
+// IsRunning checks if infrastructure is running.
 func (m *Manager) IsRunning() bool {
 	// Check if ClickHouse CBT is accessible
 	if !m.checkPort("localhost:8123") {
@@ -167,7 +180,7 @@ func (m *Manager) IsRunning() bool {
 	return true
 }
 
-// WaitForReady waits for infrastructure to be ready
+// WaitForReady waits for infrastructure to be ready.
 func (m *Manager) WaitForReady(ctx context.Context, timeout time.Duration) error {
 	m.log.Info("waiting for infrastructure to be ready")
 
@@ -199,33 +212,39 @@ func (m *Manager) WaitForReady(ctx context.Context, timeout time.Duration) error
 			return fmt.Errorf("timeout waiting for infrastructure")
 		case <-ticker.C:
 			allReady := true
+
 			for _, check := range checks {
 				if !m.checkPort(check.addr) {
 					m.log.WithField("service", check.name).Debug("waiting")
+
 					allReady = false
+
 					break
 				}
 			}
 
 			if allReady {
 				m.log.Info("all infrastructure services are ready")
+
 				return nil
 			}
 		}
 	}
 }
 
-// checkPort checks if a port is open
+// checkPort checks if a port is open.
 func (m *Manager) checkPort(addr string) bool {
 	conn, err := net.DialTimeout("tcp", addr, 1*time.Second)
 	if err != nil {
 		return false
 	}
+
 	conn.Close()
+
 	return true
 }
 
-// Status returns the status of infrastructure components
+// Status returns the status of infrastructure components.
 func (m *Manager) Status() map[string]bool {
 	status := map[string]bool{
 		"ClickHouse CBT":  m.checkPort("localhost:8123"),

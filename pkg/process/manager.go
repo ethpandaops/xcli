@@ -3,11 +3,9 @@ package process
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -15,7 +13,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Process represents a managed process
+// Process represents a managed process.
 type Process struct {
 	Name    string
 	Cmd     *exec.Cmd
@@ -24,7 +22,7 @@ type Process struct {
 	Started time.Time
 }
 
-// Manager manages service processes
+// Manager manages service processes.
 type Manager struct {
 	log       logrus.FieldLogger
 	processes map[string]*Process
@@ -32,7 +30,7 @@ type Manager struct {
 	mu        sync.RWMutex
 }
 
-// NewManager creates a new process manager
+// NewManager creates a new process manager.
 func NewManager(log logrus.FieldLogger, stateDir string) *Manager {
 	m := &Manager{
 		log:       log.WithField("component", "process-manager"),
@@ -46,7 +44,7 @@ func NewManager(log logrus.FieldLogger, stateDir string) *Manager {
 	return m
 }
 
-// Start starts a process
+// Start starts a process.
 func (m *Manager) Start(ctx context.Context, name string, cmd *exec.Cmd) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -78,6 +76,7 @@ func (m *Manager) Start(ctx context.Context, name string, cmd *exec.Cmd) error {
 	// Start the process
 	if err := cmd.Start(); err != nil {
 		logFd.Close()
+
 		return fmt.Errorf("failed to start process: %w", err)
 	}
 
@@ -105,7 +104,7 @@ func (m *Manager) Start(ctx context.Context, name string, cmd *exec.Cmd) error {
 	return nil
 }
 
-// monitor watches a process and cleans up when it exits
+// monitor watches a process and cleans up when it exits.
 func (m *Manager) monitor(name string, p *Process, logFd *os.File) {
 	defer logFd.Close()
 
@@ -132,7 +131,7 @@ func (m *Manager) monitor(name string, p *Process, logFd *os.File) {
 	}
 }
 
-// Stop stops a process gracefully
+// Stop stops a process gracefully.
 func (m *Manager) Stop(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -162,26 +161,30 @@ func (m *Manager) Stop(name string) error {
 	// Poll every 100ms to check if process is gone
 	for i := 0; i < 300; i++ {
 		time.Sleep(100 * time.Millisecond)
+
 		if err := process.Signal(syscall.Signal(0)); err != nil {
 			// Process is gone
 			delete(m.processes, name)
 			m.removePID(name)
+
 			return nil
 		}
 	}
 
 	// Force kill if not stopped
 	m.log.WithField("name", name).Warn("Process did not stop gracefully, sending SIGKILL")
+
 	if err := process.Kill(); err != nil {
 		return fmt.Errorf("failed to kill process: %w", err)
 	}
 
 	delete(m.processes, name)
 	m.removePID(name)
+
 	return nil
 }
 
-// StopAll stops all managed processes, including orphaned processes from PID files
+// StopAll stops all managed processes, including orphaned processes from PID files.
 func (m *Manager) StopAll() error {
 	m.log.Info("stopping all managed processes")
 
@@ -189,6 +192,7 @@ func (m *Manager) StopAll() error {
 	// that weren't in memory (e.g., from previous xcli sessions)
 	m.mu.Lock()
 	pidDir := filepath.Join(m.stateDir, "pids")
+
 	entries, err := os.ReadDir(pidDir)
 	if err == nil {
 		for _, entry := range entries {
@@ -210,12 +214,14 @@ func (m *Manager) StopAll() error {
 	for name := range m.processes {
 		names = append(names, name)
 	}
+
 	m.mu.Unlock()
 
 	m.log.WithField("count", len(names)).Info("stopping processes")
 
 	// Stop all processes
 	var errs []error
+
 	for _, name := range names {
 		if err := m.Stop(name); err != nil {
 			m.log.WithFields(logrus.Fields{
@@ -231,20 +237,24 @@ func (m *Manager) StopAll() error {
 	}
 
 	m.log.Info("all processes stopped successfully")
+
 	return nil
 }
 
-// Restart restarts a process
+// Restart restarts a process.
 func (m *Manager) Restart(ctx context.Context, name string) error {
 	m.mu.RLock()
+
 	p, exists := m.processes[name]
 	if !exists {
 		m.mu.RUnlock()
+
 		return fmt.Errorf("process %s is not running", name)
 	}
 
 	// Copy the command for restart
 	oldCmd := p.Cmd
+
 	m.mu.RUnlock()
 
 	// Stop the process
@@ -256,6 +266,7 @@ func (m *Manager) Restart(ctx context.Context, name string) error {
 	time.Sleep(500 * time.Millisecond)
 
 	// Create new command with same args
+	//nolint:gosec // Command is from previously validated process
 	newCmd := exec.CommandContext(ctx, oldCmd.Path, oldCmd.Args[1:]...)
 	newCmd.Dir = oldCmd.Dir
 	newCmd.Env = oldCmd.Env
@@ -264,7 +275,7 @@ func (m *Manager) Restart(ctx context.Context, name string) error {
 	return m.Start(ctx, name, newCmd)
 }
 
-// List returns all running processes
+// List returns all running processes.
 func (m *Manager) List() []*Process {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -277,16 +288,17 @@ func (m *Manager) List() []*Process {
 	return processes
 }
 
-// Get returns a specific process
+// Get returns a specific process.
 func (m *Manager) Get(name string) (*Process, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	p, exists := m.processes[name]
+
 	return p, exists
 }
 
-// isRunning checks if a process is actually running
+// isRunning checks if a process is actually running.
 func (m *Manager) isRunning(p *Process) bool {
 	if p.Cmd == nil || p.Cmd.Process == nil {
 		return false
@@ -294,10 +306,11 @@ func (m *Manager) isRunning(p *Process) bool {
 
 	// Try to send signal 0 (doesn't actually send signal, just checks)
 	err := p.Cmd.Process.Signal(syscall.Signal(0))
+
 	return err == nil
 }
 
-// TailLogs tails the log file for a process
+// TailLogs tails the log file for a process.
 func (m *Manager) TailLogs(ctx context.Context, name string, follow bool) error {
 	m.mu.RLock()
 	p, exists := m.processes[name]
@@ -309,9 +322,11 @@ func (m *Manager) TailLogs(ctx context.Context, name string, follow bool) error 
 
 	if follow {
 		// Use tail -f
+		//nolint:gosec // LogFile is managed internally and validated
 		cmd := exec.CommandContext(ctx, "tail", "-f", p.LogFile)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+
 		return cmd.Run()
 	}
 
@@ -322,45 +337,37 @@ func (m *Manager) TailLogs(ctx context.Context, name string, follow bool) error 
 	}
 
 	fmt.Print(string(data))
+
 	return nil
 }
 
-// prefixWriter prefixes each line written to it
-type prefixWriter struct {
-	prefix string
-	w      io.Writer
-}
-
-func (pw *prefixWriter) Write(p []byte) (n int, err error) {
-	lines := []byte(pw.prefix)
-	lines = append(lines, p...)
-	return pw.w.Write(lines)
-}
-
-// savePID saves a process PID to disk
+// savePID saves a process PID to disk.
 func (m *Manager) savePID(name string, pid int, logFile string) {
 	pidDir := filepath.Join(m.stateDir, "pids")
 	if err := os.MkdirAll(pidDir, 0755); err != nil {
 		m.log.WithError(err).Warn("Failed to create PID directory")
+
 		return
 	}
 
 	pidFile := filepath.Join(pidDir, fmt.Sprintf("%s.pid", name))
 	data := fmt.Sprintf("%d\n%s\n", pid, logFile)
+	//nolint:gosec // PID file permissions are intentionally 0644 for readability
 	if err := os.WriteFile(pidFile, []byte(data), 0644); err != nil {
 		m.log.WithError(err).Warn("Failed to write PID file")
 	}
 }
 
-// removePID removes a PID file
+// removePID removes a PID file.
 func (m *Manager) removePID(name string) {
 	pidFile := filepath.Join(m.stateDir, "pids", fmt.Sprintf("%s.pid", name))
 	os.Remove(pidFile)
 }
 
-// loadPIDs loads PIDs from disk and checks if processes are still running
+// loadPIDs loads PIDs from disk and checks if processes are still running.
 func (m *Manager) loadPIDs() {
 	pidDir := filepath.Join(m.stateDir, "pids")
+
 	entries, err := os.ReadDir(pidDir)
 	if err != nil {
 		return // Directory doesn't exist or can't be read
@@ -374,31 +381,29 @@ func (m *Manager) loadPIDs() {
 	}
 }
 
-// loadPID loads a single PID from disk
+// loadPID loads a single PID from disk.
 func (m *Manager) loadPID(name string) {
 	pidFile := filepath.Join(m.stateDir, "pids", fmt.Sprintf("%s.pid", name))
+
 	data, err := os.ReadFile(pidFile)
 	if err != nil {
 		m.log.WithFields(logrus.Fields{
 			"name":    name,
 			"pidFile": pidFile,
 		}).Debug("failed to read PID file")
+
 		return
 	}
 
 	// Parse PID file: format is "PID\nLOGFILE\n"
 	content := string(data)
-	lines := []string{}
-	for _, line := range []string{} {
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" {
-			lines = append(lines, trimmed)
-		}
-	}
 
 	// Split by newline and filter empty lines
-	var pid int
-	var logFile string
+	var (
+		pid     int
+		logFile string
+	)
+
 	_, err = fmt.Sscanf(content, "%d\n%s\n", &pid, &logFile)
 	if err != nil {
 		m.log.WithFields(logrus.Fields{
@@ -407,6 +412,7 @@ func (m *Manager) loadPID(name string) {
 			"content": content,
 		}).Warn("failed to parse PID file, removing")
 		m.removePID(name)
+
 		return
 	}
 
@@ -417,6 +423,7 @@ func (m *Manager) loadPID(name string) {
 			"pid":  pid,
 		}).Warn("invalid PID in file, removing")
 		m.removePID(name)
+
 		return
 	}
 
@@ -428,6 +435,7 @@ func (m *Manager) loadPID(name string) {
 			"pid":  pid,
 		}).Debug("failed to find process, removing PID file")
 		m.removePID(name)
+
 		return
 	}
 
@@ -439,6 +447,7 @@ func (m *Manager) loadPID(name string) {
 			"pid":  pid,
 		}).Debug("process not running, removing PID file")
 		m.removePID(name)
+
 		return
 	}
 

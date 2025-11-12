@@ -9,7 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// NewConfigCommand creates the config command (global - shows all stacks)
+// NewConfigCommand creates the config command (global - shows all stacks).
 func NewConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
@@ -33,6 +33,7 @@ func NewConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Command 
 			}
 
 			fmt.Println(string(data))
+
 			return nil
 		},
 	})
@@ -49,6 +50,7 @@ func NewConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Command 
 
 			if err := cfg.Validate(); err != nil {
 				fmt.Printf("✗ Configuration is invalid:\n  %v\n", err)
+
 				return err
 			}
 
@@ -59,12 +61,15 @@ func NewConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Command 
 				fmt.Printf("\nLab Stack:\n")
 				fmt.Printf("  Mode: %s\n", cfg.Lab.Mode)
 				fmt.Printf("  Networks: ")
+
 				for i, net := range cfg.Lab.EnabledNetworks() {
 					if i > 0 {
 						fmt.Print(", ")
 					}
+
 					fmt.Print(net.Name)
 				}
+
 				fmt.Println()
 			}
 

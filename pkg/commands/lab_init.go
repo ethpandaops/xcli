@@ -12,9 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const configFileName = ".xcli.yaml"
-
-// NewLabInitCommand creates the lab init command
+// NewLabInitCommand creates the lab init command.
 func NewLabInitCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
@@ -36,8 +34,10 @@ func runLabInit(ctx context.Context, log logrus.FieldLogger, configPath string) 
 
 	// Load existing config if it exists, otherwise start fresh
 	var rootCfg *config.Config
+
 	if _, err := os.Stat(configPath); err == nil {
 		log.Info("loading existing configuration")
+
 		rootCfg, err = config.Load(configPath)
 		if err != nil {
 			return fmt.Errorf("failed to load existing config: %w", err)
@@ -50,10 +50,13 @@ func runLabInit(ctx context.Context, log logrus.FieldLogger, configPath string) 
 	if rootCfg.Lab != nil {
 		log.Warn("lab configuration already exists")
 		fmt.Print("Overwrite existing lab configuration? (y/N): ")
+
 		var response string
-		fmt.Scanln(&response)
+
+		_, _ = fmt.Scanln(&response)
 		if response != "y" && response != "Y" {
 			log.Info("lab initialization cancelled")
+
 			return nil
 		}
 	}
