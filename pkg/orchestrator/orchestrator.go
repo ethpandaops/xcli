@@ -115,33 +115,27 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	return nil
 }
 
-// Down stops all services (keeps infrastructure running)
+// Down stops all services and tears down infrastructure (removes volumes)
 func (o *Orchestrator) Down(ctx context.Context) error {
-	o.log.Info("stopping services")
-
-	if err := o.proc.StopAll(); err != nil {
-		return fmt.Errorf("failed to stop services: %w", err)
-	}
-
-	o.log.Info("services stopped")
-	return nil
-}
-
-// Clean stops everything and removes data
-func (o *Orchestrator) Clean(ctx context.Context) error {
-	o.log.Info("cleaning up")
+	o.log.Info("tearing down stack")
 
 	// Stop services first
+	o.log.Info("stopping services")
 	if err := o.proc.StopAll(); err != nil {
-		o.log.WithError(err).Warn("Failed to stop services")
+		o.log.WithError(err).Warn("failed to stop services")
 	}
 
-	// Reset infrastructure
+	// Reset infrastructure (stops containers and removes volumes)
+	o.log.Info("resetting infrastructure")
 	if err := o.infra.Reset(ctx); err != nil {
 		return fmt.Errorf("failed to reset infrastructure: %w", err)
 	}
 
-	o.log.Info("cleanup complete")
+	o.log.Info("teardown complete")
+	fmt.Println("\n✓ Stack torn down successfully")
+	fmt.Println("\nAll services stopped and volumes removed.")
+	fmt.Println("Run 'xcli up' to start fresh.")
+
 	return nil
 }
 
@@ -170,9 +164,22 @@ func (o *Orchestrator) Logs(ctx context.Context, service string, follow bool) er
 
 // Status shows service status
 func (o *Orchestrator) Status(ctx context.Context) error {
+	// Show current mode
+	fmt.Printf("Mode: %s\n\n", o.cfg.Mode)
+
+	// Show infrastructure status
 	fmt.Println("Infrastructure:")
 	infraStatus := o.infra.Status()
+
+	// In hybrid mode, handle Xatu ClickHouse differently
+	isHybrid := o.cfg.Mode == "hybrid"
+
 	for name, running := range infraStatus {
+		// Skip showing Xatu ClickHouse status in hybrid mode (it's external)
+		if isHybrid && name == "ClickHouse Xatu" {
+			continue
+		}
+
 		status := "✗ down"
 		if running {
 			status = "✓ running"
@@ -180,6 +187,15 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 		fmt.Printf("  %-20s %s\n", name, status)
 	}
 
+	// In hybrid mode, show external Xatu connection info
+	if isHybrid {
+		fmt.Printf("  %-20s ↗ external (%s)\n",
+			"ClickHouse Xatu",
+			o.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL,
+		)
+	}
+
+	// Show services
 	fmt.Println("\nServices:")
 	processes := o.proc.List()
 	if len(processes) == 0 {

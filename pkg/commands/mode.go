@@ -43,7 +43,7 @@ func NewModeCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 
 			log.WithField("mode", mode).Info("Mode updated")
 			fmt.Printf("\n✓ Mode switched to: %s\n", mode)
-			fmt.Println("\nRestart services to apply changes:")
+			fmt.Println("\nRestart stack to apply changes (infrastructure will be rebuilt):")
 			fmt.Println("  xcli down && xcli up\n")
 
 			// Optionally restart services automatically
@@ -52,8 +52,10 @@ func NewModeCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 			fmt.Scanln(&response)
 			if response == "y" || response == "Y" {
 				orch := orchestrator.NewOrchestrator(log, cfg)
+				// Tear down infrastructure completely
+				// This is necessary because local vs hybrid mode use different infrastructure
 				if err := orch.Down(cmd.Context()); err != nil {
-					return fmt.Errorf("failed to stop services: %w", err)
+					return fmt.Errorf("failed to tear down: %w", err)
 				}
 				// Restart with auto-build enabled, no force rebuild
 				if err := orch.Up(cmd.Context(), false, false); err != nil {
