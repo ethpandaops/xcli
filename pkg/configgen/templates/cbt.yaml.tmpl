@@ -5,6 +5,8 @@ metricsAddr: ":{{ .MetricsPort }}"
 
 clickhouse:
   url: "http://default:supersecret@localhost:8123"
+  queryTimeout: 10m
+  insertTimeout: 5m
   admin:
     incremental:
       database: "{{ .Network }}"
@@ -30,6 +32,9 @@ models:
     defaultDatabase: "{{ .Network }}"
     paths:
       - "../xatu-cbt/models/transformations"
+{{- if .HasOverrides }}
+  overridesFile: "{{ .OverridesPath }}"  # Model overrides from .lab-overrides.yaml
+{{- end }}
   env:
     NETWORK: "{{ .Network }}"
 

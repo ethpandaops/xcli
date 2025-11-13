@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ethpandaops/xcli/pkg/config"
+	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/sirupsen/logrus"
 )
 
@@ -81,16 +82,28 @@ func (m *Manager) Start(ctx context.Context) error {
 		return fmt.Errorf("xatu-cbt binary not found at %s - please run 'make build' in xatu-cbt", m.xatuCBTPath)
 	}
 
-	// Run xatu-cbt infra start with xatu-mode flag
-	xatuMode := "local"
-	if m.cfg.Infrastructure.ClickHouse.Xatu.Mode == "external" {
-		xatuMode = "external"
+	// Run xatu-cbt infra start with xatu-source flag
+	xatuSource := constants.InfraModeLocal
+	if m.cfg.Infrastructure.ClickHouse.Xatu.Mode == constants.InfraModeExternal {
+		xatuSource = constants.InfraModeExternal
 	}
 
-	m.log.WithField("xatu_mode", xatuMode).Info("starting infrastructure")
+	m.log.WithField("xatu_source", xatuSource).Info("starting infrastructure")
+
+	// Build command arguments
+	args := []string{"infra", "start", "--xatu-source", xatuSource}
+
+	// Add external Xatu URL if in external mode
+	if xatuSource == constants.InfraModeExternal {
+		if m.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL == "" {
+			return fmt.Errorf("external URL is required when using external Xatu source")
+		}
+
+		args = append(args, "--xatu-url", m.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL)
+	}
 
 	//nolint:gosec // xatuCBTPath is from config and validated during discovery
-	cmd := exec.CommandContext(ctx, m.xatuCBTPath, "infra", "start", "--xatu-mode", xatuMode)
+	cmd := exec.CommandContext(ctx, m.xatuCBTPath, args...)
 	cmd.Dir = m.cfg.Repos.XatuCBT
 
 	if err := m.runCmd(cmd); err != nil {
@@ -135,7 +148,7 @@ func (m *Manager) Reset(ctx context.Context) error {
 
 	// Remove volumes
 	//nolint:gosec // xatuCBTPath is from config and validated during discovery
-	cmd := exec.CommandContext(ctx, m.xatuCBTPath, "infra", "clean")
+	cmd := exec.CommandContext(ctx, m.xatuCBTPath, "infra", "reset")
 	cmd.Dir = m.cfg.Repos.XatuCBT
 
 	if err := m.runCmd(cmd); err != nil {

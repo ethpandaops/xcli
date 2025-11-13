@@ -32,6 +32,7 @@ type LabConfig struct {
 	Infrastructure InfrastructureConfig `yaml:"infrastructure"`
 	Ports          LabPortsConfig       `yaml:"ports"`
 	Dev            LabDevConfig         `yaml:"dev"`
+	CBT            CBTConfig            `yaml:"cbt"`
 }
 
 // LabReposConfig contains paths to lab repositories.
@@ -45,9 +46,10 @@ type LabReposConfig struct {
 
 // NetworkConfig represents a network configuration.
 type NetworkConfig struct {
-	Name       string `yaml:"name"`
-	Enabled    bool   `yaml:"enabled"`
-	PortOffset int    `yaml:"portOffset"`
+	Name             string `yaml:"name"`
+	Enabled          bool   `yaml:"enabled"`
+	PortOffset       int    `yaml:"portOffset"`
+	GenesisTimestamp uint64 `yaml:"genesisTimestamp,omitempty"` // Optional: Unix timestamp for custom networks
 }
 
 // InfrastructureConfig contains infrastructure settings.
@@ -96,6 +98,14 @@ type LabDevConfig struct {
 	HotReload          bool `yaml:"hotReload"`
 }
 
+// CBTConfig contains CBT-specific configuration.
+type CBTConfig struct {
+	// DefaultBackfillDuration sets how far back to allow backfilling
+	// Examples: "2w" (2 weeks), "4w" (4 weeks), "1mo" (1 month), "90d" (90 days)
+	// Default: "2w"
+	DefaultBackfillDuration string `yaml:"defaultBackfillDuration"`
+}
+
 // Default returns a root configuration with sensible defaults.
 func Default() *Config {
 	return &Config{
@@ -135,6 +145,9 @@ func DefaultLab() *LabConfig {
 		Dev: LabDevConfig{
 			LabRebuildOnChange: false,
 			HotReload:          true,
+		},
+		CBT: CBTConfig{
+			DefaultBackfillDuration: "2w", // 2 weeks default
 		},
 	}
 }
