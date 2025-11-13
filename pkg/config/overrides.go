@@ -39,6 +39,9 @@ type ModelConfig struct {
 	// Schedule overrides
 	Schedules *ScheduleConfig `yaml:"schedules,omitempty"`
 
+	// Lag for external models (slots to look back when querying)
+	Lag *int `yaml:"lag,omitempty"`
+
 	// Tags override
 	Tags []string `yaml:"tags,omitempty"`
 }
@@ -54,10 +57,13 @@ type ModelLimits struct {
 
 // ScheduleConfig defines schedule overrides.
 type ScheduleConfig struct {
-	// Forward fill schedule (cron format)
+	// Schedule for scheduled-type models (cron format)
+	Schedule string `yaml:"schedule,omitempty"`
+
+	// Forward fill schedule (cron format) - for incremental models
 	ForwardFill string `yaml:"forwardfill,omitempty"`
 
-	// Backfill schedule (cron format)
+	// Backfill schedule (cron format) - for incremental models
 	Backfill string `yaml:"backfill,omitempty"`
 }
 
@@ -156,18 +162,31 @@ func (c *CBTOverridesConfig) ToCBTOverrides() map[string]interface{} {
 
 				// Add schedules if specified
 				if override.Config.Schedules != nil {
-					schedules := make(map[string]interface{})
-					if override.Config.Schedules.ForwardFill != "" {
-						schedules["forwardfill"] = override.Config.Schedules.ForwardFill
+					// Scheduled models use a single "schedule" field
+					if override.Config.Schedules.Schedule != "" {
+						config["schedule"] = override.Config.Schedules.Schedule
 					}
 
-					if override.Config.Schedules.Backfill != "" {
-						schedules["backfill"] = override.Config.Schedules.Backfill
-					}
+					// Incremental models use separate forwardfill/backfill schedules
+					if override.Config.Schedules.ForwardFill != "" || override.Config.Schedules.Backfill != "" {
+						schedules := make(map[string]interface{})
+						if override.Config.Schedules.ForwardFill != "" {
+							schedules["forwardfill"] = override.Config.Schedules.ForwardFill
+						}
 
-					if len(schedules) > 0 {
-						config["schedules"] = schedules
+						if override.Config.Schedules.Backfill != "" {
+							schedules["backfill"] = override.Config.Schedules.Backfill
+						}
+
+						if len(schedules) > 0 {
+							config["schedules"] = schedules
+						}
 					}
+				}
+
+				// Add lag if specified
+				if override.Config.Lag != nil {
+					config["lag"] = *override.Config.Lag
 				}
 
 				// Add tags if specified
@@ -231,14 +250,16 @@ func (c *CBTOverridesConfig) ApplyDefaultLimitsToAllModels(modelNames []string) 
 	}
 }
 
-// ParseBackfillDuration parses a duration string like "2w", "4w", "1mo", "90d"
-// Returns duration in seconds. Supported units: d (days), w (weeks), mo (months ~30d)
+// ParseBackfillDuration parses a duration string like "30m", "1h", "2w", "4w", "1mo", "90d"
+// Returns duration in seconds. Supported units: m (minutes), h (hours), d (days), w (weeks), mo (months ~30d)
 // Defaults to 2 weeks if parsing fails.
 func ParseBackfillDuration(durationStr string) uint64 {
 	const (
-		daySeconds   = 24 * 60 * 60
-		weekSeconds  = 7 * daySeconds
-		monthSeconds = 30 * daySeconds // Approximate month
+		minuteSeconds = 60
+		hourSeconds   = 60 * minuteSeconds
+		daySeconds    = 24 * hourSeconds
+		weekSeconds   = 7 * daySeconds
+		monthSeconds  = 30 * daySeconds // Approximate month
 	)
 
 	// Default to 2 weeks
@@ -246,8 +267,8 @@ func ParseBackfillDuration(durationStr string) uint64 {
 		return 2 * weekSeconds
 	}
 
-	// Match number + unit: "2w", "4d", "1mo"
-	re := regexp.MustCompile(`^(\d+)(d|w|mo|days?|weeks?|months?)$`)
+	// Match number + unit: "30m", "1h", "2w", "4d", "1mo"
+	re := regexp.MustCompile(`^(\d+)(m|h|d|w|mo|min|mins?|minutes?|hours?|days?|weeks?|months?)$`)
 	matches := re.FindStringSubmatch(strings.ToLower(strings.TrimSpace(durationStr)))
 
 	if matches == nil {
@@ -262,15 +283,21 @@ func ParseBackfillDuration(durationStr string) uint64 {
 	unit := matches[2]
 
 	switch {
+	case strings.HasPrefix(unit, "mo"): // Check 'mo' before 'm' to avoid conflict
+		//nolint:gosec // value parsed from user input, overflow unlikely for reasonable durations
+		return uint64(value * monthSeconds)
+	case strings.HasPrefix(unit, "m"):
+		//nolint:gosec // value parsed from user input, overflow unlikely for reasonable durations
+		return uint64(value * minuteSeconds)
+	case strings.HasPrefix(unit, "h"):
+		//nolint:gosec // value parsed from user input, overflow unlikely for reasonable durations
+		return uint64(value * hourSeconds)
 	case strings.HasPrefix(unit, "d"):
 		//nolint:gosec // value parsed from user input, overflow unlikely for reasonable durations
 		return uint64(value * daySeconds)
 	case strings.HasPrefix(unit, "w"):
 		//nolint:gosec // value parsed from user input, overflow unlikely for reasonable durations
 		return uint64(value * weekSeconds)
-	case strings.HasPrefix(unit, "mo"):
-		//nolint:gosec // value parsed from user input, overflow unlikely for reasonable durations
-		return uint64(value * monthSeconds)
 	default:
 		return 2 * weekSeconds
 	}
@@ -335,6 +362,74 @@ func GenerateDefaultOverrides(network string, durationStr string, genesisTimesta
 			Max: 0, // No upper limit
 		},
 		Models: make(map[string]ModelOverride),
+	}
+}
+
+// ApplyScheduleOverrides applies schedule overrides to specified models.
+// This sets the schedule for all models in the list that don't already have a schedule override.
+func (c *CBTOverridesConfig) ApplyScheduleOverrides(modelNames []string, schedule string) {
+	if schedule == "" {
+		return
+	}
+
+	for _, modelName := range modelNames {
+		// Check if model already has an override with explicit schedule
+		if existing, exists := c.Models[modelName]; exists {
+			if existing.Config != nil && existing.Config.Schedules != nil {
+				continue // Skip - user has explicit schedule override
+			}
+		}
+
+		// Get or create model override
+		modelOverride, exists := c.Models[modelName]
+		if !exists {
+			modelOverride = ModelOverride{
+				Config: &ModelConfig{},
+			}
+		} else if modelOverride.Config == nil {
+			modelOverride.Config = &ModelConfig{}
+		}
+
+		// Set schedule for scheduled models (single schedule, not forwardfill/backfill)
+		if modelOverride.Config.Schedules == nil {
+			modelOverride.Config.Schedules = &ScheduleConfig{}
+		}
+
+		modelOverride.Config.Schedules.Schedule = schedule
+
+		c.Models[modelName] = modelOverride
+	}
+}
+
+// ApplyLagOverrides applies lag settings to external models.
+// This prevents full table scans on large external tables by limiting lookback.
+func (c *CBTOverridesConfig) ApplyLagOverrides(models map[string]int) {
+	if len(models) == 0 {
+		return
+	}
+
+	for modelName, lagValue := range models {
+		// Check if model already has an override with explicit lag
+		if existing, exists := c.Models[modelName]; exists {
+			if existing.Config != nil && existing.Config.Lag != nil {
+				continue // Skip - user has explicit lag override
+			}
+		}
+
+		// Get or create model override
+		modelOverride, exists := c.Models[modelName]
+		if !exists {
+			modelOverride = ModelOverride{
+				Config: &ModelConfig{},
+			}
+		} else if modelOverride.Config == nil {
+			modelOverride.Config = &ModelConfig{}
+		}
+
+		// Set lag
+		modelOverride.Config.Lag = &lagValue
+
+		c.Models[modelName] = modelOverride
 	}
 }
 

@@ -5,6 +5,8 @@ metricsAddr: ":{{ .MetricsPort }}"
 
 clickhouse:
   url: "http://default:supersecret@localhost:8123"
+  queryTimeout: 10m
+  insertTimeout: 5m
   admin:
     incremental:
       database: "{{ .Network }}"
