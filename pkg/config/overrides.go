@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -245,46 +246,33 @@ func ParseBackfillDuration(durationStr string) uint64 {
 		return 2 * weekSeconds
 	}
 
-	durationStr = strings.TrimSpace(strings.ToLower(durationStr))
+	// Match number + unit: "2w", "4d", "1mo"
+	re := regexp.MustCompile(`^(\d+)(d|w|mo|days?|weeks?|months?)$`)
+	matches := re.FindStringSubmatch(strings.ToLower(strings.TrimSpace(durationStr)))
 
-	// Try to parse number + unit
-	var value int
-
-	var unit string
-
-	// Extract number and unit
-	for i, ch := range durationStr {
-		if ch < '0' || ch > '9' {
-			if i > 0 {
-				var err error
-
-				value, err = strconv.Atoi(durationStr[:i])
-				if err != nil {
-					return 2 * weekSeconds // default on error
-				}
-
-				unit = durationStr[i:]
-
-				break
-			}
-
-			return 2 * weekSeconds // default on error
-		}
+	if matches == nil {
+		return 2 * weekSeconds // default on parse error
 	}
 
-	// Apply unit
-	switch unit {
-	case "d", "day", "days":
-		//nolint:gosec // value is parsed from user input, overflow unlikely for reasonable durations
+	value, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return 2 * weekSeconds
+	}
+
+	unit := matches[2]
+
+	switch {
+	case strings.HasPrefix(unit, "d"):
+		//nolint:gosec // value parsed from user input, overflow unlikely for reasonable durations
 		return uint64(value * daySeconds)
-	case "w", "week", "weeks":
-		//nolint:gosec // value is parsed from user input, overflow unlikely for reasonable durations
+	case strings.HasPrefix(unit, "w"):
+		//nolint:gosec // value parsed from user input, overflow unlikely for reasonable durations
 		return uint64(value * weekSeconds)
-	case "mo", "month", "months":
-		//nolint:gosec // value is parsed from user input, overflow unlikely for reasonable durations
+	case strings.HasPrefix(unit, "mo"):
+		//nolint:gosec // value parsed from user input, overflow unlikely for reasonable durations
 		return uint64(value * monthSeconds)
 	default:
-		return 2 * weekSeconds // default if unknown unit
+		return 2 * weekSeconds
 	}
 }
 
