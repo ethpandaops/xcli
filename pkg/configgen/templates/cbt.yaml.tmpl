@@ -30,6 +30,9 @@ models:
     defaultDatabase: "{{ .Network }}"
     paths:
       - "../xatu-cbt/models/transformations"
+{{- if .HasOverrides }}
+  overridesFile: "{{ .OverridesPath }}"  # Model overrides from .lab-overrides.yaml
+{{- end }}
   env:
     NETWORK: "{{ .Network }}"
 

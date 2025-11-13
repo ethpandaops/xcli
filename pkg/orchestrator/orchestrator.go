@@ -21,27 +21,37 @@ import (
 
 // Orchestrator manages the complete lab stack.
 type Orchestrator struct {
-	log      logrus.FieldLogger
-	cfg      *config.LabConfig
-	infra    *infrastructure.Manager
-	proc     *process.Manager
-	builder  *builder.Manager
-	stateDir string
-	verbose  bool
+	log       logrus.FieldLogger
+	cfg       *config.LabConfig
+	infra     *infrastructure.Manager
+	proc      *process.Manager
+	builder   *builder.Manager
+	stateDir  string
+	verbose   bool
+	overrides *config.CBTOverridesConfig
 }
 
 // NewOrchestrator creates a new Orchestrator instance.
 func NewOrchestrator(log logrus.FieldLogger, cfg *config.LabConfig) *Orchestrator {
 	stateDir := ".xcli"
 
+	// Load user-provided CBT overrides if they exist
+	overrides, err := config.LoadCBTOverrides(constants.CBTOverridesFile)
+	if err != nil {
+		log.WithError(err).Warn("failed to load user CBT overrides, using defaults")
+
+		overrides = config.DefaultCBTOverrides()
+	}
+
 	return &Orchestrator{
-		log:      log.WithField("component", "orchestrator"),
-		cfg:      cfg,
-		infra:    infrastructure.NewManager(log, cfg),
-		proc:     process.NewManager(log, stateDir),
-		builder:  builder.NewManager(log, cfg),
-		stateDir: stateDir,
-		verbose:  false,
+		log:       log.WithField("component", "orchestrator"),
+		cfg:       cfg,
+		infra:     infrastructure.NewManager(log, cfg),
+		proc:      process.NewManager(log, stateDir),
+		builder:   builder.NewManager(log, cfg),
+		stateDir:  stateDir,
+		verbose:   false,
+		overrides: overrides,
 	}
 }
 
@@ -451,10 +461,35 @@ func (o *Orchestrator) generateConfigs() error {
 		return fmt.Errorf("failed to create configs directory: %w", err)
 	}
 
-	generator := configgen.NewGenerator(o.log, o.cfg)
+	generator := configgen.NewGenerator(o.log, o.cfg, o.overrides)
 
 	// Generate configs for each network
 	for _, network := range o.cfg.EnabledNetworks() {
+		// Generate CBT overrides first (if any)
+		overridesFilename := fmt.Sprintf(constants.ConfigFileCBTOverride, network.Name)
+		overridesPath := filepath.Join(configsDir, overridesFilename)
+
+		overridesContent, err := generator.GenerateCBTOverrides(network.Name)
+		if err != nil {
+			return fmt.Errorf("failed to generate CBT overrides for %s: %w", network.Name, err)
+		}
+
+		//nolint:gosec // Config file permissions are intentionally 0644 for readability
+		err = os.WriteFile(overridesPath, []byte(overridesContent), 0644)
+		if err != nil {
+			return fmt.Errorf("failed to write CBT overrides: %w", err)
+		}
+
+		slotPos, timestampPos := config.CalculateTwoWeeksAgoPosition(network.Name, network.GenesisTimestamp)
+		o.log.WithFields(logrus.Fields{
+			"network":      network.Name,
+			"slot_limit":   slotPos,
+			"ts_limit":     timestampPos,
+			"duration":     o.cfg.CBT.DefaultBackfillDuration,
+			"user_config":  o.overrides != nil && len(o.overrides.Models) > 0,
+			"has_defaults": o.overrides == nil || o.overrides.DefaultLimits == nil,
+		}).Info("generated CBT model overrides with backfill limit")
+
 		// CBT config
 		cbtFilename := fmt.Sprintf(constants.ConfigFileCBT, network.Name)
 		cbtPath := filepath.Join(configsDir, cbtFilename)
@@ -466,13 +501,14 @@ func (o *Orchestrator) generateConfigs() error {
 				return fmt.Errorf("failed to copy custom CBT config for %s: %w", network.Name, err)
 			}
 		} else {
-			cbtConfig, err := generator.GenerateCBTConfig(network.Name)
+			cbtConfig, err := generator.GenerateCBTConfig(network.Name, overridesPath)
 			if err != nil {
 				return fmt.Errorf("failed to generate CBT config for %s: %w", network.Name, err)
 			}
 
 			//nolint:gosec // Config file permissions are intentionally 0644 for readability
-			if err := os.WriteFile(cbtPath, []byte(cbtConfig), 0644); err != nil {
+			err = os.WriteFile(cbtPath, []byte(cbtConfig), 0644)
+			if err != nil {
 				return fmt.Errorf("failed to write CBT config: %w", err)
 			}
 		}

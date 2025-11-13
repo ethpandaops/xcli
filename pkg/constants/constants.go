@@ -38,10 +38,24 @@ const (
 
 // Config file templates.
 const (
-	ConfigFileCBT        = "cbt-%s.yaml"
-	ConfigFileCBTAPI     = "cbt-api-%s.yaml"
-	ConfigFileLabBackend = "lab-backend.yaml"
+	ConfigFileCBT         = "cbt-%s.yaml"
+	ConfigFileCBTAPI      = "cbt-api-%s.yaml"
+	ConfigFileLabBackend  = "lab-backend.yaml"
+	ConfigFileCBTOverride = "cbt-overrides-%s.yaml"
 )
+
+// Configuration files.
+const (
+	CBTOverridesFile = ".cbt-overrides.yaml"
+)
+
+// Network genesis timestamps (Unix seconds).
+var NetworkGenesisTimestamps = map[string]uint64{
+	"mainnet": 1606824023, // Dec 1, 2020
+	"sepolia": 1655733600, // Jun 20, 2022
+	"hoodi":   1742213400, // Mar 15, 2025 (approximate)
+	"holesky": 1695902400, // Sep 28, 2023 (legacy, use hoodi)
+}
 
 // PID file template.
 const (
