@@ -260,6 +260,21 @@ func (o *Orchestrator) Down(ctx context.Context) error {
 		o.log.WithError(err).Warn("failed to clean logs")
 	}
 
+	// Final cleanup: Kill any remaining pnpm/vite/esbuild processes
+	// This handles orphaned child processes that reparented after their parent died
+	o.log.Debug("cleaning up orphaned node processes (pnpm/vite/esbuild)")
+
+	patterns := []string{
+		"lab.*vite",
+		"lab.*esbuild",
+		"pnpm.*dev",
+	}
+
+	for _, pattern := range patterns {
+		pkillCmd := exec.Command("pkill", "-KILL", "-f", pattern)
+		_ = pkillCmd.Run() // Ignore errors - pattern might not match anything
+	}
+
 	// Reset infrastructure (stops containers and removes volumes)
 	o.log.Info("resetting infrastructure")
 
