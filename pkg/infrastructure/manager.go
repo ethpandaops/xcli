@@ -5,8 +5,10 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/ethpandaops/xcli/pkg/config"
@@ -95,10 +97,6 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	// Add external Xatu URL if in external mode
 	if xatuSource == constants.InfraModeExternal {
-		if m.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL == "" {
-			return fmt.Errorf("external URL is required when using external Xatu source")
-		}
-
 		args = append(args, "--xatu-url", m.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL)
 	}
 
@@ -266,4 +264,106 @@ func (m *Manager) Status() map[string]bool {
 	}
 
 	return status
+}
+
+// TestExternalConnection tests connectivity to external ClickHouse using docker.
+func (m *Manager) TestExternalConnection(ctx context.Context) error {
+	// Parse the external URL to extract host, port, and credentials
+	externalURL := m.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL
+
+	parsedURL, err := url.Parse(externalURL)
+	if err != nil {
+		return fmt.Errorf("failed to parse external URL: %w", err)
+	}
+
+	// Extract host and port
+	host := parsedURL.Hostname()
+
+	port := parsedURL.Port()
+	if port == "" {
+		// Default ClickHouse native port
+		port = "9000"
+	}
+
+	// Extract username and password
+	username := "default"
+	password := ""
+
+	if parsedURL.User != nil {
+		if parsedURL.User.Username() != "" {
+			username = parsedURL.User.Username()
+		}
+
+		if pass, ok := parsedURL.User.Password(); ok {
+			password = pass
+		}
+	}
+
+	// Use configured credentials if available
+	if m.cfg.Infrastructure.ClickHouse.Xatu.ExternalUsername != "" {
+		username = m.cfg.Infrastructure.ClickHouse.Xatu.ExternalUsername
+	}
+
+	if m.cfg.Infrastructure.ClickHouse.Xatu.ExternalPassword != "" {
+		password = m.cfg.Infrastructure.ClickHouse.Xatu.ExternalPassword
+	}
+
+	// Build docker command to test connection
+	args := []string{
+		"run", "--rm",
+		"clickhouse/clickhouse-client:latest",
+		"--host", host,
+		"--port", port,
+		"--user", username,
+	}
+
+	if password != "" {
+		args = append(args, "--password", password)
+	}
+
+	args = append(args, "--query", "SELECT 1")
+
+	m.log.WithFields(logrus.Fields{
+		"host": host,
+		"port": port,
+		"user": username,
+	}).Debug("testing external ClickHouse connection")
+
+	cmd := exec.CommandContext(ctx, "docker", args...)
+
+	var output bytes.Buffer
+
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+
+	if err := cmd.Run(); err != nil {
+		errMsg := strings.TrimSpace(output.String())
+		if errMsg == "" {
+			errMsg = err.Error()
+		}
+
+		return fmt.Errorf("connection test failed: %s", errMsg)
+	}
+
+	// Verify output contains "1" (may have Docker warnings or other messages)
+	result := strings.TrimSpace(output.String())
+
+	// Check if the last non-empty line is "1"
+	lines := strings.Split(result, "\n")
+	lastLine := ""
+
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line != "" {
+			lastLine = line
+
+			break
+		}
+	}
+
+	if lastLine != "1" {
+		return fmt.Errorf("unexpected response from ClickHouse (expected '1', got '%s'): %s", lastLine, result)
+	}
+
+	return nil
 }

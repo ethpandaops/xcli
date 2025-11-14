@@ -15,6 +15,7 @@ import (
 	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/ethpandaops/xcli/pkg/infrastructure"
 	"github.com/ethpandaops/xcli/pkg/portutil"
+	"github.com/ethpandaops/xcli/pkg/prerequisites"
 	"github.com/ethpandaops/xcli/pkg/process"
 	"github.com/sirupsen/logrus"
 )
@@ -66,6 +67,26 @@ func (o *Orchestrator) SetVerbose(verbose bool) {
 func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) error {
 	o.log.Info("starting lab stack")
 
+	// Validate prerequisites before building
+	if err := o.validatePrerequisites(ctx); err != nil {
+		return fmt.Errorf("prerequisites validation failed: %w", err)
+	}
+
+	// Test external ClickHouse connection early (before builds and infrastructure)
+	if o.cfg.Infrastructure.ClickHouse.Xatu.Mode == constants.InfraModeExternal {
+		if o.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL == "" {
+			return fmt.Errorf("external ClickHouse URL is required when using external mode")
+		}
+
+		o.log.WithField("url", o.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL).Info("testing external ClickHouse connection")
+
+		if err := o.infra.TestExternalConnection(ctx); err != nil {
+			return fmt.Errorf("failed to connect to external ClickHouse: %w", err)
+		}
+
+		o.log.Info("external ClickHouse connection verified")
+	}
+
 	// Check if stack is already running
 	runningProcesses := o.proc.List()
 	portConflicts := o.checkPortConflicts()
@@ -89,7 +110,28 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 		return fmt.Errorf("stack is already running")
 	}
 
-	// Phase 0: Build bootstrap tooling (xatu-cbt) and other non-proto services
+	// Phase 0: Build xatu-cbt (required for infrastructure startup)
+	if !skipBuild {
+		o.log.Info("building xatu-cbt")
+
+		if err := o.builder.BuildXatuCBT(ctx, forceBuild); err != nil {
+			return fmt.Errorf("failed to build xatu-cbt: %w", err)
+		}
+	} else {
+		// Check if xatu-cbt binary exists
+		if !o.builder.XatuCBTBinaryExists() {
+			return fmt.Errorf("xatu-cbt binary not found - please build first or run without --no-build")
+		}
+	}
+
+	// Phase 1: Start infrastructure
+	o.log.Info("starting infrastructure")
+
+	if err := o.infra.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start infrastructure: %w", err)
+	}
+
+	// Phase 2: Build all repositories
 	if !skipBuild {
 		o.log.Info("building repositories")
 
@@ -106,21 +148,14 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 		}
 	}
 
-	// Phase 1: Start infrastructure
-	o.log.Info("starting infrastructure")
-
-	if err := o.infra.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start infrastructure: %w", err)
-	}
-
-	// Phase 2: Setup networks (run migrations)
+	// Phase 3: Setup networks (run migrations)
 	for _, network := range o.cfg.EnabledNetworks() {
 		if err := o.infra.SetupNetwork(ctx, network.Name); err != nil {
 			o.log.WithError(err).Warnf("Failed to setup network %s (may already be setup)", network.Name)
 		}
 	}
 
-	// Phase 3: Generate configs (needed for proto generation)
+	// Phase 4: Generate configs (needed for proto generation)
 	o.log.Info("generating service configurations")
 
 	if err := o.generateConfigs(); err != nil {
@@ -371,6 +406,40 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 
 		fmt.Println("\nRun 'xcli lab down' to clean up orphaned processes")
 	}
+
+	return nil
+}
+
+// validatePrerequisites checks that all repo prerequisites are met.
+func (o *Orchestrator) validatePrerequisites(ctx context.Context) error {
+	o.log.Info("validating prerequisites")
+
+	prereqChecker := prerequisites.NewChecker(o.log)
+
+	// Check each configured repo
+	repoConfigs := map[string]string{
+		"lab-backend": o.cfg.Repos.LabBackend,
+		"lab":         o.cfg.Repos.Lab,
+		"cbt":         o.cfg.Repos.CBT,
+		"xatu-cbt":    o.cfg.Repos.XatuCBT,
+	}
+
+	for repoName, repoPath := range repoConfigs {
+		if repoPath == "" {
+			continue // Skip unconfigured repos
+		}
+
+		if err := prereqChecker.Check(ctx, repoPath, repoName); err != nil {
+			// Prerequisites not met - try to run them
+			o.log.WithField("repo", repoName).Warn("prerequisites not met, attempting to run")
+
+			if runErr := prereqChecker.Run(ctx, repoPath, repoName); runErr != nil {
+				return fmt.Errorf("failed to run prerequisites for %s: %w", repoName, runErr)
+			}
+		}
+	}
+
+	o.log.Info("prerequisites validation complete")
 
 	return nil
 }

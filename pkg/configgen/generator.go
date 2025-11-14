@@ -48,13 +48,22 @@ func (g *Generator) GenerateCBTConfig(network string, overridesPath string) (str
 		}
 	}
 
+	// Determine the external ClickHouse database name
+	// - If Xatu mode is "local", use "default" (local Xatu cluster uses default database)
+	// - If Xatu mode is "external", use configured ExternalDatabase (or "default" if not set)
+	externalDatabase := "default"
+	if g.cfg.Infrastructure.ClickHouse.Xatu.Mode == "external" && g.cfg.Infrastructure.ClickHouse.Xatu.ExternalDatabase != "" {
+		externalDatabase = g.cfg.Infrastructure.ClickHouse.Xatu.ExternalDatabase
+	}
+
 	data := map[string]interface{}{
 		"Network":                    network,
 		"MetricsPort":                metricsPort,
 		"RedisDB":                    redisDB,
 		"IsHybrid":                   g.cfg.Mode == "hybrid",
+		"XatuMode":                   g.cfg.Infrastructure.ClickHouse.Xatu.Mode,
 		"ExternalClickHouseURL":      g.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL,
-		"ExternalClickHouseDatabase": g.cfg.Infrastructure.ClickHouse.Xatu.ExternalDatabase,
+		"ExternalClickHouseDatabase": externalDatabase,
 		"ExternalClickHouseUsername": g.cfg.Infrastructure.ClickHouse.Xatu.ExternalUsername,
 		"ExternalClickHousePassword": g.cfg.Infrastructure.ClickHouse.Xatu.ExternalPassword,
 		"OverridesPath":              overridesPath,

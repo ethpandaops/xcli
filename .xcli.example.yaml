@@ -21,7 +21,7 @@ networks:
     enabled: true
     portOffset: 0  # CBT: 8081, cbt-api: 8091
   - name: sepolia
-    enabled: true
+    enabled: false
     portOffset: 1  # CBT: 8082, cbt-api: 8092
   # Add more networks as needed:
   # - name: holesky
