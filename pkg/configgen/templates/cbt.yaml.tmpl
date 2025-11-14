@@ -24,10 +24,8 @@ models:
   external:
 {{- if .IsHybrid }}
     defaultCluster: "xatu_cluster"
-    defaultDatabase: "{{ .ExternalClickHouseDatabase }}"
-{{- else }}
-    defaultDatabase: "{{ .Network }}"
 {{- end }}
+    defaultDatabase: "{{ .ExternalClickHouseDatabase }}"
     paths:
       - "../xatu-cbt/models/external"
   transformations:

@@ -85,6 +85,18 @@ func (m *Manager) BuildAll(ctx context.Context, force bool) error {
 	return nil
 }
 
+// BuildXatuCBT builds only the xatu-cbt binary (needed for infrastructure startup).
+func (m *Manager) BuildXatuCBT(ctx context.Context, force bool) error {
+	return m.buildXatuCBT(ctx, force)
+}
+
+// XatuCBTBinaryExists checks if the xatu-cbt binary exists.
+func (m *Manager) XatuCBTBinaryExists() bool {
+	binary := filepath.Join(m.cfg.Repos.XatuCBT, "bin", "xatu-cbt")
+
+	return m.binaryExists(binary)
+}
+
 // buildXatuCBT builds the xatu-cbt binary.
 func (m *Manager) buildXatuCBT(ctx context.Context, force bool) error {
 	binary := filepath.Join(m.cfg.Repos.XatuCBT, "bin", "xatu-cbt")
@@ -140,6 +152,12 @@ func (m *Manager) BuildCBTAPI(ctx context.Context, force bool) error {
 
 	m.log.WithField("repo", "cbt-api").Info("building project")
 
+	// Generate OpenAPI and other code (requires proto to be run first)
+	if err := m.runMake(ctx, m.cfg.Repos.CBTAPI, "generate"); err != nil {
+		return fmt.Errorf("make generate failed: %w", err)
+	}
+
+	// Build the binary
 	return m.runMake(ctx, m.cfg.Repos.CBTAPI, "build-binary")
 }
 

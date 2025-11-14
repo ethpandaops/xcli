@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/discovery"
+	"github.com/ethpandaops/xcli/pkg/prerequisites"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -77,6 +78,23 @@ func runLabInit(ctx context.Context, log logrus.FieldLogger, configPath string) 
 	repos, err := disc.DiscoverRepos()
 	if err != nil {
 		return fmt.Errorf("repository discovery failed: %w", err)
+	}
+
+	// Run prerequisites for each discovered repository
+	prereqChecker := prerequisites.NewChecker(log)
+
+	repoMap := map[string]string{
+		"cbt":         repos.CBT,
+		"xatu-cbt":    repos.XatuCBT,
+		"cbt-api":     repos.CBTAPI,
+		"lab-backend": repos.LabBackend,
+		"lab":         repos.Lab,
+	}
+
+	for repoName, repoPath := range repoMap {
+		if err := prereqChecker.Run(ctx, repoPath, repoName); err != nil {
+			return fmt.Errorf("failed to run prerequisites for %s: %w", repoName, err)
+		}
 	}
 
 	// Create lab config with discovered repos
