@@ -23,10 +23,9 @@ networks:
   - name: sepolia
     enabled: false
     portOffset: 1  # CBT: 8082, cbt-api: 8092
-  # Add more networks as needed:
-  # - name: holesky
-  #   enabled: false
-  #   portOffset: 2
+  - name: hoodi
+    enabled: false
+    portOffset: 2  # CBT: 8083, cbt-api: 8093
 
 # Infrastructure configuration
 infrastructure:

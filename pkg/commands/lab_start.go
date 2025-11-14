@@ -36,7 +36,10 @@ Example:
 				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
 			}
 
-			orch := orchestrator.NewOrchestrator(log, cfg.Lab)
+			orch, err := orchestrator.NewOrchestrator(log, cfg.Lab)
+			if err != nil {
+				return fmt.Errorf("failed to create orchestrator: %w", err)
+			}
 
 			if err := orch.StartService(cmd.Context(), args[0]); err != nil {
 				return fmt.Errorf("failed to start service: %w", err)

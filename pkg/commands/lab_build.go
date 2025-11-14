@@ -15,18 +15,24 @@ func NewLabBuildCommand(log logrus.FieldLogger, configPath string) *cobra.Comman
 
 	cmd := &cobra.Command{
 		Use:   "build",
-		Short: "Build all lab repositories",
-		Long: `Build all required binaries for the lab stack.
+		Short: "Build all lab projects",
+		Long: `Build all lab projects without starting services.
 
-This command builds:
-- xatu-cbt (infrastructure tool)
-- cbt (transformation engine)
-- cbt-api (REST API server) - requires infrastructure to be running for proto generation
-- lab-backend (API gateway)
-- lab (installs frontend dependencies)
+This is useful for:
+  - Pre-building before 'xcli lab up --no-build'
+  - CI/CD pipelines
+  - Verifying builds without starting infrastructure
 
-Note: This command does NOT start infrastructure or generate protos.
-For a complete build including proto generation, use 'xcli lab up --rebuild'.`,
+Projects built:
+  - xatu-cbt (Phase 0)
+  - CBT, lab-backend, lab (Phase 2, parallel)
+  - Protos and cbt-api (Phase 5-6)
+
+For rebuilding specific projects during development, use 'xcli lab rebuild'.
+
+Examples:
+  xcli lab build         # Build all projects
+  xcli lab build --force # Force rebuild even if binaries exist`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(configPath)
 			if err != nil {

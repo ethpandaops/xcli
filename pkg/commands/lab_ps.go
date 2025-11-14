@@ -25,7 +25,10 @@ func NewLabPsCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
 			}
 
-			orch := orchestrator.NewOrchestrator(log, cfg.Lab)
+			orch, err := orchestrator.NewOrchestrator(log, cfg.Lab)
+			if err != nil {
+				return fmt.Errorf("failed to create orchestrator: %w", err)
+			}
 
 			return orch.Status(cmd.Context())
 		},

@@ -62,27 +62,37 @@ func (m *Manager) runCmd(cmd *exec.Cmd) error {
 	return nil
 }
 
-// BuildAll builds all repositories in the correct order.
+// BuildAll builds all repositories EXCEPT xatu-cbt (built in Phase 0).
+// Runs CBT, lab-backend, and lab in parallel.
 func (m *Manager) BuildAll(ctx context.Context, force bool) error {
-	m.log.Info("building all repositories")
+	m.log.Info("building all repositories (parallel)")
 
-	if err := m.buildXatuCBT(ctx, force); err != nil {
-		return fmt.Errorf("failed to build xatu-cbt: %w", err)
+	// Create dependency graph
+	graph := NewBuildGraph()
+
+	// Add independent nodes (no dependencies = can run in parallel)
+	if err := graph.AddNode("cbt", func() error {
+		return m.BuildCBT(ctx, force)
+	}); err != nil {
+		return err
 	}
 
-	if err := m.buildCBT(ctx, force); err != nil {
-		return fmt.Errorf("failed to build cbt: %w", err)
+	if err := graph.AddNode("lab-backend", func() error {
+		return m.BuildLabBackend(ctx, force)
+	}); err != nil {
+		return err
 	}
 
-	if err := m.buildLabBackend(ctx, force); err != nil {
-		return fmt.Errorf("failed to build lab-backend: %w", err)
+	if err := graph.AddNode("lab", func() error {
+		return m.installLabDeps(ctx, force)
+	}); err != nil {
+		return err
 	}
 
-	if err := m.installLabDeps(ctx, force); err != nil {
-		return fmt.Errorf("failed to install lab dependencies: %w", err)
-	}
+	// Execute all in parallel
+	executor := NewExecutor(graph, m.verbose)
 
-	return nil
+	return executor.Execute(ctx)
 }
 
 // BuildXatuCBT builds only the xatu-cbt binary (needed for infrastructure startup).
@@ -97,7 +107,7 @@ func (m *Manager) XatuCBTBinaryExists() bool {
 	return m.binaryExists(binary)
 }
 
-// buildXatuCBT builds the xatu-cbt binary.
+// buildXatuCBT builds the xatu-cbt binary (Phase 0 only, NOT in BuildAll).
 func (m *Manager) buildXatuCBT(ctx context.Context, force bool) error {
 	binary := filepath.Join(m.cfg.Repos.XatuCBT, "bin", "xatu-cbt")
 
@@ -112,8 +122,8 @@ func (m *Manager) buildXatuCBT(ctx context.Context, force bool) error {
 	return m.runMake(ctx, m.cfg.Repos.XatuCBT, "build")
 }
 
-// buildCBT builds the cbt binary.
-func (m *Manager) buildCBT(ctx context.Context, force bool) error {
+// BuildCBT builds the cbt binary.
+func (m *Manager) BuildCBT(ctx context.Context, force bool) error {
 	binary := filepath.Join(m.cfg.Repos.CBT, "bin", "cbt")
 
 	if !force && m.binaryExists(binary) {
@@ -140,29 +150,48 @@ func (m *Manager) buildCBT(ctx context.Context, force bool) error {
 	return nil
 }
 
-// BuildCBTAPI builds cbt-api (called AFTER proto generation).
+// BuildCBTAPI builds cbt-api with proto generation
+// Proto generation MUST happen first (explicit dependency in graph).
 func (m *Manager) BuildCBTAPI(ctx context.Context, force bool) error {
-	binary := filepath.Join(m.cfg.Repos.CBTAPI, "bin", "server")
+	graph := NewBuildGraph()
 
-	if !force && m.binaryExists(binary) {
-		m.log.WithField("repo", "cbt-api").Info("binary exists, skipping build")
-
-		return nil
+	// Proto generation has no dependencies (root node)
+	if err := graph.AddNode("proto-gen", func() error {
+		return m.GenerateProtos(ctx)
+	}); err != nil {
+		return err
 	}
 
-	m.log.WithField("repo", "cbt-api").Info("building project")
+	// cbt-api build depends on proto generation
+	if err := graph.AddNode("cbt-api", func() error {
+		binary := filepath.Join(m.cfg.Repos.CBTAPI, "bin", "server")
 
-	// Generate OpenAPI and other code (requires proto to be run first)
-	if err := m.runMake(ctx, m.cfg.Repos.CBTAPI, "generate"); err != nil {
-		return fmt.Errorf("make generate failed: %w", err)
+		if !force && m.binaryExists(binary) {
+			m.log.WithField("repo", "cbt-api").Info("binary exists, skipping build")
+
+			return nil
+		}
+
+		m.log.WithField("repo", "cbt-api").Info("building project")
+
+		// Generate OpenAPI and other code (requires proto to be run first)
+		if err := m.runMake(ctx, m.cfg.Repos.CBTAPI, "generate"); err != nil {
+			return fmt.Errorf("make generate failed: %w", err)
+		}
+
+		// Build the binary
+		return m.runMake(ctx, m.cfg.Repos.CBTAPI, "build-binary")
+	}, "proto-gen"); err != nil {
+		return err
 	}
 
-	// Build the binary
-	return m.runMake(ctx, m.cfg.Repos.CBTAPI, "build-binary")
+	executor := NewExecutor(graph, m.verbose)
+
+	return executor.Execute(ctx)
 }
 
-// buildLabBackend builds lab-backend binary.
-func (m *Manager) buildLabBackend(ctx context.Context, force bool) error {
+// BuildLabBackend builds lab-backend binary.
+func (m *Manager) BuildLabBackend(ctx context.Context, force bool) error {
 	binary := filepath.Join(m.cfg.Repos.LabBackend, "bin", "lab-backend")
 
 	if !force && m.binaryExists(binary) {

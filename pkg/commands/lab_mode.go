@@ -14,9 +14,24 @@ import (
 func NewLabModeCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mode <local|hybrid>",
-		Short: "Switch between local and hybrid mode",
-		Long:  `Switch between local mode (all services local) and hybrid mode (external data).`,
-		Args:  cobra.ExactArgs(1),
+		Short: "Switch between local and hybrid modes",
+		Long: `Switch the lab stack between local and hybrid modes.
+
+Modes:
+  local  - Fully local stack with no external dependencies.
+           All services (ClickHouse, Redis) run locally in Docker.
+
+  hybrid - Uses external ClickHouse database for data source.
+           Local ClickHouse CBT and Redis for processing.
+           Requires external_clickhouse configuration in .xcli.yaml.
+
+After switching modes, restart the stack with 'xcli lab up' for changes
+to take effect.
+
+Examples:
+  xcli lab mode local        # Switch to local mode
+  xcli lab mode hybrid       # Switch to hybrid mode`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mode := args[0]
 			if mode != constants.ModeLocal && mode != constants.ModeHybrid {
@@ -92,7 +107,10 @@ func NewLabModeCommand(log logrus.FieldLogger, configPath string) *cobra.Command
 
 			_, _ = fmt.Scanln(&response)
 			if response == "y" || response == "Y" {
-				orch := orchestrator.NewOrchestrator(log, cfg.Lab)
+				orch, err := orchestrator.NewOrchestrator(log, cfg.Lab)
+				if err != nil {
+					return fmt.Errorf("failed to create orchestrator: %w", err)
+				}
 				// Tear down infrastructure completely
 				// This is necessary because local vs hybrid mode use different infrastructure
 				if err := orch.Down(cmd.Context()); err != nil {
