@@ -348,7 +348,15 @@ func (o *Orchestrator) StartService(ctx context.Context, service string) error {
 
 // StopService stops a specific service by name.
 func (o *Orchestrator) StopService(ctx context.Context, service string) error {
-	return o.proc.Stop(service)
+	// Try to stop the process via process manager
+	err := o.proc.Stop(service)
+
+	// Always clean up orphaned processes, even if Stop() failed
+	// (e.g., if the parent process died but children are still running)
+	o.cleanupOrphanedProcessesForService(service)
+
+	// Return the original error from Stop() if there was one
+	return err
 }
 
 // isNetworkEnabled checks if a network is enabled in the configuration.
@@ -553,6 +561,69 @@ func (o *Orchestrator) cleanupOrphanedProcesses() int {
 	}
 
 	return killedCount
+}
+
+// cleanupOrphanedProcessesForService cleans up orphaned processes for a specific service.
+func (o *Orchestrator) cleanupOrphanedProcessesForService(service string) {
+	ports := o.getServicePorts(service)
+	if len(ports) == 0 {
+		return
+	}
+
+	o.log.WithFields(logrus.Fields{
+		"service": service,
+		"ports":   ports,
+	}).Info("checking for orphaned processes")
+
+	conflicts := portutil.CheckPorts(ports)
+	if len(conflicts) == 0 {
+		return
+	}
+
+	o.log.WithFields(logrus.Fields{
+		"service":   service,
+		"conflicts": len(conflicts),
+	}).Info("found orphaned processes for service")
+
+	for _, conflict := range conflicts {
+		if conflict.PID > 0 {
+			o.log.WithFields(logrus.Fields{
+				"pid":     conflict.PID,
+				"port":    conflict.Port,
+				"service": service,
+				"process": conflict.Process,
+			}).Info("killing orphaned process for service")
+
+			if err := portutil.KillProcess(conflict.PID); err != nil {
+				o.log.WithError(err).Warnf("failed to kill process %d", conflict.PID)
+			}
+		}
+	}
+}
+
+// getServicePorts returns the port(s) used by a service.
+func (o *Orchestrator) getServicePorts(service string) []int {
+	switch service {
+	case "lab-frontend":
+		return []int{o.cfg.Ports.LabFrontend}
+	case "lab-backend":
+		return []int{o.cfg.Ports.LabBackend}
+	default:
+		// Check if it's a CBT or CBT-API service
+		for i, network := range o.cfg.EnabledNetworks() {
+			if service == "cbt-"+network.Name {
+				// CBT metrics port
+				return []int{9100 + i}
+			}
+
+			if service == "cbt-api-"+network.Name {
+				// CBT API service port and metrics port
+				return []int{o.cfg.GetCBTAPIPort(network.Name), 9200 + i}
+			}
+		}
+	}
+
+	return nil
 }
 
 // sanitizeURL removes credentials from a URL for display purposes.

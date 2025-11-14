@@ -2,7 +2,6 @@ package portutil
 
 import (
 	"fmt"
-	"net"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -19,17 +18,13 @@ type PortConflict struct {
 // CheckPort checks if a port is available.
 // Returns nil if available, or a PortConflict if the port is in use.
 func CheckPort(port int) *PortConflict {
-	// Try to listen on the port
-	addr := fmt.Sprintf(":%d", port)
-
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		// Port is in use, try to find what's using it
-		return findPortOwner(port)
+	// Use lsof directly to check if the port is in use
+	// This is more reliable than trying to bind, especially for processes
+	// listening on specific interfaces (e.g., localhost)
+	conflict := findPortOwner(port)
+	if conflict != nil && conflict.PID > 0 {
+		return conflict
 	}
-
-	// Port is available
-	listener.Close()
 
 	return nil
 }
@@ -54,12 +49,25 @@ func findPortOwner(port int) *PortConflict {
 	}
 
 	// Try lsof (macOS/Linux)
+	// Note: -sTCP:LISTEN finds listening sockets
 	//nolint:gosec // Port number is validated to be an integer
 	cmd := exec.Command("lsof", "-i", fmt.Sprintf(":%d", port), "-sTCP:LISTEN", "-t")
 
 	output, err := cmd.Output()
-	if err == nil && len(output) > 0 {
-		pidStr := strings.TrimSpace(string(output))
+	if err != nil {
+		// lsof failed or no process found
+		return conflict
+	}
+
+	if len(output) == 0 {
+		// No process listening on this port
+		return conflict
+	}
+
+	// Parse the first PID (in case multiple processes)
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) > 0 {
+		pidStr := strings.TrimSpace(lines[0])
 		if pid, err := strconv.Atoi(pidStr); err == nil {
 			conflict.PID = pid
 			// Get process name

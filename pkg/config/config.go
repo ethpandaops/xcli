@@ -362,7 +362,7 @@ func (c *LabConfig) EnabledNetworks() []NetworkConfig {
 // GetCBTPort returns the CBT port for a given network.
 func (c *LabConfig) GetCBTPort(network string) int {
 	for _, net := range c.Networks {
-		if net.Name == network && net.Enabled {
+		if net.Name == network {
 			return c.Ports.CBTBase + net.PortOffset
 		}
 	}
@@ -373,7 +373,7 @@ func (c *LabConfig) GetCBTPort(network string) int {
 // GetCBTAPIPort returns the cbt-api port for a given network.
 func (c *LabConfig) GetCBTAPIPort(network string) int {
 	for _, net := range c.Networks {
-		if net.Name == network && net.Enabled {
+		if net.Name == network {
 			return c.Ports.CBTAPIBase + net.PortOffset
 		}
 	}
