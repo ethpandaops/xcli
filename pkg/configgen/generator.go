@@ -121,10 +121,11 @@ func (g *Generator) GenerateCBTAPIConfig(network string) (string, error) {
 // GenerateLabBackendConfig generates lab-backend configuration.
 func (g *Generator) GenerateLabBackendConfig() (string, error) {
 	networks := make([]map[string]interface{}, 0, len(g.cfg.Networks))
-	for _, net := range g.cfg.EnabledNetworks() {
+	for _, net := range g.cfg.Networks {
 		networks = append(networks, map[string]interface{}{
-			"Name": net.Name,
-			"Port": g.cfg.GetCBTAPIPort(net.Name),
+			"Name":    net.Name,
+			"Port":    g.cfg.GetCBTAPIPort(net.Name),
+			"Enabled": net.Enabled,
 		})
 	}
 
