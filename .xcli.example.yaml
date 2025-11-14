@@ -23,7 +23,7 @@ networks:
   - name: sepolia
     enabled: false
     portOffset: 1  # CBT: 8082, cbt-api: 8092
-  - name: holesky
+  - name: hoodi
     enabled: false
     portOffset: 2  # CBT: 8083, cbt-api: 8093
 
