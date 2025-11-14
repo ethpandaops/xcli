@@ -5,6 +5,8 @@ metricsAddr: ":{{ .MetricsPort }}"
 
 clickhouse:
   url: "http://default:supersecret@localhost:8123"
+  cluster: "{cluster}"
+  localSuffix: "_local"
   queryTimeout: 10m
   insertTimeout: 5m
   admin:
