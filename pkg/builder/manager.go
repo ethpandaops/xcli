@@ -97,23 +97,6 @@ func (m *Manager) XatuCBTBinaryExists() bool {
 	return m.binaryExists(binary)
 }
 
-// BuildRemaining builds all repositories except xatu-cbt (cbt, lab-backend, lab).
-func (m *Manager) BuildRemaining(ctx context.Context, force bool) error {
-	if err := m.buildCBT(ctx, force); err != nil {
-		return fmt.Errorf("failed to build cbt: %w", err)
-	}
-
-	if err := m.buildLabBackend(ctx, force); err != nil {
-		return fmt.Errorf("failed to build lab-backend: %w", err)
-	}
-
-	if err := m.installLabDeps(ctx, force); err != nil {
-		return fmt.Errorf("failed to install lab dependencies: %w", err)
-	}
-
-	return nil
-}
-
 // buildXatuCBT builds the xatu-cbt binary.
 func (m *Manager) buildXatuCBT(ctx context.Context, force bool) error {
 	binary := filepath.Join(m.cfg.Repos.XatuCBT, "bin", "xatu-cbt")
