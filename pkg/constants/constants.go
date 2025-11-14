@@ -53,13 +53,13 @@ const (
 
 // GitHub repository URLs.
 const (
-	GitHubOrg          = "ethpandaops"
-	RepoCBT            = "cbt"
-	RepoXatuCBT        = "xatu-cbt"
-	RepoCBTAPI         = "cbt-api"
-	RepoLabBackend     = "lab-backend"
-	RepoLab            = "lab"
-	GitHubURLTemplate  = "https://github.com/%s/%s.git"
+	GitHubOrg         = "ethpandaops"
+	RepoCBT           = "cbt"
+	RepoXatuCBT       = "xatu-cbt"
+	RepoCBTAPI        = "cbt-api"
+	RepoLabBackend    = "lab-backend"
+	RepoLab           = "lab"
+	GitHubURLTemplate = "https://github.com/%s/%s.git"
 )
 
 // GetGitHubURL returns the GitHub clone URL for a repository.

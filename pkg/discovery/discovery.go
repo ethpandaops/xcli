@@ -66,9 +66,11 @@ func (d *Discovery) DiscoverRepos() (*config.LabReposConfig, error) {
 				if info.branch != "" {
 					branchInfo = fmt.Sprintf(" (branch: %s)", info.branch)
 				}
+
 				fmt.Printf("Would you like to clone it from GitHub?%s (Y/n): ", branchInfo)
 
 				var response string
+
 				_, _ = fmt.Scanln(&response)
 
 				// Default to yes if empty or "y"/"Y"
