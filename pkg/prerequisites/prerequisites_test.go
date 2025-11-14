@@ -438,24 +438,19 @@ func TestKnownRepos(t *testing.T) {
 	lab, exists := defs["lab"]
 	require.True(t, exists, "lab should have prerequisites defined")
 	assert.Equal(t, "lab", lab.RepoName)
-	assert.Len(t, lab.Prerequisites, 3, "lab should have 3 prerequisites")
+	assert.Len(t, lab.Prerequisites, 2, "lab should have 2 prerequisites (no .env copy)")
 
-	// First prerequisite: file copy
-	assert.Equal(t, PrerequisiteTypeFileCopy, lab.Prerequisites[0].Type)
-	assert.Equal(t, ".env.example", lab.Prerequisites[0].SourcePath)
-	assert.Equal(t, ".env", lab.Prerequisites[0].DestinationPath)
+	// First prerequisite: pnpm install
+	assert.Equal(t, PrerequisiteTypeCommand, lab.Prerequisites[0].Type)
+	assert.Equal(t, "pnpm", lab.Prerequisites[0].Command)
+	assert.Equal(t, []string{"install"}, lab.Prerequisites[0].Args)
+	assert.Equal(t, "node_modules", lab.Prerequisites[0].SkipIfExists)
 
-	// Second prerequisite: pnpm install
+	// Second prerequisite: pnpm build
 	assert.Equal(t, PrerequisiteTypeCommand, lab.Prerequisites[1].Type)
 	assert.Equal(t, "pnpm", lab.Prerequisites[1].Command)
-	assert.Equal(t, []string{"install"}, lab.Prerequisites[1].Args)
-	assert.Equal(t, "node_modules", lab.Prerequisites[1].SkipIfExists)
-
-	// Third prerequisite: pnpm build
-	assert.Equal(t, PrerequisiteTypeCommand, lab.Prerequisites[2].Type)
-	assert.Equal(t, "pnpm", lab.Prerequisites[2].Command)
-	assert.Equal(t, []string{"run", "build"}, lab.Prerequisites[2].Args)
-	assert.Equal(t, "dist", lab.Prerequisites[2].SkipIfExists)
+	assert.Equal(t, []string{"run", "build"}, lab.Prerequisites[1].Args)
+	assert.Equal(t, "dist", lab.Prerequisites[1].SkipIfExists)
 
 	// Test cbt-api
 	cbtAPI, exists := defs["cbt-api"]
