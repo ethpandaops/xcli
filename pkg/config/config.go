@@ -190,11 +190,6 @@ func Load(path string) (*Config, error) {
 		}
 	}
 
-	// Apply defaults for missing sections
-	if cfg.Lab == nil {
-		cfg.Lab = DefaultLab()
-	}
-
 	return &cfg, nil
 }
 
