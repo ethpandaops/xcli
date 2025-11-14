@@ -67,11 +67,12 @@ func main() {
 		return nil
 	}
 
+	// Add root-level commands
+	rootCmd.AddCommand(commands.NewInitCommand(log, configPath))
+	rootCmd.AddCommand(commands.NewConfigCommand(log, configPath))
+
 	// Add stack commands
 	rootCmd.AddCommand(commands.NewLabCommand(log, configPath))
-
-	// Add global config command (shows all stack configs)
-	rootCmd.AddCommand(commands.NewConfigCommand(log, configPath))
 
 	// Execute
 	if err := rootCmd.ExecuteContext(ctx); err != nil {

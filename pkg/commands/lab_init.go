@@ -17,12 +17,15 @@ func NewLabInitCommand(log logrus.FieldLogger, configPath string) *cobra.Command
 	return &cobra.Command{
 		Use:   "init",
 		Short: "Initialize lab stack configuration",
-		Long: `Initialize lab stack by discovering repositories and creating/updating configuration.
+		Long: `Initialize lab stack by discovering repositories and configuring the lab section.
 
 This command will:
 1. Scan the parent directory for required lab repositories (cbt, xatu-cbt, cbt-api, lab-backend, lab)
-2. Validate that each repository has the expected structure
-3. Create or update .xcli.yaml configuration file with lab stack configuration`,
+2. Offer to clone any missing repositories from GitHub
+3. Validate that each repository has the expected structure
+4. Update the lab section in .xcli.yaml (creates file if it doesn't exist)
+
+If you haven't run 'xcli init' yet, this command will create the config file automatically.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runLabInit(cmd.Context(), log, configPath)
 		},
@@ -88,7 +91,7 @@ func runLabInit(ctx context.Context, log logrus.FieldLogger, configPath string) 
 		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 
-	log.WithField("file", configPath).Info("configuration file updated")
+	log.WithField("file", configPath).Info("lab configuration updated")
 
 	// Print summary
 	fmt.Println("\n✓ Lab stack initialization complete!")
@@ -99,9 +102,9 @@ func runLabInit(ctx context.Context, log logrus.FieldLogger, configPath string) 
 	fmt.Printf("  lab-backend: %s\n", repos.LabBackend)
 	fmt.Printf("  lab:         %s\n", repos.Lab)
 
-	fmt.Printf("\nConfiguration saved to: %s\n", configPath)
+	fmt.Printf("\nLab configuration saved to: %s\n", configPath)
 	fmt.Printf("\nNext steps:\n")
-	fmt.Printf("  1. Review and edit %s if needed\n", configPath)
+	fmt.Printf("  1. Review and edit the 'lab:' section in %s if needed\n", configPath)
 	fmt.Printf("  2. Run 'xcli lab up' to start the lab stack\n\n")
 
 	return nil
