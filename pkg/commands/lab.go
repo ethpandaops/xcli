@@ -9,8 +9,28 @@ import (
 func NewLabCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "lab",
-		Short: "Manage the lab stack",
-		Long:  `Commands for managing the lab development stack and services.`,
+		Short: "Manage the xcli lab environment",
+		Long: `Manage the complete xcli lab environment including initialization,
+infrastructure, builds, and services.
+
+The lab operates in two modes:
+  - local: Fully local stack with no external dependencies
+  - hybrid: Uses external ClickHouse database with local processing
+
+Common workflows:
+  1. Initial setup:
+     xcli lab init           # Clone repos, check prerequisites
+     xcli lab up             # Start the stack
+
+  2. Local development:
+     (make code changes)
+     xcli lab rebuild cbt-api   # Rebuild specific component
+
+  3. Mode switching:
+     xcli lab mode hybrid    # Switch to hybrid mode
+     xcli lab up             # Restart in new mode
+
+Use 'xcli lab [command] --help' for more information about a command.`,
 	}
 
 	// Add lab subcommands
@@ -18,6 +38,7 @@ func NewLabCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	cmd.AddCommand(NewLabUpCommand(log, configPath))
 	cmd.AddCommand(NewLabDownCommand(log, configPath))
 	cmd.AddCommand(NewLabBuildCommand(log, configPath))
+	cmd.AddCommand(NewLabRebuildCommand(log, configPath))
 	cmd.AddCommand(NewLabPsCommand(log, configPath))
 	cmd.AddCommand(NewLabLogsCommand(log, configPath))
 	cmd.AddCommand(NewLabStartCommand(log, configPath))

@@ -23,10 +23,25 @@ func NewLabUpCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "up",
-		Short: "Start the lab stack",
-		Long: `Start infrastructure and all services in the lab development stack.
+		Short: "Start the xcli lab stack",
+		Long: `Start the complete xcli lab stack including infrastructure and services.
 
-By default, this command will automatically build any missing binaries. Use flags to control build behavior.`,
+Prerequisites must be satisfied before running this command. If you haven't
+already, run 'xcli lab init' first to ensure all prerequisites are met.
+
+The stack starts in the configured mode (local or hybrid). Use 'xcli lab mode'
+to switch between modes.
+
+Flags:
+  --no-build  Skip building projects (use existing builds)
+  --rebuild   Force rebuild all projects from scratch
+  --verbose   Enable verbose output for all operations
+  --mode      Override mode for this run (local or hybrid)
+
+Examples:
+  xcli lab up              # Normal startup
+  xcli lab up --verbose    # Startup with detailed output
+  xcli lab up --rebuild    # Force rebuild everything`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Load config
 			cfg, err := config.Load(configPath)
@@ -45,12 +60,15 @@ By default, this command will automatically build any missing binaries. Use flag
 			}
 
 			// Validate lab config
-			if err := cfg.Lab.Validate(); err != nil {
-				return fmt.Errorf("invalid lab configuration: %w", err)
+			if validationErr := cfg.Lab.Validate(); validationErr != nil {
+				return fmt.Errorf("invalid lab configuration: %w", validationErr)
 			}
 
 			// Create orchestrator
-			orch := orchestrator.NewOrchestrator(log, cfg.Lab)
+			orch, err := orchestrator.NewOrchestrator(log, cfg.Lab)
+			if err != nil {
+				return fmt.Errorf("failed to create orchestrator: %w", err)
+			}
 
 			// Set verbose mode
 			orch.SetVerbose(verbose)

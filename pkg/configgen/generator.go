@@ -10,6 +10,7 @@ import (
 	"text/template"
 
 	"github.com/ethpandaops/xcli/pkg/config"
+	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
@@ -52,7 +53,7 @@ func (g *Generator) GenerateCBTConfig(network string, overridesPath string) (str
 	// - If Xatu mode is "local", use "default" (local Xatu cluster uses default database)
 	// - If Xatu mode is "external", use configured ExternalDatabase (or "default" if not set)
 	externalDatabase := "default"
-	if g.cfg.Infrastructure.ClickHouse.Xatu.Mode == "external" && g.cfg.Infrastructure.ClickHouse.Xatu.ExternalDatabase != "" {
+	if g.cfg.Infrastructure.ClickHouse.Xatu.Mode == constants.InfraModeExternal && g.cfg.Infrastructure.ClickHouse.Xatu.ExternalDatabase != "" {
 		externalDatabase = g.cfg.Infrastructure.ClickHouse.Xatu.ExternalDatabase
 	}
 
@@ -60,7 +61,7 @@ func (g *Generator) GenerateCBTConfig(network string, overridesPath string) (str
 		"Network":                    network,
 		"MetricsPort":                metricsPort,
 		"RedisDB":                    redisDB,
-		"IsHybrid":                   g.cfg.Mode == "hybrid",
+		"IsHybrid":                   g.cfg.Mode == constants.ModeHybrid,
 		"XatuMode":                   g.cfg.Infrastructure.ClickHouse.Xatu.Mode,
 		"ExternalClickHouseURL":      g.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL,
 		"ExternalClickHouseDatabase": externalDatabase,

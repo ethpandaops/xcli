@@ -8,14 +8,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ethpandaops/xcli/pkg/builder"
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/configgen"
 	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/ethpandaops/xcli/pkg/infrastructure"
+	"github.com/ethpandaops/xcli/pkg/mode"
 	"github.com/ethpandaops/xcli/pkg/portutil"
-	"github.com/ethpandaops/xcli/pkg/prerequisites"
 	"github.com/ethpandaops/xcli/pkg/process"
 	"github.com/sirupsen/logrus"
 )
@@ -24,6 +25,7 @@ import (
 type Orchestrator struct {
 	log       logrus.FieldLogger
 	cfg       *config.LabConfig
+	mode      mode.Mode
 	infra     *infrastructure.Manager
 	proc      *process.Manager
 	builder   *builder.Manager
@@ -33,7 +35,7 @@ type Orchestrator struct {
 }
 
 // NewOrchestrator creates a new Orchestrator instance.
-func NewOrchestrator(log logrus.FieldLogger, cfg *config.LabConfig) *Orchestrator {
+func NewOrchestrator(log logrus.FieldLogger, cfg *config.LabConfig) (*Orchestrator, error) {
 	stateDir := ".xcli"
 
 	// Load user-provided CBT overrides if they exist
@@ -44,16 +46,32 @@ func NewOrchestrator(log logrus.FieldLogger, cfg *config.LabConfig) *Orchestrato
 		overrides = config.DefaultCBTOverrides()
 	}
 
+	// Create mode from config (wrapping LabConfig to get Config)
+	fullConfig := &config.Config{Lab: cfg}
+
+	m, err := mode.NewMode(fullConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create mode: %w", err)
+	}
+
+	// Validate mode-specific config requirements
+	if err := m.ValidateConfig(fullConfig); err != nil {
+		return nil, fmt.Errorf("mode validation failed: %w", err)
+	}
+
+	log.WithField("mode", m.Name()).Info("initialized orchestrator")
+
 	return &Orchestrator{
 		log:       log.WithField("component", "orchestrator"),
 		cfg:       cfg,
-		infra:     infrastructure.NewManager(log, cfg),
+		mode:      m,
+		infra:     infrastructure.NewManager(log, cfg, m),
 		proc:      process.NewManager(log, stateDir),
 		builder:   builder.NewManager(log, cfg),
 		stateDir:  stateDir,
 		verbose:   false,
 		overrides: overrides,
-	}
+	}, nil
 }
 
 // SetVerbose sets verbose mode for build/setup command output.
@@ -63,19 +81,26 @@ func (o *Orchestrator) SetVerbose(verbose bool) {
 	o.infra.SetVerbose(verbose)
 }
 
+// Builder returns the build manager for direct access to build methods.
+// Used by rebuild command to access individual build functions.
+func (o *Orchestrator) Builder() *builder.Manager {
+	return o.builder
+}
+
 // Up starts the complete stack.
 func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) error {
 	o.log.Info("starting lab stack")
 
-	// Validate prerequisites before building
+	// Fast prerequisite validation (read-only checks, no fixing)
+	// Fails fast with helpful error if prerequisites not satisfied
 	if err := o.validatePrerequisites(ctx); err != nil {
-		return fmt.Errorf("prerequisites validation failed: %w", err)
+		return fmt.Errorf("prerequisites not satisfied: %w\n\nRun 'xcli lab init' to satisfy prerequisites", err)
 	}
 
 	// Test external ClickHouse connection early (before builds and infrastructure)
-	if o.cfg.Infrastructure.ClickHouse.Xatu.Mode == constants.InfraModeExternal {
+	if o.mode.NeedsExternalClickHouse() {
 		if o.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL == "" {
-			return fmt.Errorf("external ClickHouse URL is required when using external mode")
+			return fmt.Errorf("external ClickHouse URL is required when using hybrid mode")
 		}
 
 		o.log.WithField("url", o.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL).Info("testing external ClickHouse connection")
@@ -110,13 +135,18 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 		return fmt.Errorf("stack is already running")
 	}
 
-	// Phase 0: Build xatu-cbt (required for infrastructure startup)
+	// Phase 0: Build xatu-cbt (ONCE, not in Phase 2)
+	// Note: xatu-cbt is built separately here because infrastructure needs it before Phase 2
+	// Reason: Infrastructure startup requires xatu-cbt binary to run migrations and services
+	// This ensures xatu-cbt is ready before starting infrastructure in Phase 1
 	if !skipBuild {
-		o.log.Info("building xatu-cbt")
+		o.log.Info("building xatu-cbt (required for infrastructure)")
 
 		if err := o.builder.BuildXatuCBT(ctx, forceBuild); err != nil {
 			return fmt.Errorf("failed to build xatu-cbt: %w", err)
 		}
+
+		o.log.Info("xatu-cbt built successfully")
 	} else {
 		// Check if xatu-cbt binary exists
 		if !o.builder.XatuCBTBinaryExists() {
@@ -125,19 +155,25 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	}
 
 	// Phase 1: Start infrastructure
-	o.log.Info("starting infrastructure")
+	o.log.WithField("mode", o.mode.Name()).Info("starting infrastructure")
 
 	if err := o.infra.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start infrastructure: %w", err)
 	}
 
-	// Phase 2: Build all repositories
+	o.log.WithField("mode", o.mode.Name()).Info("infrastructure ready")
+
+	// Phase 2: Build all repositories (parallel, excluding xatu-cbt)
+	// Note: xatu-cbt already built in Phase 0
+	// BuildAll now runs: CBT || lab-backend || lab (parallel execution)
 	if !skipBuild {
-		o.log.Info("building repositories")
+		o.log.Info("building repositories (parallel)")
 
 		if err := o.builder.BuildAll(ctx, forceBuild); err != nil {
 			return fmt.Errorf("failed to build repositories: %w", err)
 		}
+
+		o.log.Info("all repositories built successfully")
 	} else {
 		// Check if required binaries exist
 		status := o.builder.CheckBinariesExist()
@@ -158,17 +194,12 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	// Phase 4: Generate configs (needed for proto generation)
 	o.log.Info("generating service configurations")
 
-	if err := o.generateConfigs(); err != nil {
+	if err := o.GenerateConfigs(); err != nil {
 		return fmt.Errorf("failed to generate configs: %w", err)
 	}
 
-	// Generate protos
+	// Build cbt-api (includes proto generation in its DAG)
 	if !skipBuild {
-		if err := o.builder.GenerateProtos(ctx); err != nil {
-			return fmt.Errorf("failed to generate protos: %w", err)
-		}
-
-		// Build cbt-api
 		if err := o.builder.BuildCBTAPI(ctx, forceBuild); err != nil {
 			return fmt.Errorf("failed to build cbt-api: %w", err)
 		}
@@ -340,19 +371,19 @@ func (o *Orchestrator) Logs(ctx context.Context, service string, follow bool) er
 // Status shows service status.
 func (o *Orchestrator) Status(ctx context.Context) error {
 	// Show current mode
-	fmt.Printf("Mode: %s\n\n", o.cfg.Mode)
+	fmt.Printf("Mode: %s\n\n", o.mode.Name())
 
 	// Show infrastructure status
 	fmt.Println("Infrastructure:")
 
 	infraStatus := o.infra.Status()
 
-	// In hybrid mode, handle Xatu ClickHouse differently
-	isHybrid := o.cfg.Mode == constants.ModeHybrid
+	// Use mode interface to determine if external ClickHouse is used
+	needsExternal := o.mode.NeedsExternalClickHouse()
 
 	for name, running := range infraStatus {
 		// Skip showing Xatu ClickHouse status in hybrid mode (it's external)
-		if isHybrid && name == "ClickHouse Xatu" {
+		if needsExternal && name == "ClickHouse Xatu" {
 			continue
 		}
 
@@ -365,7 +396,7 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 	}
 
 	// In hybrid mode, show external Xatu connection info
-	if isHybrid {
+	if needsExternal {
 		externalInfo := o.sanitizeURL(o.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL)
 		fmt.Printf("  %-20s ↗ external (%s)\n",
 			"ClickHouse Xatu",
@@ -410,36 +441,48 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 	return nil
 }
 
-// validatePrerequisites checks that all repo prerequisites are met.
+// validatePrerequisites performs fast read-only checks (no auto-fixing).
+// Validates that required files/directories exist without running expensive operations.
+// Users must run 'xcli lab init' to satisfy prerequisites.
 func (o *Orchestrator) validatePrerequisites(ctx context.Context) error {
-	o.log.Info("validating prerequisites")
+	o.log.Info("validating prerequisites (fast check)")
 
-	prereqChecker := prerequisites.NewChecker(o.log)
-
-	// Check each configured repo
-	repoConfigs := map[string]string{
-		"lab-backend": o.cfg.Repos.LabBackend,
-		"lab":         o.cfg.Repos.Lab,
+	// Check that all required repositories exist
+	requiredRepos := map[string]string{
 		"cbt":         o.cfg.Repos.CBT,
 		"xatu-cbt":    o.cfg.Repos.XatuCBT,
+		"cbt-api":     o.cfg.Repos.CBTAPI,
+		"lab-backend": o.cfg.Repos.LabBackend,
+		"lab":         o.cfg.Repos.Lab,
 	}
 
-	for repoName, repoPath := range repoConfigs {
+	for repoName, repoPath := range requiredRepos {
 		if repoPath == "" {
-			continue // Skip unconfigured repos
+			return fmt.Errorf("repository %s not configured", repoName)
 		}
 
-		if err := prereqChecker.Check(ctx, repoPath, repoName); err != nil {
-			// Prerequisites not met - try to run them
-			o.log.WithField("repo", repoName).Warn("prerequisites not met, attempting to run")
-
-			if runErr := prereqChecker.Run(ctx, repoPath, repoName); runErr != nil {
-				return fmt.Errorf("failed to run prerequisites for %s: %w", repoName, runErr)
-			}
+		if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+			return fmt.Errorf("repository %s not found at %s", repoName, repoPath)
 		}
 	}
 
-	o.log.Info("prerequisites validation complete")
+	// Check that critical files exist (quick validation)
+	criticalPaths := map[string]string{
+		"lab node_modules":   filepath.Join(o.cfg.Repos.Lab, "node_modules"),
+		"lab-backend .env":   filepath.Join(o.cfg.Repos.LabBackend, ".env"),
+		"lab-backend go.mod": filepath.Join(o.cfg.Repos.LabBackend, "go.mod"),
+		"cbt go.mod":         filepath.Join(o.cfg.Repos.CBT, "go.mod"),
+		"xatu-cbt Makefile":  filepath.Join(o.cfg.Repos.XatuCBT, "Makefile"),
+		"xatu-cbt docker":    filepath.Join(o.cfg.Repos.XatuCBT, "docker-compose.platform.yml"),
+	}
+
+	for name, path := range criticalPaths {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return fmt.Errorf("required file/directory missing: %s (at %s)", name, path)
+		}
+	}
+
+	o.log.Info("prerequisites validation passed")
 
 	return nil
 }
@@ -546,8 +589,9 @@ func (o *Orchestrator) copyCustomConfig(customPath, destPath string) error {
 	return nil
 }
 
-// generateConfigs generates configuration files for all services.
-func (o *Orchestrator) generateConfigs() error {
+// GenerateConfigs generates configuration files for all services.
+// Public method so it can be called by rebuild commands.
+func (o *Orchestrator) GenerateConfigs() error {
 	configsDir := filepath.Join(o.stateDir, "configs")
 	if err := os.MkdirAll(configsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create configs directory: %w", err)
@@ -690,6 +734,101 @@ func (o *Orchestrator) startServices(ctx context.Context) error {
 	return nil
 }
 
+// AreServicesRunning checks if CBT and cbt-api services are currently running.
+// Returns true if at least one service is running (safe to restart).
+func (o *Orchestrator) AreServicesRunning() bool {
+	for _, network := range o.cfg.EnabledNetworks() {
+		cbtService := constants.ServiceNameCBT(network.Name)
+		cbtAPIService := constants.ServiceNameCBTAPI(network.Name)
+
+		if _, exists := o.proc.Get(cbtService); exists {
+			return true
+		}
+
+		if _, exists := o.proc.Get(cbtAPIService); exists {
+			return true
+		}
+	}
+
+	return false
+}
+
+// RestartServices restarts cbt-api and CBT engines without full stack restart.
+// Used by 'xcli lab rebuild xatu-cbt' to apply proto/config changes.
+// Leverages existing process manager (o.proc) for service lifecycle management.
+func (o *Orchestrator) RestartServices(ctx context.Context, verbose bool) error {
+	if verbose {
+		fmt.Println("Restarting services (cbt-api + CBT engines)...")
+	}
+
+	// Get list of services to restart (cbt-api and CBT engines only)
+	// Service names follow patterns: "cbt-<network>", "cbt-api-<network>"
+	enabledNetworks := o.cfg.EnabledNetworks()
+	servicesToRestart := make([]string, 0, 2*len(enabledNetworks))
+
+	// Collect CBT engine service names for all enabled networks
+	for _, network := range enabledNetworks {
+		servicesToRestart = append(servicesToRestart, constants.ServiceNameCBT(network.Name))
+	}
+
+	// Collect cbt-api service names for all enabled networks
+	for _, network := range enabledNetworks {
+		servicesToRestart = append(servicesToRestart, constants.ServiceNameCBTAPI(network.Name))
+	}
+
+	if verbose {
+		fmt.Printf("Services to restart: %v\n", servicesToRestart)
+	}
+
+	// Stop all target services first
+	for _, serviceName := range servicesToRestart {
+		if verbose {
+			fmt.Printf("Stopping %s...\n", serviceName)
+		}
+
+		// Use existing process manager Stop method
+		if err := o.proc.Stop(serviceName); err != nil {
+			// Log warning but continue - service might not be running
+			if verbose {
+				fmt.Printf("Warning: Failed to stop %s: %v\n", serviceName, err)
+			}
+		}
+	}
+
+	// Wait for cleanup
+	time.Sleep(500 * time.Millisecond)
+
+	// Use background context for long-running processes
+	processCtx := context.Background()
+
+	// Restart services in proper order
+	// 1. CBT engines first
+	for _, network := range o.cfg.EnabledNetworks() {
+		if verbose {
+			fmt.Printf("Starting CBT engine for %s...\n", network.Name)
+		}
+
+		if err := o.startCBTEngine(processCtx, network.Name); err != nil {
+			return fmt.Errorf("failed to restart CBT engine for %s: %w", network.Name, err)
+		}
+	}
+
+	// 2. cbt-api second
+	for _, network := range o.cfg.EnabledNetworks() {
+		if verbose {
+			fmt.Printf("Starting cbt-api for %s...\n", network.Name)
+		}
+
+		if err := o.startCBTAPI(processCtx, network.Name); err != nil {
+			return fmt.Errorf("failed to restart cbt-api for %s: %w", network.Name, err)
+		}
+	}
+
+	fmt.Println("✓ Services restarted successfully")
+
+	return nil
+}
+
 // startCBTEngine starts a CBT engine for a network.
 func (o *Orchestrator) startCBTEngine(ctx context.Context, network string) error {
 	cbtBinary := filepath.Join(o.cfg.Repos.CBT, constants.DirBin, constants.BinaryCBT)
@@ -707,7 +846,7 @@ func (o *Orchestrator) startCBTEngine(ctx context.Context, network string) error
 
 	cmd.Env = append(os.Environ(), fmt.Sprintf("NETWORK=%s", network))
 
-	return o.proc.Start(ctx, constants.ServiceNameCBT(network), cmd)
+	return o.proc.Start(ctx, constants.ServiceNameCBT(network), cmd, nil)
 }
 
 // startCBTAPI starts cbt-api for a network.
@@ -725,7 +864,7 @@ func (o *Orchestrator) startCBTAPI(ctx context.Context, network string) error {
 	cmd := exec.CommandContext(ctx, apiBinary, "--config", configPath)
 	cmd.Dir = o.cfg.Repos.CBTAPI
 
-	return o.proc.Start(ctx, constants.ServiceNameCBTAPI(network), cmd)
+	return o.proc.Start(ctx, constants.ServiceNameCBTAPI(network), cmd, nil)
 }
 
 // startLabBackend starts lab-backend.
@@ -743,7 +882,7 @@ func (o *Orchestrator) startLabBackend(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, backendBinary, "--config", configPath)
 	cmd.Dir = o.cfg.Repos.LabBackend
 
-	return o.proc.Start(ctx, constants.ServiceLabBackend, cmd)
+	return o.proc.Start(ctx, constants.ServiceLabBackend, cmd, nil)
 }
 
 // startLabFrontend starts the lab frontend dev server.
@@ -774,5 +913,5 @@ func (o *Orchestrator) startLabFrontend(ctx context.Context) error {
 		fmt.Sprintf("VITE_BACKEND_URL=http://localhost:%d", o.cfg.Ports.LabBackend),
 	)
 
-	return o.proc.Start(ctx, constants.ServiceLabFrontend, cmd)
+	return o.proc.Start(ctx, constants.ServiceLabFrontend, cmd, nil)
 }

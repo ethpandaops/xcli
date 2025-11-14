@@ -17,16 +17,18 @@ import (
 func NewLabInitCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
-		Short: "Initialize lab stack configuration",
-		Long: `Initialize lab stack by discovering repositories and configuring the lab section.
+		Short: "Initialize the xcli lab environment",
+		Long: `Initialize the xcli lab environment by discovering repositories,
+checking prerequisites, and ensuring everything is ready to start.
 
-This command will:
-1. Scan the parent directory for required lab repositories (cbt, xatu-cbt, cbt-api, lab-backend, lab)
-2. Offer to clone any missing repositories from GitHub
-3. Validate that each repository has the expected structure
-4. Update the lab section in .xcli.yaml (creates file if it doesn't exist)
+This command should be run once after installation, or when setting up
+a new machine. It will:
+  - Discover required repositories (lab, xatu-cbt, cbt-api, lab-backend, cbt)
+  - Clone missing repositories
+  - Check and install prerequisites (dependencies, node_modules, etc.)
+  - Validate configuration
 
-If you haven't run 'xcli init' yet, this command will create the config file automatically.`,
+After 'xcli lab init' succeeds, you can start the stack with 'xcli lab up'.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runLabInit(cmd.Context(), log, configPath)
 		},

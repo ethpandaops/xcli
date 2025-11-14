@@ -54,9 +54,12 @@ type NetworkConfig struct {
 
 // InfrastructureConfig contains infrastructure settings.
 type InfrastructureConfig struct {
-	ClickHouse ClickHouseConfig `yaml:"clickhouse"`
-	Redis      RedisConfig      `yaml:"redis"`
-	Volumes    VolumesConfig    `yaml:"volumes"`
+	ClickHouse         ClickHouseConfig `yaml:"clickhouse"`
+	Redis              RedisConfig      `yaml:"redis"`
+	Volumes            VolumesConfig    `yaml:"volumes"`
+	ClickHouseXatuPort int              `yaml:"clickhouseXatuPort"`
+	ClickHouseCBTPort  int              `yaml:"clickhouseCbtPort"`
+	RedisPort          int              `yaml:"redisPort"`
 }
 
 // ClickHouseConfig contains ClickHouse cluster configuration.
@@ -126,15 +129,19 @@ func DefaultLab() *LabConfig {
 		Mode: constants.ModeLocal,
 		Networks: []NetworkConfig{
 			{Name: "mainnet", Enabled: true, PortOffset: 0},
-			{Name: "sepolia", Enabled: true, PortOffset: 1},
+			{Name: "sepolia", Enabled: false, PortOffset: 1},
+			{Name: "hoodi", Enabled: false, PortOffset: 2},
 		},
 		Infrastructure: InfrastructureConfig{
 			ClickHouse: ClickHouseConfig{
 				Xatu: ClickHouseClusterConfig{Mode: constants.InfraModeLocal},
 				CBT:  ClickHouseClusterConfig{Mode: constants.InfraModeLocal},
 			},
-			Redis:   RedisConfig{Port: 6380},
-			Volumes: VolumesConfig{Persist: true},
+			Redis:              RedisConfig{Port: 6380},
+			Volumes:            VolumesConfig{Persist: true},
+			ClickHouseXatuPort: 8125,
+			ClickHouseCBTPort:  8123,
+			RedisPort:          6380,
 		},
 		Ports: LabPortsConfig{
 			LabBackend:  8080,
@@ -190,7 +197,32 @@ func Load(path string) (*Config, error) {
 		}
 	}
 
+	// Apply defaults to loaded config
+	cfg.setDefaults()
+
 	return &cfg, nil
+}
+
+// setDefaults applies default values to unset fields.
+func (c *Config) setDefaults() {
+	if c.Lab == nil {
+		c.Lab = DefaultLab()
+
+		return
+	}
+
+	// Infrastructure defaults
+	if c.Lab.Infrastructure.ClickHouseXatuPort == 0 {
+		c.Lab.Infrastructure.ClickHouseXatuPort = 8123
+	}
+
+	if c.Lab.Infrastructure.ClickHouseCBTPort == 0 {
+		c.Lab.Infrastructure.ClickHouseCBTPort = 8124
+	}
+
+	if c.Lab.Infrastructure.RedisPort == 0 {
+		c.Lab.Infrastructure.RedisPort = 6380
+	}
 }
 
 // Save writes the configuration to a file.

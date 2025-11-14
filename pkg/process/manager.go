@@ -2,6 +2,7 @@ package process
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -45,8 +46,21 @@ func NewManager(log logrus.FieldLogger, stateDir string) *Manager {
 	return m
 }
 
-// Start starts a process.
-func (m *Manager) Start(ctx context.Context, name string, cmd *exec.Cmd) error {
+// PIDFileData represents the structure of a PID file.
+type PIDFileData struct {
+	Version   int       `json:"version"` // Format version (currently 1)
+	PID       int       `json:"pid"`
+	LogFile   string    `json:"logFile"`
+	Command   string    `json:"command"`   // Binary path
+	Args      []string  `json:"args"`      // Command arguments
+	StartedAt time.Time `json:"startedAt"` // ISO8601 timestamp
+}
+
+const pidFileVersion = 1
+
+// Start starts a new process with optional health checking.
+// If healthCheck is nil, uses NoOpHealthChecker (existing behavior).
+func (m *Manager) Start(ctx context.Context, name string, cmd *exec.Cmd, healthCheck HealthChecker) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -91,13 +105,33 @@ func (m *Manager) Start(ctx context.Context, name string, cmd *exec.Cmd) error {
 
 	m.processes[name] = process
 
-	// Save PID to disk
-	m.savePID(name, process.PID, process.LogFile)
+	// Save PID to disk (JSON format)
+	m.savePID(name, process, cmd)
 
+	// Default to no-op health checker if none provided
+	if healthCheck == nil {
+		healthCheck = &NoOpHealthChecker{}
+	}
+
+	// Run health check after starting
 	m.log.WithFields(logrus.Fields{
-		"name": name,
-		"pid":  process.PID,
-	}).Info("process started")
+		"name":         name,
+		"pid":          process.PID,
+		"health_check": healthCheck.Name(),
+	}).Debug("running health check")
+
+	if err := healthCheck.Check(ctx); err != nil {
+		// Health check failed - kill the process
+		m.log.WithError(err).Warn("health check failed, stopping process")
+
+		if stopErr := m.Stop(name); stopErr != nil {
+			m.log.WithError(stopErr).Warn("failed to stop unhealthy process")
+		}
+
+		return fmt.Errorf("health check failed: %w", err)
+	}
+
+	m.log.WithField("name", name).Info("process started and healthy")
 
 	// Monitor process in background
 	go m.monitor(name, process, logFd)
@@ -279,8 +313,8 @@ func (m *Manager) Restart(ctx context.Context, name string) error {
 	newCmd.Dir = oldCmd.Dir
 	newCmd.Env = oldCmd.Env
 
-	// Start again
-	return m.Start(ctx, name, newCmd)
+	// Start again (no health check for restart)
+	return m.Start(ctx, name, newCmd, nil)
 }
 
 // List returns all running processes.
@@ -318,6 +352,20 @@ func (m *Manager) isRunning(p *Process) bool {
 	return err == nil
 }
 
+// IsRunning checks if a process with the given name is running.
+// Public method that implements ProcessManager interface.
+func (m *Manager) IsRunning(name string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	p, exists := m.processes[name]
+	if !exists {
+		return false
+	}
+
+	return m.isRunning(p)
+}
+
 // TailLogs tails the log file for a process.
 func (m *Manager) TailLogs(ctx context.Context, name string, follow bool) error {
 	m.mu.RLock()
@@ -349,20 +397,35 @@ func (m *Manager) TailLogs(ctx context.Context, name string, follow bool) error 
 	return nil
 }
 
-// savePID saves a process PID to disk.
-func (m *Manager) savePID(name string, pid int, logFile string) {
+// savePID saves a process PID to disk in JSON format.
+func (m *Manager) savePID(name string, p *Process, cmd *exec.Cmd) {
 	pidDir := filepath.Join(m.stateDir, constants.DirPIDs)
 	if err := os.MkdirAll(pidDir, 0755); err != nil {
-		m.log.WithError(err).Warn("Failed to create PID directory")
+		m.log.WithError(err).Warn("failed to create PID directory")
+
+		return
+	}
+
+	data := PIDFileData{
+		Version:   pidFileVersion,
+		PID:       p.PID,
+		LogFile:   p.LogFile,
+		Command:   cmd.Path,
+		Args:      cmd.Args[1:], // Skip binary name
+		StartedAt: p.Started,
+	}
+
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		m.log.WithError(err).Warn("failed to marshal PID data")
 
 		return
 	}
 
 	pidFile := filepath.Join(pidDir, fmt.Sprintf(constants.PIDFileTemplate, name))
-	data := fmt.Sprintf("%d\n%s\n", pid, logFile)
 	//nolint:gosec // PID file permissions are intentionally 0644 for readability
-	if err := os.WriteFile(pidFile, []byte(data), 0644); err != nil {
-		m.log.WithError(err).Warn("Failed to write PID file")
+	if err := os.WriteFile(pidFile, jsonData, 0644); err != nil {
+		m.log.WithError(err).Warn("failed to write PID file")
 	}
 }
 
@@ -408,11 +471,11 @@ func (m *Manager) CleanLogs() error {
 	return nil
 }
 
-// loadPID loads a single PID from disk.
+// loadPID loads a single PID from disk (JSON format only).
 func (m *Manager) loadPID(name string) {
 	pidFile := filepath.Join(m.stateDir, constants.DirPIDs, fmt.Sprintf(constants.PIDFileTemplate, name))
 
-	data, err := os.ReadFile(pidFile)
+	content, err := os.ReadFile(pidFile)
 	if err != nil {
 		m.log.WithFields(logrus.Fields{
 			"name":    name,
@@ -422,72 +485,46 @@ func (m *Manager) loadPID(name string) {
 		return
 	}
 
-	// Parse PID file: format is "PID\nLOGFILE\n"
-	content := string(data)
-
-	// Split by newline and filter empty lines
-	var (
-		pid     int
-		logFile string
-	)
-
-	_, err = fmt.Sscanf(content, "%d\n%s\n", &pid, &logFile)
-	if err != nil {
-		m.log.WithFields(logrus.Fields{
-			"name":    name,
-			"pidFile": pidFile,
-			"content": content,
-		}).Warn("failed to parse PID file, removing")
-		m.removePID(name)
-
-		return
-	}
-
-	// Validate PID
-	if pid <= 0 {
+	var data PIDFileData
+	if unmarshalErr := json.Unmarshal(content, &data); unmarshalErr != nil {
 		m.log.WithFields(logrus.Fields{
 			"name": name,
-			"pid":  pid,
-		}).Warn("invalid PID in file, removing")
+		}).Warn("failed to parse PID file, removing stale file")
 		m.removePID(name)
 
 		return
 	}
 
-	// Check if process is still running
-	process, err := os.FindProcess(pid)
+	if data.Version != pidFileVersion {
+		m.log.WithField("version", data.Version).Warn("unknown PID file version")
+	}
+
+	// Validate process exists
+	process, err := os.FindProcess(data.PID)
 	if err != nil {
-		m.log.WithFields(logrus.Fields{
-			"name": name,
-			"pid":  pid,
-		}).Debug("failed to find process, removing PID file")
 		m.removePID(name)
 
 		return
 	}
 
-	// Try to signal the process (signal 0 doesn't actually send a signal)
 	if err := process.Signal(syscall.Signal(0)); err != nil {
-		// Process not running
-		m.log.WithFields(logrus.Fields{
-			"name": name,
-			"pid":  pid,
-		}).Debug("process not running, removing PID file")
+		// Process doesn't exist - remove stale PID file
 		m.removePID(name)
 
 		return
 	}
 
-	// Process is running, add to our map
+	// Add to processes map (without Cmd since we can't reconstruct it perfectly)
 	m.processes[name] = &Process{
 		Name:    name,
-		PID:     pid,
-		LogFile: logFile,
-		Started: time.Now(), // We don't know the real start time
+		Cmd:     nil, // Can't reconstruct
+		PID:     data.PID,
+		LogFile: data.LogFile,
+		Started: data.StartedAt,
 	}
 
 	m.log.WithFields(logrus.Fields{
 		"name": name,
-		"pid":  pid,
-	}).Debug("loaded existing process from PID file")
+		"pid":  data.PID,
+	}).Debug("loaded process from PID file")
 }

@@ -22,9 +22,7 @@ redis:
 
 models:
   external:
-{{- if .IsHybrid }}
     defaultCluster: "xatu_cluster"
-{{- end }}
     defaultDatabase: "{{ .ExternalClickHouseDatabase }}"
     paths:
       - "../xatu-cbt/models/external"

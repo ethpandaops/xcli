@@ -3,16 +3,24 @@ package infrastructure
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
+	_ "github.com/ClickHouse/clickhouse-go/v2" // clickhouse database driver
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
+	"github.com/ethpandaops/xcli/pkg/mode"
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/clickhouse" // migrate clickhouse driver
+	_ "github.com/golang-migrate/migrate/v4/source/file"         // migrate file source driver
+	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 )
 
@@ -20,17 +28,20 @@ import (
 type Manager struct {
 	log         logrus.FieldLogger
 	cfg         *config.LabConfig
+	mode        mode.Mode
 	xatuCBTPath string
 	verbose     bool
 }
 
 // NewManager creates a new infrastructure manager.
-func NewManager(log logrus.FieldLogger, cfg *config.LabConfig) *Manager {
+// Mode parameter provides mode-specific behavior (services, ports, etc.)
+func NewManager(log logrus.FieldLogger, cfg *config.LabConfig, m mode.Mode) *Manager {
 	xatuCBTPath := cfg.Repos.XatuCBT + "/bin/xatu-cbt"
 
 	return &Manager{
 		log:         log.WithField("component", "infrastructure"),
 		cfg:         cfg,
+		mode:        m,
 		xatuCBTPath: xatuCBTPath,
 		verbose:     false,
 	}
@@ -84,13 +95,16 @@ func (m *Manager) Start(ctx context.Context) error {
 		return fmt.Errorf("xatu-cbt binary not found at %s - please run 'make build' in xatu-cbt", m.xatuCBTPath)
 	}
 
-	// Run xatu-cbt infra start with xatu-source flag
+	// Determine xatu-source from mode (instead of hard-coded config check)
 	xatuSource := constants.InfraModeLocal
-	if m.cfg.Infrastructure.ClickHouse.Xatu.Mode == constants.InfraModeExternal {
+	if m.mode.NeedsExternalClickHouse() {
 		xatuSource = constants.InfraModeExternal
 	}
 
-	m.log.WithField("xatu_source", xatuSource).Info("starting infrastructure")
+	m.log.WithFields(logrus.Fields{
+		"mode":        m.mode.Name(),
+		"xatu_source": xatuSource,
+	}).Info("starting infrastructure")
 
 	// Build command arguments
 	args := []string{"infra", "start", "--xatu-source", xatuSource}
@@ -113,6 +127,17 @@ func (m *Manager) Start(ctx context.Context) error {
 		return fmt.Errorf("infrastructure did not become ready: %w", err)
 	}
 
+	// Run xatu migrations if in local mode (external Xatu already has schema)
+	if xatuSource == constants.InfraModeLocal {
+		m.log.Info("running xatu migrations against local cluster")
+
+		if err := m.runXatuMigrations(ctx); err != nil {
+			return fmt.Errorf("failed to run xatu migrations: %w", err)
+		}
+
+		m.log.Info("xatu migrations completed successfully")
+	}
+
 	m.log.Info("infrastructure started successfully")
 
 	return nil
@@ -120,7 +145,7 @@ func (m *Manager) Start(ctx context.Context) error {
 
 // Stop stops infrastructure via xatu-cbt.
 func (m *Manager) Stop(ctx context.Context) error {
-	m.log.Info("stopping infrastructure")
+	m.log.WithField("mode", m.mode.Name()).Info("stopping infrastructure")
 
 	//nolint:gosec // xatuCBTPath is from config and validated during discovery
 	cmd := exec.CommandContext(ctx, m.xatuCBTPath, "infra", "stop")
@@ -130,14 +155,14 @@ func (m *Manager) Stop(ctx context.Context) error {
 		return fmt.Errorf("failed to stop infrastructure: %w", err)
 	}
 
-	m.log.Info("infrastructure stopped")
+	m.log.WithField("mode", m.mode.Name()).Info("infrastructure stopped")
 
 	return nil
 }
 
 // Reset resets infrastructure (clean slate).
 func (m *Manager) Reset(ctx context.Context) error {
-	m.log.Info("resetting infrastructure")
+	m.log.WithField("mode", m.mode.Name()).Info("resetting infrastructure")
 
 	// Stop first
 	if err := m.Stop(ctx); err != nil {
@@ -153,7 +178,7 @@ func (m *Manager) Reset(ctx context.Context) error {
 		return fmt.Errorf("failed to reset infrastructure: %w", err)
 	}
 
-	m.log.Info("infrastructure reset complete")
+	m.log.WithField("mode", m.mode.Name()).Info("infrastructure reset complete")
 
 	return nil
 }
@@ -178,14 +203,14 @@ func (m *Manager) SetupNetwork(ctx context.Context, network string) error {
 
 // IsRunning checks if infrastructure is running.
 func (m *Manager) IsRunning() bool {
-	// Check if ClickHouse CBT is accessible
-	if !m.checkPort("localhost:8123") {
-		return false
-	}
+	// Get ports from mode (instead of hard-coded ports)
+	ports := m.mode.GetHealthCheckPorts()
 
-	// Check if Redis is accessible
-	if !m.checkPort("localhost:6380") {
-		return false
+	for _, port := range ports {
+		addr := fmt.Sprintf("localhost:%d", port)
+		if !m.checkPort(addr) {
+			return false
+		}
 	}
 
 	return true
@@ -193,7 +218,13 @@ func (m *Manager) IsRunning() bool {
 
 // WaitForReady waits for infrastructure to be ready.
 func (m *Manager) WaitForReady(ctx context.Context, timeout time.Duration) error {
-	m.log.Info("waiting for infrastructure to be ready")
+	// Get ports from mode (instead of hard-coded checks)
+	ports := m.mode.GetHealthCheckPorts()
+
+	m.log.WithFields(logrus.Fields{
+		"mode":  m.mode.Name(),
+		"ports": len(ports),
+	}).Info("waiting for infrastructure to be ready")
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -201,32 +232,17 @@ func (m *Manager) WaitForReady(ctx context.Context, timeout time.Duration) error
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
-	checks := []struct {
-		name string
-		addr string
-	}{
-		{"ClickHouse CBT", "localhost:8123"},
-		{"Redis", "localhost:6380"},
-	}
-
-	// Add Xatu ClickHouse check if in local mode
-	if m.cfg.Infrastructure.ClickHouse.Xatu.Mode == "local" {
-		checks = append(checks, struct {
-			name string
-			addr string
-		}{"ClickHouse Xatu", "localhost:8125"})
-	}
-
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("timeout waiting for infrastructure")
+			return fmt.Errorf("timeout waiting for infrastructure (%s mode)", m.mode.Name())
 		case <-ticker.C:
 			allReady := true
 
-			for _, check := range checks {
-				if !m.checkPort(check.addr) {
-					m.log.WithField("service", check.name).Debug("waiting")
+			for _, port := range ports {
+				addr := fmt.Sprintf("localhost:%d", port)
+				if !m.checkPort(addr) {
+					m.log.WithField("port", port).Debug("waiting for port")
 
 					allReady = false
 
@@ -235,7 +251,7 @@ func (m *Manager) WaitForReady(ctx context.Context, timeout time.Duration) error
 			}
 
 			if allReady {
-				m.log.Info("all infrastructure services are ready")
+				m.log.WithField("mode", m.mode.Name()).Info("all infrastructure services are ready")
 
 				return nil
 			}
@@ -257,10 +273,28 @@ func (m *Manager) checkPort(addr string) bool {
 
 // Status returns the status of infrastructure components.
 func (m *Manager) Status() map[string]bool {
-	status := map[string]bool{
-		"ClickHouse CBT":  m.checkPort("localhost:8123"),
-		"ClickHouse Xatu": m.checkPort("localhost:8125"),
-		"Redis":           m.checkPort("localhost:6380"),
+	// Get ports from mode (instead of hard-coded ports)
+	ports := m.mode.GetHealthCheckPorts()
+
+	status := make(map[string]bool, len(ports))
+
+	// Map port numbers to service names based on configuration
+	portNames := map[int]string{
+		m.cfg.Infrastructure.ClickHouseCBTPort:  "ClickHouse CBT",
+		m.cfg.Infrastructure.ClickHouseXatuPort: "ClickHouse Xatu",
+		m.cfg.Infrastructure.RedisPort:          "Redis",
+	}
+
+	for _, port := range ports {
+		addr := fmt.Sprintf("localhost:%d", port)
+
+		name := portNames[port]
+
+		if name == "" {
+			name = fmt.Sprintf("Port %d", port)
+		}
+
+		status[name] = m.checkPort(addr)
 	}
 
 	return status
@@ -363,6 +397,107 @@ func (m *Manager) TestExternalConnection(ctx context.Context) error {
 
 	if lastLine != "1" {
 		return fmt.Errorf("unexpected response from ClickHouse (expected '1', got '%s'): %s", lastLine, result)
+	}
+
+	return nil
+}
+
+// parseXatuCBTEnv parses the xatu-cbt .env file and returns key-value pairs.
+func (m *Manager) parseXatuCBTEnv() (map[string]string, error) {
+	envPath := filepath.Join(m.cfg.Repos.XatuCBT, ".env")
+
+	env, err := godotenv.Read(envPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read xatu-cbt .env file: %w", err)
+	}
+
+	return env, nil
+}
+
+// runXatuMigrations runs xatu schema migrations against the local xatu-clickhouse cluster.
+// This creates the external source tables (beacon_api_*, canonical_*, mev_relay_*, etc.)
+// that CBT transformations depend on.
+func (m *Manager) runXatuMigrations(ctx context.Context) error {
+	// Path to xatu migrations (cloned by xatu-cbt infra start)
+	migrationsPath := filepath.Join(m.cfg.Repos.XatuCBT, "xatu", "deploy", "migrations", "clickhouse")
+
+	// Check if migrations directory exists
+	if _, err := os.Stat(migrationsPath); os.IsNotExist(err) {
+		return fmt.Errorf("xatu migrations not found at %s - xatu repo may not be cloned", migrationsPath)
+	}
+
+	// Parse xatu-cbt .env to get ClickHouse credentials
+	env, err := m.parseXatuCBTEnv()
+	if err != nil {
+		return fmt.Errorf("failed to parse xatu-cbt .env: %w", err)
+	}
+
+	// Extract connection parameters from .env
+	host := env["CLICKHOUSE_HOST"]
+	if host == "" {
+		host = "localhost" // fallback default
+	}
+
+	port := env["CLICKHOUSE_XATU_01_NATIVE_PORT"]
+	if port == "" {
+		port = "9002" // fallback default
+	}
+
+	username := env["CLICKHOUSE_USERNAME"]
+	if username == "" {
+		username = "default" // fallback default
+	}
+
+	password := env["CLICKHOUSE_PASSWORD"]
+	if password == "" {
+		password = "" // no fallback for security
+	}
+
+	// Build connection string for xatu-clickhouse cluster
+	// Using native port (from CLICKHOUSE_XATU_01_NATIVE_PORT) for golang-migrate (more reliable than HTTP)
+	hostPort := net.JoinHostPort(host, port)
+	connStr := fmt.Sprintf(
+		"clickhouse://%s?username=%s&password=%s&database=default&x-multi-statement=true",
+		hostPort, username, password,
+	)
+
+	m.log.WithField("migrations_path", migrationsPath).Debug("initializing xatu migrations")
+
+	// Create migration instance
+	migration, err := migrate.New(
+		fmt.Sprintf("file://%s", migrationsPath),
+		connStr,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create migration instance: %w", err)
+	}
+
+	defer func() {
+		if _, closeErr := migration.Close(); closeErr != nil {
+			m.log.WithError(closeErr).Warn("failed to close migration instance")
+		}
+	}()
+
+	// Run migrations
+	err = migration.Up()
+	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return fmt.Errorf("failed to apply migrations: %w", err)
+	}
+
+	if errors.Is(err, migrate.ErrNoChange) {
+		m.log.Debug("no new xatu migrations to apply")
+	} else {
+		// Get version to log what was applied
+		version, dirty, vErr := migration.Version()
+		if vErr != nil && !errors.Is(vErr, migrate.ErrNilVersion) {
+			return fmt.Errorf("failed to get migration version: %w", vErr)
+		}
+
+		if dirty {
+			return fmt.Errorf("migration left database in dirty state")
+		}
+
+		m.log.WithField("version", version).Info("xatu migrations applied")
 	}
 
 	return nil
