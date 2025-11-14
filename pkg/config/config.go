@@ -134,8 +134,12 @@ func DefaultLab() *LabConfig {
 		},
 		Infrastructure: InfrastructureConfig{
 			ClickHouse: ClickHouseConfig{
-				Xatu: ClickHouseClusterConfig{Mode: constants.InfraModeLocal},
-				CBT:  ClickHouseClusterConfig{Mode: constants.InfraModeLocal},
+				Xatu: ClickHouseClusterConfig{
+					Mode:             constants.InfraModeLocal,
+					ExternalURL:      "http://chendpoint-xatu-clickhouse.analytics.production.ethpandaops:9000",
+					ExternalDatabase: "default",
+				},
+				CBT: ClickHouseClusterConfig{Mode: constants.InfraModeLocal},
 			},
 			Redis:              RedisConfig{Port: 6380},
 			Volumes:            VolumesConfig{Persist: true},
