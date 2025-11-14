@@ -909,9 +909,7 @@ func (o *Orchestrator) startLabFrontend(ctx context.Context) error {
 
 	cmd := exec.CommandContext(ctx, "pnpm", "dev")
 	cmd.Dir = o.cfg.Repos.Lab
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("VITE_BACKEND_URL=http://localhost:%d", o.cfg.Ports.LabBackend),
-	)
+	cmd.Env = os.Environ()
 
 	return o.proc.Start(ctx, constants.ServiceLabFrontend, cmd, nil)
 }

@@ -11,7 +11,7 @@ server:
 clickhouse:
   dsn: "clickhouse://default:supersecret@localhost:9000"
   database: "{{ .Network }}"
-  use_final: false
+  use_final: true
   max_open_conns: 10
   max_idle_conns: 5
   conn_max_lifetime: 60s
@@ -25,9 +25,9 @@ clickhouse:
       - fct
       - int
       - dim
+      - admin
     exclude:
-      - "*_test"
-      - "*_tmp"
+      - "*_local"
 
 proto:
   output_dir: "./pkg/proto/clickhouse"
@@ -42,10 +42,47 @@ api:
     - fct
     - dim
     - int
+    - admin
   # Exclude tables matching these patterns from API exposure
   exclude:
     - "*_local"
+  # Field whitelist for uint64→string conversion
+  uint64_to_string_fields:
+    - consensus_payload_value
+    - execution_payload_value
+    - block_number
+    - total_accounts
+    - total_storage_slots
+    - expired_accounts
+    - expired_contracts
+    - total_contract_accounts
+    - expired_slots
+    - expired_storage_slots
 
 telemetry:
   enabled: false
+
+# HTTP Headers Configuration
+headers:
+  policies:
+    - name: "openapi_spec"
+      path_pattern: "^/openapi\\.yaml$"
+      headers:
+        Cache-Control: "public, max-age=3600, s-maxage=3600"
+    - name: "api_docs"
+      path_pattern: "^/docs$"
+      headers:
+        Cache-Control: "public, max-age=300, s-maxage=300"
+    - name: "health"
+      path_pattern: "^/health$"
+      headers:
+        Cache-Control: "public, max-age=5, s-maxage=5"
+    - name: "api_queries"
+      path_pattern: "^/api/v1/.*"
+      headers:
+        Cache-Control: "public, max-age=30, s-maxage=60, stale-while-revalidate=120"
+    - name: "default"
+      path_pattern: ".*"
+      headers:
+        Cache-Control: "no-cache, no-store, must-revalidate"
 {{- end -}}
