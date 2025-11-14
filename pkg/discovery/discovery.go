@@ -3,9 +3,11 @@ package discovery
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/ethpandaops/xcli/pkg/config"
+	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/sirupsen/logrus"
 )
 
@@ -24,6 +26,7 @@ func NewDiscovery(log logrus.FieldLogger, basePath string) *Discovery {
 }
 
 // DiscoverRepos attempts to find all required lab repositories.
+// If a repository is missing, it will prompt the user to clone it.
 func (d *Discovery) DiscoverRepos() (*config.LabReposConfig, error) {
 	d.log.Info("discovering lab repositories")
 
@@ -35,23 +38,62 @@ func (d *Discovery) DiscoverRepos() (*config.LabReposConfig, error) {
 		Lab:        filepath.Join(d.basePath, "lab"),
 	}
 
-	// Validate each repository
-	repoMap := map[string]*string{
-		"cbt":         &repos.CBT,
-		"xatu-cbt":    &repos.XatuCBT,
-		"cbt-api":     &repos.CBTAPI,
-		"lab-backend": &repos.LabBackend,
-		"lab":         &repos.Lab,
+	// Map of repo names to their paths, GitHub repo names, and optional branches
+	repoMap := map[string]struct {
+		path     *string
+		repoName string
+		branch   string // Optional: branch to checkout after cloning
+	}{
+		"cbt":         {&repos.CBT, constants.RepoCBT, ""},
+		"xatu-cbt":    {&repos.XatuCBT, constants.RepoXatuCBT, ""},
+		"cbt-api":     {&repos.CBTAPI, constants.RepoCBTAPI, ""},
+		"lab-backend": {&repos.LabBackend, constants.RepoLabBackend, ""},
+		"lab":         {&repos.Lab, constants.RepoLab, "release/frontend"},
 	}
 
-	for name, path := range repoMap {
-		if err := d.validateRepo(name, *path); err != nil {
-			return nil, fmt.Errorf("failed to validate %s: %w", name, err)
+	// Check each repository
+	for name, info := range repoMap {
+		err := d.validateRepo(name, *info.path)
+		if err != nil {
+			// Check if it's a "not found" error
+			absPath, _ := filepath.Abs(*info.path)
+			if _, statErr := os.Stat(absPath); os.IsNotExist(statErr) {
+				// Repository doesn't exist - prompt to clone
+				fmt.Printf("\n⚠ Repository '%s' not found at: %s\n", name, absPath)
+
+				// Show branch info if applicable
+				branchInfo := ""
+				if info.branch != "" {
+					branchInfo = fmt.Sprintf(" (branch: %s)", info.branch)
+				}
+				fmt.Printf("Would you like to clone it from GitHub?%s (Y/n): ", branchInfo)
+
+				var response string
+				_, _ = fmt.Scanln(&response)
+
+				// Default to yes if empty or "y"/"Y"
+				if response == "" || response == "y" || response == "Y" {
+					// Clone the repository (with optional branch)
+					if cloneErr := d.cloneRepo(info.repoName, absPath, info.branch); cloneErr != nil {
+						return nil, fmt.Errorf("failed to clone %s: %w", name, cloneErr)
+					}
+
+					// Validate again after cloning
+					if validateErr := d.validateRepo(name, *info.path); validateErr != nil {
+						return nil, fmt.Errorf("cloned repository %s failed validation: %w", name, validateErr)
+					}
+				} else {
+					return nil, fmt.Errorf("repository %s is required but was not cloned", name)
+				}
+			} else {
+				// Some other validation error
+				return nil, fmt.Errorf("failed to validate %s: %w", name, err)
+			}
 		}
 
 		d.log.WithFields(logrus.Fields{
 			"repo": name,
-			"path": *path,
+			"path": *info.path,
 		}).Info("found repository")
 	}
 
@@ -128,4 +170,46 @@ func (d *Discovery) dirExists(path string) bool {
 	}
 
 	return info.IsDir()
+}
+
+// cloneRepo clones a repository from GitHub and optionally checks out a specific branch.
+func (d *Discovery) cloneRepo(repoName, targetPath, branch string) error {
+	// Get GitHub URL for the repository
+	gitURL := constants.GetGitHubURL(repoName)
+
+	logFields := logrus.Fields{
+		"repo":   repoName,
+		"url":    gitURL,
+		"path":   targetPath,
+		"branch": branch,
+	}
+
+	d.log.WithFields(logFields).Info("cloning repository")
+
+	// Ensure parent directory exists
+	parentDir := filepath.Dir(targetPath)
+	if err := os.MkdirAll(parentDir, 0755); err != nil {
+		return fmt.Errorf("failed to create parent directory: %w", err)
+	}
+
+	// Run git clone with optional branch
+	var cmd *exec.Cmd
+	if branch != "" {
+		// Clone and checkout specific branch directly
+		cmd = exec.Command("git", "clone", "-b", branch, gitURL, targetPath)
+	} else {
+		// Clone default branch
+		cmd = exec.Command("git", "clone", gitURL, targetPath)
+	}
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git clone failed: %w", err)
+	}
+
+	d.log.WithField("repo", repoName).Info("repository cloned successfully")
+
+	return nil
 }

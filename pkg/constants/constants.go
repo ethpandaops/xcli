@@ -1,5 +1,7 @@
 package constants
 
+import "fmt"
+
 // Stack modes.
 const (
 	ModeLocal  = "local"
@@ -48,6 +50,22 @@ const (
 const (
 	CBTOverridesFile = ".cbt-overrides.yaml"
 )
+
+// GitHub repository URLs.
+const (
+	GitHubOrg          = "ethpandaops"
+	RepoCBT            = "cbt"
+	RepoXatuCBT        = "xatu-cbt"
+	RepoCBTAPI         = "cbt-api"
+	RepoLabBackend     = "lab-backend"
+	RepoLab            = "lab"
+	GitHubURLTemplate  = "https://github.com/%s/%s.git"
+)
+
+// GetGitHubURL returns the GitHub clone URL for a repository.
+func GetGitHubURL(repo string) string {
+	return fmt.Sprintf(GitHubURLTemplate, GitHubOrg, repo)
+}
 
 // Network genesis timestamps (Unix seconds).
 var NetworkGenesisTimestamps = map[string]uint64{
