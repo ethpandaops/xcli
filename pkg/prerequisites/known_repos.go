@@ -19,13 +19,6 @@ func buildKnownRepoPrerequisites() map[string]RepoPrerequisites {
 			RepoName: "lab",
 			Prerequisites: []Prerequisite{
 				{
-					Type:            PrerequisiteTypeFileCopy,
-					Description:     "Copy .env.example to .env",
-					SourcePath:      ".env.example",
-					DestinationPath: ".env",
-					SkipIfExists:    ".env",
-				},
-				{
 					Type:         PrerequisiteTypeCommand,
 					Description:  "Install frontend dependencies",
 					Command:      "pnpm",
