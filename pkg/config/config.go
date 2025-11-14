@@ -190,8 +190,6 @@ func Load(path string) (*Config, error) {
 		}
 	}
 
-	// Don't apply defaults - let sections be nil if not configured
-	// Individual commands can check and apply defaults as needed
 	return &cfg, nil
 }
 
