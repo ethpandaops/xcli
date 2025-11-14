@@ -126,7 +126,7 @@ Note: 'xatu-cbt' rebuild includes service restarts. Other rebuilds do NOT restar
 					return fmt.Errorf("failed to rebuild cbt-api: %w", err)
 				}
 
-				fmt.Println("✓ cbt-api rebuilt successfully (protos regenerated)")
+				fmt.Println("✓ cbt-api rebuilt successfully")
 				fmt.Println("Note: If you added models in xatu-cbt, use 'xcli lab rebuild xatu-cbt' for full workflow")
 
 			case "lab-backend":
@@ -147,7 +147,7 @@ Note: 'xatu-cbt' rebuild includes service restarts. Other rebuilds do NOT restar
 				return nil
 
 			case "all":
-				fmt.Println("Rebuilding all projects (parallel)...")
+				fmt.Println("Rebuilding all projects")
 				// Uses DAG from Plan 3 for parallel execution
 				if err := orch.Builder().BuildAll(ctx, true); err != nil {
 					return fmt.Errorf("failed to rebuild all: %w", err)

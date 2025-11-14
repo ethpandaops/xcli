@@ -65,7 +65,7 @@ func (m *Manager) runCmd(cmd *exec.Cmd) error {
 // BuildAll builds all repositories EXCEPT xatu-cbt (built in Phase 0).
 // Runs CBT, lab-backend, and lab in parallel.
 func (m *Manager) BuildAll(ctx context.Context, force bool) error {
-	m.log.Info("building all repositories (parallel)")
+	m.log.Info("building all repositories")
 
 	// Create dependency graph
 	graph := NewBuildGraph()

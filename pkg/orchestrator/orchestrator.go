@@ -140,7 +140,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	// Reason: Infrastructure startup requires xatu-cbt binary to run migrations and services
 	// This ensures xatu-cbt is ready before starting infrastructure in Phase 1
 	if !skipBuild {
-		o.log.Info("building xatu-cbt (required for infrastructure)")
+		o.log.Info("building xatu-cbt")
 
 		if err := o.builder.BuildXatuCBT(ctx, forceBuild); err != nil {
 			return fmt.Errorf("failed to build xatu-cbt: %w", err)
@@ -167,7 +167,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	// Note: xatu-cbt already built in Phase 0
 	// BuildAll now runs: CBT || lab-backend || lab (parallel execution)
 	if !skipBuild {
-		o.log.Info("building repositories (parallel)")
+		o.log.Info("building repositories")
 
 		if err := o.builder.BuildAll(ctx, forceBuild); err != nil {
 			return fmt.Errorf("failed to build repositories: %w", err)
@@ -460,7 +460,7 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 // Validates that required files/directories exist without running expensive operations.
 // Users must run 'xcli lab init' to satisfy prerequisites.
 func (o *Orchestrator) validatePrerequisites(ctx context.Context) error {
-	o.log.Info("validating prerequisites (fast check)")
+	o.log.Info("validating prerequisites")
 
 	// Check that all required repositories exist
 	requiredRepos := map[string]string{
@@ -639,7 +639,7 @@ func (o *Orchestrator) GenerateConfigs() error {
 			"duration":     o.cfg.CBT.DefaultBackfillDuration,
 			"user_config":  o.overrides != nil && len(o.overrides.Models) > 0,
 			"has_defaults": o.overrides == nil || o.overrides.DefaultLimits == nil,
-		}).Info("generated CBT model overrides with backfill limit")
+		}).Info("generated cbt model overrides")
 
 		// CBT config
 		cbtFilename := fmt.Sprintf(constants.ConfigFileCBT, network.Name)

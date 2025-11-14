@@ -105,7 +105,7 @@ type LabDevConfig struct {
 type CBTConfig struct {
 	// DefaultBackfillDuration sets how far back to allow backfilling
 	// Examples: "2w" (2 weeks), "4w" (4 weeks), "1mo" (1 month), "90d" (90 days)
-	// Default: "2w"
+	// Default: "4h"
 	DefaultBackfillDuration string `yaml:"defaultBackfillDuration"`
 }
 
@@ -158,7 +158,7 @@ func DefaultLab() *LabConfig {
 			HotReload:          true,
 		},
 		CBT: CBTConfig{
-			DefaultBackfillDuration: "2w", // 2 weeks default
+			DefaultBackfillDuration: "4h", // 4h default
 		},
 	}
 }

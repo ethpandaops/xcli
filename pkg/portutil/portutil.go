@@ -55,7 +55,7 @@ func findPortOwner(port int) *PortConflict {
 
 	// Try lsof (macOS/Linux)
 	//nolint:gosec // Port number is validated to be an integer
-	cmd := exec.Command("/usr/sbin/lsof", "-i", fmt.Sprintf(":%d", port), "-sTCP:LISTEN", "-t")
+	cmd := exec.Command("lsof", "-i", fmt.Sprintf(":%d", port), "-sTCP:LISTEN", "-t")
 
 	output, err := cmd.Output()
 	if err == nil && len(output) > 0 {
