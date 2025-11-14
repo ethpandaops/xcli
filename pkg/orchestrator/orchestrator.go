@@ -66,6 +66,29 @@ func (o *Orchestrator) SetVerbose(verbose bool) {
 func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) error {
 	o.log.Info("starting lab stack")
 
+	// Check if stack is already running
+	runningProcesses := o.proc.List()
+	portConflicts := o.checkPortConflicts()
+
+	if len(runningProcesses) > 0 || len(portConflicts) > 0 {
+		fmt.Println("\n⚠ Stack is already running (or ports are in use)")
+
+		if len(runningProcesses) > 0 {
+			fmt.Println("\nRunning services:")
+
+			for _, p := range runningProcesses {
+				fmt.Printf("  - %s (PID %d)\n", p.Name, p.PID)
+			}
+		}
+
+		if len(portConflicts) > 0 {
+			fmt.Println("\nPort conflicts detected:")
+			fmt.Print(portutil.FormatConflicts(portConflicts))
+		}
+
+		return fmt.Errorf("stack is already running")
+	}
+
 	// Phase 0: Build bootstrap tooling (xatu-cbt) and other non-proto services
 	if !skipBuild {
 		o.log.Info("building repositories")
