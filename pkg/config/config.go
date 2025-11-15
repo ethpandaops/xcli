@@ -89,10 +89,11 @@ type VolumesConfig struct {
 
 // LabPortsConfig contains lab stack port assignments.
 type LabPortsConfig struct {
-	LabBackend  int `yaml:"labBackend"`
-	LabFrontend int `yaml:"labFrontend"`
-	CBTBase     int `yaml:"cbtBase"`
-	CBTAPIBase  int `yaml:"cbtApiBase"`
+	LabBackend      int `yaml:"labBackend"`
+	LabFrontend     int `yaml:"labFrontend"`
+	CBTBase         int `yaml:"cbtBase"`
+	CBTAPIBase      int `yaml:"cbtApiBase"`
+	CBTFrontendBase int `yaml:"cbtFrontendBase"`
 }
 
 // LabDevConfig contains lab stack development features.
@@ -148,10 +149,11 @@ func DefaultLab() *LabConfig {
 			RedisPort:          6380,
 		},
 		Ports: LabPortsConfig{
-			LabBackend:  8080,
-			LabFrontend: 5173,
-			CBTBase:     8081,
-			CBTAPIBase:  8091,
+			LabBackend:      8080,
+			LabFrontend:     5173,
+			CBTBase:         8081,
+			CBTAPIBase:      8091,
+			CBTFrontendBase: 8085,
 		},
 		Dev: LabDevConfig{
 			LabRebuildOnChange: false,
@@ -505,6 +507,17 @@ func (c *LabConfig) GetCBTAPIPort(network string) int {
 	for _, net := range c.Networks {
 		if net.Name == network {
 			return c.Ports.CBTAPIBase + net.PortOffset
+		}
+	}
+
+	return 0
+}
+
+// GetCBTFrontendPort returns the CBT frontend port for a given network.
+func (c *LabConfig) GetCBTFrontendPort(network string) int {
+	for _, net := range c.Networks {
+		if net.Name == network {
+			return c.Ports.CBTFrontendBase + net.PortOffset
 		}
 	}
 

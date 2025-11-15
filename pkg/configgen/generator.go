@@ -57,10 +57,13 @@ func (g *Generator) GenerateCBTConfig(network string, overridesPath string) (str
 		externalDatabase = g.cfg.Infrastructure.ClickHouse.Xatu.ExternalDatabase
 	}
 
+	frontendPort := g.cfg.GetCBTFrontendPort(network)
+
 	data := map[string]interface{}{
 		"Network":                    network,
 		"MetricsPort":                metricsPort,
 		"RedisDB":                    redisDB,
+		"FrontendPort":               frontendPort,
 		"IsHybrid":                   g.cfg.Mode == constants.ModeHybrid,
 		"XatuMode":                   g.cfg.Infrastructure.ClickHouse.Xatu.Mode,
 		"ExternalClickHouseURL":      g.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL,
