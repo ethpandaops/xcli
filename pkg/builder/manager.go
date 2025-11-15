@@ -205,6 +205,34 @@ func (m *Manager) BuildLabBackend(ctx context.Context, force bool) error {
 	return m.runMake(ctx, m.cfg.Repos.LabBackend, "build")
 }
 
+// BuildLabFrontend regenerates frontend API types from cbt-api OpenAPI spec.
+func (m *Manager) BuildLabFrontend(ctx context.Context) error {
+	m.log.WithField("repo", "lab").Info("regenerating API types from cbt-api")
+
+	// Get the first enabled network to use for the OpenAPI endpoint
+	networks := m.cfg.EnabledNetworks()
+	if len(networks) == 0 {
+		return fmt.Errorf("no networks enabled - cannot determine cbt-api port")
+	}
+
+	// Use the first enabled network's cbt-api port
+	cbtAPIPort := m.cfg.GetCBTAPIPort(networks[0].Name)
+
+	// Construct OpenAPI URL using cbt-api port
+	openapiURL := fmt.Sprintf("http://localhost:%d/openapi.yaml", cbtAPIPort)
+
+	cmd := exec.CommandContext(ctx, "pnpm", "run", "generate:api")
+	cmd.Dir = m.cfg.Repos.Lab
+
+	cmd.Env = append(os.Environ(), fmt.Sprintf("OPENAPI_INPUT=%s", openapiURL))
+
+	if err := m.runCmd(cmd); err != nil {
+		return fmt.Errorf("pnpm run generate:api failed: %w", err)
+	}
+
+	return nil
+}
+
 // installLabDeps installs lab frontend dependencies.
 func (m *Manager) installLabDeps(ctx context.Context, force bool) error {
 	nodeModules := filepath.Join(m.cfg.Repos.Lab, "node_modules")
