@@ -26,16 +26,16 @@ The stack can be restarted with 'xcli lab up'.
 Example:
   xcli lab down`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load(configPath)
+			result, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			if cfg.Lab == nil {
+			if result.Config.Lab == nil {
 				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
 			}
 
-			orch, err := orchestrator.NewOrchestrator(log, cfg.Lab)
+			orch, err := orchestrator.NewOrchestrator(log, result.Config.Lab, result.ConfigPath)
 			if err != nil {
 				return fmt.Errorf("failed to create orchestrator: %w", err)
 			}

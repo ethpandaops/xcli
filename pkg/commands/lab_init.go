@@ -39,17 +39,30 @@ func runLabInit(ctx context.Context, log logrus.FieldLogger, configPath string) 
 	log.Info("initializing lab stack")
 
 	// Load existing config if it exists, otherwise start fresh
-	var rootCfg *config.Config
+	var (
+		rootCfg            *config.Config
+		resolvedConfigPath string
+	)
 
 	if _, err := os.Stat(configPath); err == nil {
 		log.Info("loading existing configuration")
 
-		rootCfg, err = config.Load(configPath)
+		result, err := config.Load(configPath)
 		if err != nil {
 			return fmt.Errorf("failed to load existing config: %w", err)
 		}
+
+		rootCfg = result.Config
+		resolvedConfigPath = result.ConfigPath
 	} else {
 		rootCfg = &config.Config{}
+		// Make config path absolute
+		absPath, err := filepath.Abs(configPath)
+		if err != nil {
+			return fmt.Errorf("failed to get absolute config path: %w", err)
+		}
+
+		resolvedConfigPath = absPath
 	}
 
 	// Check if lab config already exists
@@ -107,11 +120,19 @@ func runLabInit(ctx context.Context, log logrus.FieldLogger, configPath string) 
 	rootCfg.Lab = labCfg
 
 	// Save configuration
-	if err := rootCfg.Save(configPath); err != nil {
+	if err := rootCfg.Save(resolvedConfigPath); err != nil {
 		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 
-	log.WithField("file", configPath).Info("lab configuration updated")
+	log.WithField("file", resolvedConfigPath).Info("lab configuration updated")
+
+	// Register xcli path globally for use from anywhere
+	xcliDir := filepath.Dir(resolvedConfigPath)
+	if err := config.SetXCLIPath(xcliDir); err != nil {
+		log.WithError(err).Warn("failed to register xcli path globally (non-fatal)")
+	} else {
+		log.WithField("path", xcliDir).Info("registered xcli installation globally")
+	}
 
 	// Print summary
 	fmt.Println("\n✓ Lab stack initialization complete!")

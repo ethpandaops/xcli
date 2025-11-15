@@ -44,28 +44,28 @@ Examples:
   xcli lab up --rebuild    # Force rebuild everything`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Load config
-			cfg, err := config.Load(configPath)
+			result, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
 			// Check lab config exists
-			if cfg.Lab == nil {
+			if result.Config.Lab == nil {
 				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
 			}
 
 			// Override mode if specified
 			if mode != "" {
-				cfg.Lab.Mode = mode
+				result.Config.Lab.Mode = mode
 			}
 
 			// Validate lab config
-			if validationErr := cfg.Lab.Validate(); validationErr != nil {
+			if validationErr := result.Config.Lab.Validate(); validationErr != nil {
 				return fmt.Errorf("invalid lab configuration: %w", validationErr)
 			}
 
 			// Create orchestrator
-			orch, err := orchestrator.NewOrchestrator(log, cfg.Lab)
+			orch, err := orchestrator.NewOrchestrator(log, result.Config.Lab, result.ConfigPath)
 			if err != nil {
 				return fmt.Errorf("failed to create orchestrator: %w", err)
 			}

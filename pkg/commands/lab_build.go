@@ -34,21 +34,21 @@ Examples:
   xcli lab build         # Build all projects
   xcli lab build --force # Force rebuild even if binaries exist`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load(configPath)
+			result, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			if cfg.Lab == nil {
+			if result.Config.Lab == nil {
 				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
 			}
 
 			// Only validate repo paths for build command - infrastructure config not needed
-			if err := cfg.Lab.ValidateRepos(); err != nil {
+			if err := result.Config.Lab.ValidateRepos(); err != nil {
 				return fmt.Errorf("invalid lab configuration: %w", err)
 			}
 
-			buildMgr := builder.NewManager(log, cfg.Lab)
+			buildMgr := builder.NewManager(log, result.Config.Lab)
 
 			fmt.Println("building all lab repositories")
 
