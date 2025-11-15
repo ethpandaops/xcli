@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -95,6 +96,12 @@ func (o *Orchestrator) SetVerbose(verbose bool) {
 // Used by rebuild command to access individual build functions.
 func (o *Orchestrator) Builder() *builder.Manager {
 	return o.builder
+}
+
+// Config returns the lab configuration.
+// Used by rebuild command to access enabled networks and other config.
+func (o *Orchestrator) Config() *config.LabConfig {
+	return o.cfg
 }
 
 // Up starts the complete stack.
@@ -847,6 +854,47 @@ func (o *Orchestrator) AreServicesRunning() bool {
 	}
 
 	return false
+}
+
+// WaitForCBTAPIReady waits for cbt-api services to be ready after restart.
+// Checks the health endpoint of the first enabled network's cbt-api.
+func (o *Orchestrator) WaitForCBTAPIReady(ctx context.Context) error {
+	networks := o.cfg.EnabledNetworks()
+	if len(networks) == 0 {
+		return fmt.Errorf("no networks enabled")
+	}
+
+	// Use the first enabled network's cbt-api
+	port := o.cfg.GetCBTAPIPort(networks[0].Name)
+	healthURL := fmt.Sprintf("http://localhost:%d/health", port)
+
+	// Retry for up to 30 seconds
+	maxRetries := 30
+	retryDelay := 1 * time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		// Try to fetch the health endpoint
+		client := &http.Client{Timeout: 2 * time.Second}
+
+		resp, err := client.Get(healthURL)
+		if err == nil && resp.StatusCode == 200 {
+			resp.Body.Close()
+			o.log.Debug("cbt-api is ready")
+
+			return nil
+		}
+
+		if resp != nil {
+			resp.Body.Close()
+		}
+
+		// Wait before retrying
+		if i < maxRetries-1 {
+			time.Sleep(retryDelay)
+		}
+	}
+
+	return fmt.Errorf("cbt-api did not become ready after %d seconds", maxRetries)
 }
 
 // RestartServices restarts cbt-api and CBT engines without full stack restart.

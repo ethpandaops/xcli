@@ -23,21 +23,21 @@ Useful for local development when you've made changes and need to rebuild
 specific components. Much faster than 'xcli lab down && xcli lab up'.
 
 Supported projects:
-  xatu-cbt    - Regenerate protos + rebuild cbt-api + regenerate configs + restart services
-                (Use this when you add/modify models in xatu-cbt)
-  cbt         - Rebuild CBT only
-  cbt-api     - Regenerate protos + rebuild cbt-api
-  lab-backend - Rebuild lab-backend only
-  lab         - Rebuild lab frontend only
-  all         - Rebuild all projects (CBT, lab-backend, lab)
+  xatu-cbt     - Regenerate protos + rebuild cbt-api + regenerate configs + restart services + regenerate lab-frontend types
+                 (Use this when you add/modify models in xatu-cbt)
+  cbt          - Rebuild CBT + restart CBT services
+  cbt-api      - Regenerate protos + rebuild cbt-api + restart cbt-api services
+  lab-backend  - Rebuild lab-backend + restart lab-backend service
+  lab-frontend - Regenerate frontend API types from cbt-api OpenAPI spec + restart lab-frontend
+  all          - Rebuild all projects (CBT, lab-backend, lab)
 
 Examples:
   xcli lab rebuild xatu-cbt         # Full model update workflow (proto → cbt-api → configs → restart)
-  xcli lab rebuild cbt-api          # Regenerate protos + rebuild cbt-api only
-  xcli lab rebuild cbt --verbose    # Rebuild CBT with verbose output
+  xcli lab rebuild cbt-api          # Regenerate protos + rebuild cbt-api + restart
+  xcli lab rebuild cbt --verbose    # Rebuild CBT with verbose output + restart
   xcli lab rebuild all              # Rebuild everything (parallel)
 
-Note: 'xatu-cbt' rebuild includes service restarts. Other rebuilds do NOT restart services.`,
+Note: All rebuild commands automatically restart their respective services if running.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			project := args[0]
@@ -68,30 +68,30 @@ Note: 'xatu-cbt' rebuild includes service restarts. Other rebuilds do NOT restar
 			switch project {
 			case "xatu-cbt":
 				// Full xatu-cbt model update workflow
-				// Flow: xatu-cbt protos → regenerate protos → rebuild cbt-api → regenerate configs → restart services
+				// Flow: xatu-cbt protos → regenerate protos → rebuild cbt-api → regenerate configs → restart services → regenerate lab-frontend types
 				fmt.Println("Starting xatu-cbt model update workflow...")
-				fmt.Println("This will: regenerate protos → rebuild cbt-api → regenerate configs → restart services")
+				fmt.Println("This will: regenerate protos → rebuild cbt-api → regenerate configs → restart services → regenerate lab-frontend types")
 
 				// Step 1: Regenerate protos + rebuild cbt-api
-				fmt.Println("\n[1/3] Regenerating protos and rebuilding cbt-api...")
+				fmt.Println("\n[1/4] Regenerating protos and rebuilding cbt-api...")
 
 				if err := orch.Builder().BuildCBTAPI(ctx, true); err != nil {
 					return fmt.Errorf("failed to rebuild cbt-api: %w", err)
 				}
 
 				// Step 2: Regenerate configs
-				fmt.Println("\n[2/3] Regenerating configs...")
+				fmt.Println("\n[2/4] Regenerating configs...")
 
 				if err := orch.GenerateConfigs(); err != nil {
 					return fmt.Errorf("failed to regenerate configs: %w", err)
 				}
 
 				// Step 3: Restart services (cbt-api + CBT engines)
-				fmt.Println("\n[3/3] Restarting services (cbt-api + CBT engines)...")
+				fmt.Println("\n[3/4] Restarting services (cbt-api + CBT engines)...")
 
 				// Check if services are running before attempting restart
 				if !orch.AreServicesRunning() {
-					fmt.Println("⚠ Services not currently running - skipping restart")
+					fmt.Println("⚠ Services not currently running - skipping restart and lab-frontend regeneration")
 					fmt.Println("Protos and configs have been regenerated.")
 					fmt.Println("Start services with: xcli lab up")
 					fmt.Println("\n✓ xatu-cbt model update complete (restart skipped)")
@@ -103,11 +103,35 @@ Note: 'xatu-cbt' rebuild includes service restarts. Other rebuilds do NOT restar
 					return fmt.Errorf("failed to restart services: %w", err)
 				}
 
+				// Step 4: Regenerate lab-frontend types (must be done after cbt-api is restarted)
+				fmt.Println("\n[4/4] Regenerating lab-frontend API types and restarting...")
+
+				// Wait for cbt-api to be ready (it was just restarted)
+				fmt.Println("Waiting for cbt-api to be ready...")
+
+				if err := orch.WaitForCBTAPIReady(ctx); err != nil {
+					return fmt.Errorf("cbt-api did not become ready: %w", err)
+				}
+
+				if err := orch.Builder().BuildLabFrontend(ctx); err != nil {
+					return fmt.Errorf("failed to regenerate lab-frontend types: %w", err)
+				}
+
+				// Restart lab-frontend to apply changes
+				if err := orch.Restart(ctx, "lab-frontend"); err != nil {
+					fmt.Printf("⚠ Could not restart lab-frontend: %v\n", err)
+					fmt.Println("If lab-frontend is running, restart it manually:")
+					fmt.Println("  xcli lab restart lab-frontend")
+				} else {
+					fmt.Println("✓ lab-frontend restarted")
+				}
+
 				fmt.Println("\n✓ xatu-cbt model update complete")
 				fmt.Println("  - Protos regenerated from xatu-cbt")
 				fmt.Println("  - cbt-api rebuilt with new protos")
 				fmt.Println("  - Configs regenerated with new models")
 				fmt.Println("  - Services restarted and running")
+				fmt.Println("  - Lab-frontend API types regenerated and service restarted")
 
 			case "cbt":
 				fmt.Println("Rebuilding CBT...")
@@ -117,7 +141,19 @@ Note: 'xatu-cbt' rebuild includes service restarts. Other rebuilds do NOT restar
 				}
 
 				fmt.Println("✓ CBT rebuilt successfully")
-				fmt.Println("Note: You may need to restart CBT services for changes to take effect")
+
+				// Restart all CBT services
+				fmt.Println("\nRestarting CBT services...")
+
+				enabledNetworks := orch.Config().EnabledNetworks()
+				for _, network := range enabledNetworks {
+					serviceName := fmt.Sprintf("cbt-%s", network.Name)
+					if err := orch.Restart(ctx, serviceName); err != nil {
+						fmt.Printf("⚠ Could not restart %s: %v\n", serviceName, err)
+					} else {
+						fmt.Printf("✓ %s restarted\n", serviceName)
+					}
+				}
 
 			case "cbt-api":
 				fmt.Println("Regenerating protos and rebuilding cbt-api...")
@@ -127,7 +163,21 @@ Note: 'xatu-cbt' rebuild includes service restarts. Other rebuilds do NOT restar
 				}
 
 				fmt.Println("✓ cbt-api rebuilt successfully")
-				fmt.Println("Note: If you added models in xatu-cbt, use 'xcli lab rebuild xatu-cbt' for full workflow")
+
+				// Restart all cbt-api services
+				fmt.Println("\nRestarting cbt-api services...")
+
+				enabledNetworks := orch.Config().EnabledNetworks()
+				for _, network := range enabledNetworks {
+					serviceName := fmt.Sprintf("cbt-api-%s", network.Name)
+					if err := orch.Restart(ctx, serviceName); err != nil {
+						fmt.Printf("⚠ Could not restart %s: %v\n", serviceName, err)
+					} else {
+						fmt.Printf("✓ %s restarted\n", serviceName)
+					}
+				}
+
+				fmt.Println("\nNote: If you added models in xatu-cbt, use 'xcli lab rebuild xatu-cbt' for full workflow")
 
 			case "lab-backend":
 				fmt.Println("Rebuilding lab-backend...")
@@ -138,13 +188,37 @@ Note: 'xatu-cbt' rebuild includes service restarts. Other rebuilds do NOT restar
 
 				fmt.Println("✓ lab-backend rebuilt successfully")
 
-			case "lab":
-				fmt.Println("⚠ lab frontend is not a compiled project")
-				fmt.Println("The frontend runs directly with 'pnpm dev' and doesn't need rebuilding.")
-				fmt.Println("If you've made changes to the lab frontend, just restart the service:")
-				fmt.Println("  xcli lab restart lab-frontend")
+				// Restart lab-backend
+				fmt.Println("\nRestarting lab-backend...")
 
-				return nil
+				if err := orch.Restart(ctx, "lab-backend"); err != nil {
+					fmt.Printf("⚠ Could not restart lab-backend: %v\n", err)
+					fmt.Println("If lab-backend is running, restart it manually:")
+					fmt.Println("  xcli lab restart lab-backend")
+				} else {
+					fmt.Println("✓ lab-backend restarted successfully")
+				}
+
+			case "lab-frontend":
+				fmt.Println("Regenerating lab-frontend API types from cbt-api...")
+
+				if err := orch.Builder().BuildLabFrontend(ctx); err != nil {
+					return fmt.Errorf("failed to regenerate lab-frontend types: %w", err)
+				}
+
+				fmt.Println("✓ lab-frontend API types regenerated successfully")
+
+				// Restart lab-frontend to apply changes
+				fmt.Println("\nRestarting lab-frontend...")
+
+				if err := orch.Restart(ctx, "lab-frontend"); err != nil {
+					// If restart fails (e.g., service not running), just warn the user
+					fmt.Printf("⚠ Could not restart lab-frontend: %v\n", err)
+					fmt.Println("If lab-frontend is running, restart it manually:")
+					fmt.Println("  xcli lab restart lab-frontend")
+				} else {
+					fmt.Println("✓ lab-frontend restarted successfully")
+				}
 
 			case "all":
 				fmt.Println("Rebuilding all projects")
@@ -156,7 +230,7 @@ Note: 'xatu-cbt' rebuild includes service restarts. Other rebuilds do NOT restar
 				fmt.Println("✓ All projects rebuilt successfully")
 
 			default:
-				return fmt.Errorf("unknown project: %s\n\nSupported projects: xatu-cbt, cbt, cbt-api, lab-backend, lab, all", project)
+				return fmt.Errorf("unknown project: %s\n\nSupported projects: xatu-cbt, cbt, cbt-api, lab-backend, lab-frontend, all", project)
 			}
 
 			return nil
