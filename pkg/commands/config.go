@@ -22,12 +22,12 @@ func NewConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Command 
 		Use:   "show",
 		Short: "Show current configuration (all stacks)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load(configPath)
+			result, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			data, err := yaml.Marshal(cfg)
+			data, err := yaml.Marshal(result.Config)
 			if err != nil {
 				return fmt.Errorf("failed to marshal config: %w", err)
 			}
@@ -43,12 +43,12 @@ func NewConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Command 
 		Use:   "validate",
 		Short: "Validate configuration (all stacks)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load(configPath)
+			result, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			if err := cfg.Validate(); err != nil {
+			if err := result.Config.Validate(); err != nil {
 				fmt.Printf("✗ Configuration is invalid:\n  %v\n", err)
 
 				return err
@@ -57,12 +57,12 @@ func NewConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Command 
 			fmt.Println("✓ Configuration is valid")
 
 			// Show summary for each stack
-			if cfg.Lab != nil {
+			if result.Config.Lab != nil {
 				fmt.Printf("\nLab Stack:\n")
-				fmt.Printf("  Mode: %s\n", cfg.Lab.Mode)
+				fmt.Printf("  Mode: %s\n", result.Config.Lab.Mode)
 				fmt.Printf("  Networks: ")
 
-				for i, net := range cfg.Lab.EnabledNetworks() {
+				for i, net := range result.Config.Lab.EnabledNetworks() {
 					if i > 0 {
 						fmt.Print(", ")
 					}

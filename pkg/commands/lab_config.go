@@ -23,16 +23,16 @@ func NewLabConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Comma
 		Use:   "show",
 		Short: "Show current lab configuration",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load(configPath)
+			result, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			if cfg.Lab == nil {
+			if result.Config.Lab == nil {
 				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
 			}
 
-			data, err := yaml.Marshal(cfg.Lab)
+			data, err := yaml.Marshal(result.Config.Lab)
 			if err != nil {
 				return fmt.Errorf("failed to marshal config: %w", err)
 			}
@@ -48,26 +48,26 @@ func NewLabConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Comma
 		Use:   "validate",
 		Short: "Validate lab configuration",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load(configPath)
+			result, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			if cfg.Lab == nil {
+			if result.Config.Lab == nil {
 				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
 			}
 
-			if err := cfg.Lab.Validate(); err != nil {
+			if err := result.Config.Lab.Validate(); err != nil {
 				fmt.Printf("✗ Lab configuration is invalid:\n  %v\n", err)
 
 				return err
 			}
 
 			fmt.Println("✓ Lab configuration is valid")
-			fmt.Printf("\nMode: %s\n", cfg.Lab.Mode)
+			fmt.Printf("\nMode: %s\n", result.Config.Lab.Mode)
 			fmt.Printf("Networks: ")
 
-			for i, net := range cfg.Lab.EnabledNetworks() {
+			for i, net := range result.Config.Lab.EnabledNetworks() {
 				if i > 0 {
 					fmt.Print(", ")
 				}
@@ -98,17 +98,17 @@ Regenerates configurations for:
 Note: This does NOT restart services. Use 'xcli lab restart <service>' to apply
 the new configs.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load(configPath)
+			result, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			if cfg.Lab == nil {
+			if result.Config.Lab == nil {
 				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
 			}
 
 			// Create orchestrator
-			orch, err := orchestrator.NewOrchestrator(log, cfg.Lab)
+			orch, err := orchestrator.NewOrchestrator(log, result.Config.Lab, result.ConfigPath)
 			if err != nil {
 				return fmt.Errorf("failed to create orchestrator: %w", err)
 			}

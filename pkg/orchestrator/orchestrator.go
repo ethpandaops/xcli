@@ -35,11 +35,21 @@ type Orchestrator struct {
 }
 
 // NewOrchestrator creates a new Orchestrator instance.
-func NewOrchestrator(log logrus.FieldLogger, cfg *config.LabConfig) (*Orchestrator, error) {
-	stateDir := ".xcli"
+func NewOrchestrator(log logrus.FieldLogger, cfg *config.LabConfig, configPath string) (*Orchestrator, error) {
+	// Get absolute path of config file
+	absConfigPath, err := filepath.Abs(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute config path: %w", err)
+	}
+
+	// State directory is in the same directory as the config file
+	configDir := filepath.Dir(absConfigPath)
+	stateDir := filepath.Join(configDir, ".xcli")
 
 	// Load user-provided CBT overrides if they exist
-	overrides, err := config.LoadCBTOverrides(constants.CBTOverridesFile)
+	overridesPath := filepath.Join(configDir, constants.CBTOverridesFile)
+
+	overrides, err := config.LoadCBTOverrides(overridesPath)
 	if err != nil {
 		log.WithError(err).Warn("failed to load user CBT overrides, using defaults")
 

@@ -39,28 +39,28 @@ Examples:
 			}
 
 			// Load config
-			cfg, err := config.Load(configPath)
+			result, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			if cfg.Lab == nil {
+			if result.Config.Lab == nil {
 				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
 			}
 
 			// Update mode and ClickHouse mode
 			// Note: We only change the mode fields, preserving any external credentials
 			// so users can switch back and forth without losing their config
-			oldMode := cfg.Lab.Mode
-			cfg.Lab.Mode = mode
+			oldMode := result.Config.Lab.Mode
+			result.Config.Lab.Mode = mode
 
 			hasExternalCredentials := true
 
 			if mode == constants.ModeHybrid {
-				cfg.Lab.Infrastructure.ClickHouse.Xatu.Mode = constants.InfraModeExternal
+				result.Config.Lab.Infrastructure.ClickHouse.Xatu.Mode = constants.InfraModeExternal
 
 				// Check if external credentials are configured
-				if cfg.Lab.Infrastructure.ClickHouse.Xatu.ExternalURL == "" {
+				if result.Config.Lab.Infrastructure.ClickHouse.Xatu.ExternalURL == "" {
 					hasExternalCredentials = false
 
 					fmt.Println("\n⚠ Warning: Switching to hybrid mode but no external ClickHouse URL configured")
@@ -73,16 +73,16 @@ Examples:
 					fmt.Println("          externalDatabase: \"default\"")
 				}
 			} else {
-				cfg.Lab.Infrastructure.ClickHouse.Xatu.Mode = constants.InfraModeLocal
+				result.Config.Lab.Infrastructure.ClickHouse.Xatu.Mode = constants.InfraModeLocal
 
 				// Inform user that external credentials are preserved
-				if oldMode == constants.ModeHybrid && cfg.Lab.Infrastructure.ClickHouse.Xatu.ExternalURL != "" {
+				if oldMode == constants.ModeHybrid && result.Config.Lab.Infrastructure.ClickHouse.Xatu.ExternalURL != "" {
 					fmt.Println("\n✓ External ClickHouse credentials preserved for future hybrid mode use")
 				}
 			}
 
 			// Save config
-			if err := cfg.Save(configPath); err != nil {
+			if err := result.Config.Save(result.ConfigPath); err != nil {
 				return fmt.Errorf("failed to save config: %w", err)
 			}
 
@@ -107,7 +107,7 @@ Examples:
 
 			_, _ = fmt.Scanln(&response)
 			if response == "y" || response == "Y" {
-				orch, err := orchestrator.NewOrchestrator(log, cfg.Lab)
+				orch, err := orchestrator.NewOrchestrator(log, result.Config.Lab, result.ConfigPath)
 				if err != nil {
 					return fmt.Errorf("failed to create orchestrator: %w", err)
 				}
