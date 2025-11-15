@@ -134,6 +134,11 @@ func (m *Manager) BuildCBT(ctx context.Context, force bool) error {
 
 	m.log.WithField("repo", "cbt").Info("building project")
 
+	// Build CBT frontend first (required for embedding in binary)
+	if err := m.buildCBTFrontend(ctx, force); err != nil {
+		return fmt.Errorf("failed to build CBT frontend: %w", err)
+	}
+
 	// CBT doesn't have a Makefile build target, build directly
 	binDir := filepath.Join(m.cfg.Repos.CBT, "bin")
 	if err := os.MkdirAll(binDir, 0755); err != nil {
@@ -145,6 +150,45 @@ func (m *Manager) BuildCBT(ctx context.Context, force bool) error {
 
 	if err := m.runCmd(cmd); err != nil {
 		return fmt.Errorf("go build failed: %w", err)
+	}
+
+	return nil
+}
+
+// buildCBTFrontend builds the CBT frontend (React/Vite app).
+// The frontend is embedded into the CBT binary via go:embed, so it must be built before the Go binary.
+func (m *Manager) buildCBTFrontend(ctx context.Context, force bool) error {
+	frontendDir := filepath.Join(m.cfg.Repos.CBT, "frontend")
+	frontendBuild := filepath.Join(frontendDir, "build", "frontend")
+	nodeModules := filepath.Join(frontendDir, "node_modules")
+
+	// Check if frontend build already exists (skip unless force rebuild)
+	if !force && m.dirExists(frontendBuild) {
+		m.log.WithField("repo", "cbt/frontend").Info("frontend build exists, skipping")
+
+		return nil
+	}
+
+	// Install dependencies if needed
+	if !m.dirExists(nodeModules) {
+		m.log.WithField("repo", "cbt/frontend").Info("installing dependencies")
+
+		cmd := exec.CommandContext(ctx, "pnpm", "install")
+		cmd.Dir = frontendDir
+
+		if err := m.runCmd(cmd); err != nil {
+			return fmt.Errorf("pnpm install failed: %w", err)
+		}
+	}
+
+	// Build frontend
+	m.log.WithField("repo", "cbt/frontend").Info("building frontend")
+
+	cmd := exec.CommandContext(ctx, "pnpm", "build")
+	cmd.Dir = frontendDir
+
+	if err := m.runCmd(cmd); err != nil {
+		return fmt.Errorf("pnpm build failed: %w", err)
 	}
 
 	return nil

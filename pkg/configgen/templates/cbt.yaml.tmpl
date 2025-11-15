@@ -37,7 +37,8 @@ models:
     NETWORK: "{{ .Network }}"
 
 frontend:
-  enabled: false
+  enabled: true
+  addr: ":{{ .FrontendPort }}"
 
 scheduler:
   concurrency: 10

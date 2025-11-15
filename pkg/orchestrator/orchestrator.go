@@ -239,11 +239,12 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 
 	fmt.Println("\n✓ Stack is running!")
 	fmt.Println("\nServices:")
-	fmt.Printf("  Lab Frontend:  http://localhost:%d\n", o.cfg.Ports.LabFrontend)
-	fmt.Printf("  Lab Backend:   http://localhost:%d\n", o.cfg.Ports.LabBackend)
+	fmt.Printf("  Lab Frontend:     http://localhost:%d\n", o.cfg.Ports.LabFrontend)
+	fmt.Printf("  Lab Backend:      http://localhost:%d\n", o.cfg.Ports.LabBackend)
 
 	for _, net := range o.cfg.EnabledNetworks() {
-		fmt.Printf("  CBT API (%s): http://localhost:%d\n", net.Name, o.cfg.GetCBTAPIPort(net.Name))
+		fmt.Printf("  CBT API (%s):    http://localhost:%d\n", net.Name, o.cfg.GetCBTAPIPort(net.Name))
+		fmt.Printf("  CBT Frontend (%s): http://localhost:%d\n", net.Name, o.cfg.GetCBTFrontendPort(net.Name))
 	}
 
 	fmt.Println()
@@ -536,10 +537,13 @@ func (o *Orchestrator) checkPortConflicts() []portutil.PortConflict {
 	portsToCheck = append(portsToCheck, o.cfg.Ports.LabBackend)
 	portsToCheck = append(portsToCheck, o.cfg.Ports.LabFrontend)
 
-	// CBT and CBT API ports for each enabled network
+	// CBT, CBT API, and CBT frontend ports for each enabled network
 	for i, network := range enabledNetworks {
 		// CBT API service port
 		portsToCheck = append(portsToCheck, o.cfg.GetCBTAPIPort(network.Name))
+
+		// CBT frontend port
+		portsToCheck = append(portsToCheck, o.cfg.GetCBTFrontendPort(network.Name))
 
 		// CBT metrics port (9100 + network index)
 		portsToCheck = append(portsToCheck, 9100+i)
@@ -629,8 +633,8 @@ func (o *Orchestrator) getServicePorts(service string) []int {
 		// Check if it's a CBT or CBT-API service
 		for i, network := range o.cfg.EnabledNetworks() {
 			if service == "cbt-"+network.Name {
-				// CBT metrics port
-				return []int{9100 + i}
+				// CBT metrics port and frontend port
+				return []int{9100 + i, o.cfg.GetCBTFrontendPort(network.Name)}
 			}
 
 			if service == "cbt-api-"+network.Name {
