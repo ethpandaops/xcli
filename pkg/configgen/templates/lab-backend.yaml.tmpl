@@ -62,6 +62,16 @@ networks:
 
 headers:
   policies:
+    # Static assets (JS, CSS, images, fonts) - 60 min cache
+    - name: "static_assets"
+      path_pattern: "\\.(js|css|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot|ico)$"
+      headers:
+        Cache-Control: "public, max-age=3600"
+    # HTML pages (index.html) - no caching
+    - name: "html_pages"
+      path_pattern: "\\.html$"
+      headers:
+        Cache-Control: "no-cache, no-store, must-revalidate"
     - name: "api_config"
       path_pattern: "^/api/v1/config$"
       headers:
