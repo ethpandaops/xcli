@@ -7,18 +7,25 @@ import (
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 // NewLabConfigCommand creates the lab config command.
+// NOTE: This is maintained for backward compatibility. Consider using:
+//
+//	xcli config show --stack=lab
+//	xcli config validate --stack=lab
 func NewLabConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
 		Short: "Manage lab configuration",
-		Long:  `View and validate lab stack configuration.`,
+		Long: `View and validate lab stack configuration.
+
+Note: These commands are also available via:
+  xcli config show --stack=lab
+  xcli config validate --stack=lab`,
 	}
 
-	// config show subcommand
+	// config show subcommand - now uses shared helper
 	cmd.AddCommand(&cobra.Command{
 		Use:   "show",
 		Short: "Show current lab configuration",
@@ -28,22 +35,11 @@ func NewLabConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Comma
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			if result.Config.Lab == nil {
-				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
-			}
-
-			data, err := yaml.Marshal(result.Config.Lab)
-			if err != nil {
-				return fmt.Errorf("failed to marshal config: %w", err)
-			}
-
-			fmt.Println(string(data))
-
-			return nil
+			return displayConfigForStack(result.Config, "lab")
 		},
 	})
 
-	// config validate subcommand
+	// config validate subcommand - now uses shared helper
 	cmd.AddCommand(&cobra.Command{
 		Use:   "validate",
 		Short: "Validate lab configuration",
@@ -53,31 +49,7 @@ func NewLabConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Comma
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			if result.Config.Lab == nil {
-				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
-			}
-
-			if err := result.Config.Lab.Validate(); err != nil {
-				fmt.Printf("✗ Lab configuration is invalid:\n  %v\n", err)
-
-				return err
-			}
-
-			fmt.Println("✓ Lab configuration is valid")
-			fmt.Printf("\nMode: %s\n", result.Config.Lab.Mode)
-			fmt.Printf("Networks: ")
-
-			for i, net := range result.Config.Lab.EnabledNetworks() {
-				if i > 0 {
-					fmt.Print(", ")
-				}
-
-				fmt.Print(net.Name)
-			}
-
-			fmt.Println()
-
-			return nil
+			return validateConfigForStack(result.Config, "lab")
 		},
 	})
 

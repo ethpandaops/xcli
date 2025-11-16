@@ -28,9 +28,10 @@ make install    # Install globally (optional)
 ## Quick Start
 
 ```bash
-xcli lab init   # Initialize config (creates .xcli.yaml)
-xcli lab up     # Start the stack
-xcli lab ps     # Check status
+xcli lab init     # Initialize config (creates .xcli.yaml)
+xcli lab check    # Verify environment is ready
+xcli lab up       # Start the stack
+xcli lab status   # Check status
 ```
 
 Services:
@@ -44,26 +45,35 @@ Services:
 
 ```bash
 xcli lab init                    # Initialize configuration
+xcli lab check                   # Verify environment (repos, Docker, config)
 xcli lab up                      # Start all services
 xcli lab up --rebuild            # Force rebuild before starting
 xcli lab up --no-build           # Skip build (fail if binaries missing)
-xcli lab down                    # Stop and remove data
-xcli lab ps                      # List running services
+xcli lab down                    # Stop and remove containers/volumes
+xcli lab clean                   # Remove all containers, volumes, and build artifacts
+xcli lab clean --force           # Skip confirmation prompt
+xcli lab status                  # Show service status
 ```
 
 ### Build & Rebuild
 
 ```bash
-xcli lab build                   # Build all binaries
+# Build (CI/CD, pre-building without starting services)
+xcli lab build                   # Build all binaries (skips if exist)
 xcli lab build -f                # Force rebuild all
-xcli lab rebuild <target>        # Rebuild specific component
+
+# Rebuild (development - rebuilds and auto-restarts services)
+xcli lab rebuild <target>        # Rebuild specific component + restart
 
 # Rebuild targets:
-#   xatu-cbt     - Rebuild xatu-cbt (protos + binary + configs + restart)
-#   cbt          - Rebuild cbt binary
-#   cbt-api      - Rebuild cbt-api (protos + binary)
-#   lab-backend  - Rebuild lab-backend binary
-#   all          - Rebuild everything
+#   xatu-cbt      - Full model update (protos → cbt-api → configs → restart → frontend)
+#   cbt           - Rebuild CBT binary + restart services
+#   cbt-api       - Regenerate protos + rebuild + restart
+#   lab-backend   - Rebuild + restart
+#   lab-frontend  - Regenerate API types + restart
+#   all           - Rebuild everything + restart all
+
+# Use 'xcli lab build --help' or 'xcli lab rebuild --help' for detailed differences
 ```
 
 ### Service Control
@@ -81,25 +91,61 @@ Services: `lab-backend`, `lab-frontend`, `cbt-mainnet`, `cbt-api-mainnet`, etc.
 ### Configuration
 
 ```bash
-xcli lab config show             # Show configuration
-xcli lab config validate         # Validate configuration
-xcli lab mode local              # Switch to local mode
-xcli lab mode hybrid             # Switch to hybrid mode
+# Lab-specific config
+xcli lab config show             # Show lab configuration
+xcli lab config validate         # Validate lab configuration
+xcli lab config regenerate       # Regenerate service configs
+
+# Global config (all stacks)
+xcli config show                 # Show all stack configurations
+xcli config show --stack=lab     # Show only lab stack
+xcli config validate             # Validate all stacks
+xcli config validate --stack=lab # Validate only lab stack
+
+# Mode switching
+xcli lab mode local              # Switch to local mode (all local services)
+xcli lab mode hybrid             # Switch to hybrid mode (external Xatu ClickHouse)
 ```
 
 ## Development Workflow
 
-After making code changes to a service:
+### After making code changes
 
 ```bash
 # Simple restart (if binary unchanged)
 xcli lab restart lab-backend
 
-# Rebuild and restart
+# Rebuild and restart (most common)
 xcli lab rebuild lab-backend
 
-# Full proto regeneration workflow (for xatu-cbt changes)
+# Full model update workflow (when you modify xatu-cbt models)
 xcli lab rebuild xatu-cbt
+```
+
+### Troubleshooting
+
+```bash
+# Verify environment is ready
+xcli lab check
+
+# View service status
+xcli lab status
+
+# View logs
+xcli lab logs lab-backend -f
+
+# Complete cleanup (removes all containers, volumes, build artifacts)
+xcli lab clean
+```
+
+### Getting Help
+
+All commands have detailed help text:
+```bash
+xcli lab --help              # List all lab commands
+xcli lab build --help        # Detailed build command help
+xcli lab rebuild --help      # See all rebuild targets and workflows
+xcli lab mode --help         # Understand local vs hybrid modes
 ```
 
 ## Configuration
@@ -123,7 +169,16 @@ infrastructure:
 ```
 
 **Modes:**
-- **local**: All services run locally (default)
-- **hybrid**: External Xatu data, local transformations
+- **local**: Complete local development environment
+  - All services (ClickHouse, Redis) run locally in Docker
+  - No external dependencies required
+  - Best for: Isolated development, testing, demos
+
+- **hybrid**: Mixed local processing with external production data
+  - External Xatu ClickHouse (production data source)
+  - Local CBT ClickHouse (local processing and storage)
+  - Best for: Testing against production data, debugging live issues
 
 See [`.xcli.example.yaml`](.xcli.example.yaml) for all options.
+
+Run `xcli lab mode --help` for detailed mode descriptions.

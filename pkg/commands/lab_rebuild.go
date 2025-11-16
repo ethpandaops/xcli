@@ -16,26 +16,47 @@ func NewLabRebuildCommand(log logrus.FieldLogger, configPath string) *cobra.Comm
 
 	cmd := &cobra.Command{
 		Use:   "rebuild [project]",
-		Short: "Rebuild specific project(s) for local development",
-		Long: `Rebuild one or more projects without full stack restart.
+		Short: "Rebuild specific components during active development with automatic service restarts",
+		Long: `Rebuild specific components during active development with automatic service restarts.
 
-Useful for local development when you've made changes and need to rebuild
-specific components. Much faster than 'xcli lab down && xcli lab up'.
+Purpose:
+  This command is designed for rapid iteration during local development.
+  It rebuilds ONLY what changed and automatically restarts affected services.
+
+Use cases:
+  • You modified code and need to test changes immediately
+  • You added/changed models in xatu-cbt and need full regeneration
+  • You updated API endpoints in cbt-api
+  • Fast development loop without full 'down && up' cycle
+
+Key difference from 'build':
+  • build  = Build everything, don't start services (CI/CD)
+  • rebuild = Build specific component + restart its services (development)
 
 Supported projects:
-  xatu-cbt     - Regenerate protos + rebuild cbt-api + regenerate configs + restart services + regenerate lab-frontend types
-                 (Use this when you add/modify models in xatu-cbt)
-  cbt          - Rebuild CBT + restart CBT services
-  cbt-api      - Regenerate protos + rebuild cbt-api + restart cbt-api services
-  lab-backend  - Rebuild lab-backend + restart lab-backend service
-  lab-frontend - Regenerate frontend API types from cbt-api OpenAPI spec + restart lab-frontend
-  all          - Rebuild all projects (CBT, lab-backend, lab)
+  xatu-cbt     - Full model update workflow
+                 (protos → cbt-api → configs → restart → frontend types)
+                 Use when: You add/modify models in xatu-cbt
+
+  cbt          - Rebuild CBT binary + restart all CBT services
+                 Use when: You modify CBT engine code
+
+  cbt-api      - Regenerate protos + rebuild + restart all cbt-api services
+                 Use when: You modify cbt-api endpoints
+
+  lab-backend  - Rebuild + restart lab-backend service
+                 Use when: You modify lab-backend code
+
+  lab-frontend - Regenerate API types + restart lab-frontend
+                 Use when: cbt-api OpenAPI spec changed
+
+  all          - Rebuild everything in parallel + restart all services
+                 Use when: Multiple changes across projects
 
 Examples:
-  xcli lab rebuild xatu-cbt         # Full model update workflow (proto → cbt-api → configs → restart)
-  xcli lab rebuild cbt-api          # Regenerate protos + rebuild cbt-api + restart
-  xcli lab rebuild cbt --verbose    # Rebuild CBT with verbose output + restart
-  xcli lab rebuild all              # Rebuild everything (parallel)
+  xcli lab rebuild xatu-cbt          # Full model update (most common)
+  xcli lab rebuild cbt               # Quick CBT engine iteration
+  xcli lab rebuild lab-backend -v    # Rebuild with verbose output
 
 Note: All rebuild commands automatically restart their respective services if running.`,
 		Args: cobra.ExactArgs(1),
