@@ -161,7 +161,6 @@ func (m *Manager) BuildCBT(ctx context.Context, force bool) error {
 func (m *Manager) buildCBTFrontend(ctx context.Context, force bool) error {
 	frontendDir := filepath.Join(m.cfg.Repos.CBT, "frontend")
 	frontendBuild := filepath.Join(frontendDir, "build", "frontend")
-	nodeModules := filepath.Join(frontendDir, "node_modules")
 
 	// Check if frontend build already exists (skip unless force rebuild)
 	if !force && m.dirExists(frontendBuild) {
@@ -173,27 +172,21 @@ func (m *Manager) buildCBTFrontend(ctx context.Context, force bool) error {
 	// Create spinner for frontend build (only if not in verbose mode)
 	var spinner *ui.Spinner
 	if !m.verbose {
-		spinner = ui.NewSilentSpinner("Building CBT frontend")
+		spinner = ui.NewSilentSpinner("Installing CBT frontend dependencies")
 	}
 
-	// Install dependencies if needed
-	if !m.dirExists(nodeModules) {
+	// Always install dependencies to ensure they match package.json
+	m.log.WithField("repo", "cbt/frontend").Info("installing dependencies")
+
+	cmd := exec.CommandContext(ctx, "pnpm", "install")
+	cmd.Dir = frontendDir
+
+	if err := m.runCmd(cmd); err != nil {
 		if !m.verbose {
-			spinner.UpdateText("Installing CBT frontend dependencies")
+			spinner.Fail("CBT frontend dependencies installation failed")
 		}
 
-		m.log.WithField("repo", "cbt/frontend").Info("installing dependencies")
-
-		cmd := exec.CommandContext(ctx, "pnpm", "install")
-		cmd.Dir = frontendDir
-
-		if err := m.runCmd(cmd); err != nil {
-			if !m.verbose {
-				spinner.Fail("CBT frontend dependencies installation failed")
-			}
-
-			return fmt.Errorf("pnpm install failed: %w", err)
-		}
+		return fmt.Errorf("pnpm install failed: %w", err)
 	}
 
 	// Build frontend
@@ -203,7 +196,7 @@ func (m *Manager) buildCBTFrontend(ctx context.Context, force bool) error {
 
 	m.log.WithField("repo", "cbt/frontend").Info("building frontend")
 
-	cmd := exec.CommandContext(ctx, "pnpm", "build")
+	cmd = exec.CommandContext(ctx, "pnpm", "build")
 	cmd.Dir = frontendDir
 
 	if err := m.runCmd(cmd); err != nil {
