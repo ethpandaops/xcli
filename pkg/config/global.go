@@ -4,13 +4,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
 // GlobalConfig represents the global xcli configuration stored in ~/.xcli/config.yaml.
 type GlobalConfig struct {
-	XCLIPath string `yaml:"xcliPath,omitempty"`
+	XCLIPath          string    `yaml:"xcliPath,omitempty"`
+	LastUpgradeCheck  time.Time `yaml:"lastUpgradeCheck,omitempty"`
+	LastUpgradeCommit string    `yaml:"lastUpgradeCommit,omitempty"`
 }
 
 // LoadGlobalConfig loads the global config from ~/.xcli/config.yaml.

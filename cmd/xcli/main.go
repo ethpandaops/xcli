@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
+	"github.com/ethpandaops/xcli/pkg/autoupgrade"
 	"github.com/ethpandaops/xcli/pkg/commands"
+	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -18,6 +21,25 @@ var (
 	commit  = "none"
 	date    = "unknown"
 )
+
+// findRepoPath attempts to locate the xcli repository for auto-updates.
+func findRepoPath() string {
+	// Load global config to get xcli path
+	globalCfg, err := config.LoadGlobalConfig()
+	if err != nil {
+		return ""
+	}
+
+	// Verify the path has a .git directory
+	if globalCfg.XCLIPath != "" {
+		gitDir := filepath.Join(globalCfg.XCLIPath, ".git")
+		if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
+			return globalCfg.XCLIPath
+		}
+	}
+
+	return ""
+}
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -40,6 +62,14 @@ func main() {
 	log.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
 	})
+
+	// Check for updates and auto-upgrade if needed (runs quickly due to caching)
+	if repoPath := findRepoPath(); repoPath != "" {
+		upgrader := autoupgrade.NewService(log, repoPath, commit)
+		if err := upgrader.CheckAndUpgrade(ctx); err != nil {
+			log.WithError(err).Debug("Auto-upgrade check failed")
+		}
+	}
 
 	// Create root command
 	rootCmd := &cobra.Command{
