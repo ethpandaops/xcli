@@ -165,6 +165,7 @@ func runLabCheck(ctx context.Context, log logrus.FieldLogger, configPath string)
 	cmd := exec.CommandContext(ctx, "docker", "info")
 	if err := cmd.Run(); err != nil {
 		spinner.Fail("Docker daemon not accessible - Ensure Docker Desktop is running")
+
 		allPassed = false
 	} else {
 		spinner.Success("Docker daemon accessible")
@@ -176,6 +177,7 @@ func runLabCheck(ctx context.Context, log logrus.FieldLogger, configPath string)
 	cmd = exec.CommandContext(ctx, "docker", "compose", "version")
 	if err := cmd.Run(); err != nil {
 		spinner.Fail("Docker Compose not available")
+
 		allPassed = false
 	} else {
 		spinner.Success("Docker Compose available")

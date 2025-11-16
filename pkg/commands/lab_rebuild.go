@@ -100,6 +100,7 @@ Note: All rebuild commands automatically restart their respective services if ru
 
 				if err := orch.Builder().BuildCBTAPI(ctx, true); err != nil {
 					spinner.Fail("Failed to rebuild cbt-api")
+
 					return fmt.Errorf("failed to rebuild cbt-api: %w", err)
 				}
 
@@ -110,6 +111,7 @@ Note: All rebuild commands automatically restart their respective services if ru
 
 				if err := orch.GenerateConfigs(); err != nil {
 					spinner.Fail("Failed to regenerate configs")
+
 					return fmt.Errorf("failed to regenerate configs: %w", err)
 				}
 
@@ -132,6 +134,7 @@ Note: All rebuild commands automatically restart their respective services if ru
 
 				if err := orch.RestartServices(ctx, verbose); err != nil {
 					spinner.Fail("Failed to restart services")
+
 					return fmt.Errorf("failed to restart services: %w", err)
 				}
 
@@ -145,6 +148,7 @@ Note: All rebuild commands automatically restart their respective services if ru
 
 				if err := orch.WaitForCBTAPIReady(ctx); err != nil {
 					spinner.Fail("cbt-api did not become ready")
+
 					return fmt.Errorf("cbt-api did not become ready: %w", err)
 				}
 
@@ -152,6 +156,7 @@ Note: All rebuild commands automatically restart their respective services if ru
 
 				if err := orch.Builder().BuildLabFrontend(ctx); err != nil {
 					spinner.Fail("Failed to regenerate lab-frontend types")
+
 					return fmt.Errorf("failed to regenerate lab-frontend types: %w", err)
 				}
 
@@ -180,6 +185,7 @@ Note: All rebuild commands automatically restart their respective services if ru
 
 				if err := orch.Builder().BuildCBT(ctx, true); err != nil {
 					spinner.Fail("Failed to rebuild CBT")
+
 					return fmt.Errorf("failed to rebuild CBT: %w", err)
 				}
 
@@ -203,6 +209,7 @@ Note: All rebuild commands automatically restart their respective services if ru
 
 				if err := orch.Builder().BuildCBTAPI(ctx, true); err != nil {
 					spinner.Fail("Failed to rebuild cbt-api")
+
 					return fmt.Errorf("failed to rebuild cbt-api: %w", err)
 				}
 
@@ -229,6 +236,7 @@ Note: All rebuild commands automatically restart their respective services if ru
 
 				if err := orch.Builder().BuildLabBackend(ctx, true); err != nil {
 					spinner.Fail("Failed to rebuild lab-backend")
+
 					return fmt.Errorf("failed to rebuild lab-backend: %w", err)
 				}
 
@@ -250,6 +258,7 @@ Note: All rebuild commands automatically restart their respective services if ru
 
 				if err := orch.Builder().BuildLabFrontend(ctx); err != nil {
 					spinner.Fail("Failed to regenerate lab-frontend types")
+
 					return fmt.Errorf("failed to regenerate lab-frontend types: %w", err)
 				}
 
@@ -272,6 +281,7 @@ Note: All rebuild commands automatically restart their respective services if ru
 				// Uses DAG from Plan 3 for parallel execution
 				if err := orch.Builder().BuildAll(ctx, true); err != nil {
 					spinner.Fail("Failed to rebuild all projects")
+
 					return fmt.Errorf("failed to rebuild all: %w", err)
 				}
 

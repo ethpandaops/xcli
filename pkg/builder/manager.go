@@ -191,6 +191,7 @@ func (m *Manager) buildCBTFrontend(ctx context.Context, force bool) error {
 			if !m.verbose {
 				spinner.Fail("CBT frontend dependencies installation failed")
 			}
+
 			return fmt.Errorf("pnpm install failed: %w", err)
 		}
 	}
@@ -209,6 +210,7 @@ func (m *Manager) buildCBTFrontend(ctx context.Context, force bool) error {
 		if !m.verbose {
 			spinner.Fail("CBT frontend build failed")
 		}
+
 		return fmt.Errorf("pnpm build failed: %w", err)
 	}
 
@@ -233,6 +235,7 @@ func (m *Manager) BuildCBTAPI(ctx context.Context, force bool) error {
 
 	if !force && m.binaryExists(binary) {
 		m.log.WithField("repo", "cbt-api").Info("binary exists, skipping build")
+
 		return nil
 	}
 
@@ -315,6 +318,7 @@ func (m *Manager) installLabDeps(ctx context.Context, force bool) error {
 		if !m.verbose {
 			spinner.Fail("Lab dependencies installation failed")
 		}
+
 		return fmt.Errorf("pnpm install failed: %w", err)
 	}
 
@@ -354,6 +358,7 @@ func (m *Manager) GenerateProtos(ctx context.Context) error {
 		if !m.verbose {
 			spinner.Fail("Proto generation failed")
 		}
+
 		return fmt.Errorf("failed to get absolute config path: %w", err)
 	}
 
@@ -366,6 +371,7 @@ func (m *Manager) GenerateProtos(ctx context.Context) error {
 		if !m.verbose {
 			spinner.Fail("Proto generation failed")
 		}
+
 		return fmt.Errorf("failed to generate cbt-api protos: %w", err)
 	}
 

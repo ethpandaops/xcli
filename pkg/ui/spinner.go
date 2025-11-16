@@ -76,7 +76,7 @@ func (s *Spinner) Warning(message string) {
 	s.spinner.Warning(message)
 }
 
-// Stop stops the spinner without a message
+// Stop stops the spinner without a message.
 func (s *Spinner) Stop() error {
 	return s.spinner.Stop()
 }
@@ -87,7 +87,6 @@ func WithSpinner(message string, fn func() error) error {
 	s := NewSpinner(message)
 
 	err := fn()
-
 	if err != nil {
 		s.Fail(message)
 
@@ -107,7 +106,6 @@ func WithSpinnerAndUpdate(initialMessage string, fn func(update func(string)) er
 	}
 
 	err := fn(updateFn)
-
 	if err != nil {
 		s.Fail(initialMessage)
 

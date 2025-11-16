@@ -48,6 +48,7 @@ Example:
 
 			if err := orch.StartService(cmd.Context(), service); err != nil {
 				spinner.Fail(fmt.Sprintf("Failed to start %s", service))
+
 				return fmt.Errorf("failed to start service: %w", err)
 			}
 

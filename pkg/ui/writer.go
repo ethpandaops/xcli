@@ -4,13 +4,13 @@ import (
 	"io"
 )
 
-// ConditionalWriter writes to the underlying writer only if enabled
+// ConditionalWriter writes to the underlying writer only if enabled.
 type ConditionalWriter struct {
 	writer  io.Writer
 	enabled bool
 }
 
-// NewConditionalWriter creates a writer that only writes when enabled
+// NewConditionalWriter creates a writer that only writes when enabled.
 func NewConditionalWriter(writer io.Writer, enabled bool) *ConditionalWriter {
 	return &ConditionalWriter{
 		writer:  writer,
@@ -28,12 +28,12 @@ func (w *ConditionalWriter) Write(p []byte) (n int, err error) {
 	return w.writer.Write(p)
 }
 
-// SetEnabled enables or disables writing
+// SetEnabled enables or disables writing.
 func (w *ConditionalWriter) SetEnabled(enabled bool) {
 	w.enabled = enabled
 }
 
-// IsEnabled returns whether writing is enabled
+// IsEnabled returns whether writing is enabled.
 func (w *ConditionalWriter) IsEnabled() bool {
 	return w.enabled
 }

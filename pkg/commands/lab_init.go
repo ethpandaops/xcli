@@ -92,6 +92,7 @@ func runLabInit(ctx context.Context, log logrus.FieldLogger, configPath string) 
 	disc := discovery.NewDiscovery(log, parentDir)
 
 	ui.Header("Discovering repositories")
+
 	spinner := ui.NewSpinner("Scanning parent directory for required repositories")
 
 	repos, err := disc.DiscoverRepos()
@@ -154,6 +155,7 @@ func runLabInit(ctx context.Context, log logrus.FieldLogger, configPath string) 
 	ui.Success("Lab stack initialization complete!")
 
 	ui.Header("Discovered repositories:")
+
 	rows := [][]string{
 		{"cbt", repos.CBT},
 		{"xatu-cbt", repos.XatuCBT},

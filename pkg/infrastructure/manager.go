@@ -450,6 +450,7 @@ func (m *Manager) runXatuMigrations(ctx context.Context) error {
 	env, err := m.parseXatuCBTEnv()
 	if err != nil {
 		spinner.Fail("Database migrations failed")
+
 		return fmt.Errorf("failed to parse xatu-cbt .env: %w", err)
 	}
 
@@ -491,6 +492,7 @@ func (m *Manager) runXatuMigrations(ctx context.Context) error {
 	)
 	if err != nil {
 		spinner.Fail("Database migrations failed")
+
 		return fmt.Errorf("failed to create migration instance: %w", err)
 	}
 

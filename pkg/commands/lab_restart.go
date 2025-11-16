@@ -38,10 +38,12 @@ func NewLabRestartCommand(log logrus.FieldLogger, configPath string) *cobra.Comm
 
 			if err := orch.Restart(cmd.Context(), service); err != nil {
 				spinner.Fail(fmt.Sprintf("Failed to restart %s", service))
+
 				return fmt.Errorf("failed to restart service: %w", err)
 			}
 
 			spinner.Success(fmt.Sprintf("%s restarted successfully", service))
+
 			return nil
 		},
 	}

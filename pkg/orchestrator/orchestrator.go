@@ -349,6 +349,7 @@ func (o *Orchestrator) Down(ctx context.Context) error {
 
 	if err := o.infra.Reset(ctx); err != nil {
 		spinner.Fail("Failed to reset infrastructure")
+
 		return fmt.Errorf("failed to reset infrastructure: %w", err)
 	}
 
@@ -371,10 +372,12 @@ func (o *Orchestrator) StopServices() error {
 
 	if err := o.proc.StopAll(); err != nil {
 		spinner.Fail("Failed to stop all services")
+
 		return fmt.Errorf("failed to stop services: %w", err)
 	}
 
 	spinner.Success("All services stopped")
+
 	return nil
 }
 

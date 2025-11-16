@@ -59,6 +59,7 @@ func (d *Discovery) DiscoverRepos() (*config.LabReposConfig, error) {
 
 		err := ui.WithSpinner(fmt.Sprintf("Checking repository: %s", name), func() error {
 			validationErr = d.validateRepo(name, *info.path)
+
 			return nil // Don't fail spinner on validation error, we handle it below
 		})
 		if err != nil {
@@ -206,6 +207,7 @@ func (d *Discovery) cloneRepo(repoName, targetPath, branch string) error {
 	parentDir := filepath.Dir(targetPath)
 	if err := os.MkdirAll(parentDir, 0755); err != nil {
 		spinner.Fail(fmt.Sprintf("Failed to clone %s", repoName))
+
 		return fmt.Errorf("failed to create parent directory: %w", err)
 	}
 
@@ -225,6 +227,7 @@ func (d *Discovery) cloneRepo(repoName, targetPath, branch string) error {
 
 	if err := cmd.Run(); err != nil {
 		spinner.Fail(fmt.Sprintf("Failed to clone %s", repoName))
+
 		return fmt.Errorf("git clone failed: %w", err)
 	}
 
