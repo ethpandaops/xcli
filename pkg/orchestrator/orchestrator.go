@@ -460,6 +460,40 @@ func (o *Orchestrator) isNetworkEnabled(network string) bool {
 	return false
 }
 
+// IsValidService checks if a service name is valid for the current configuration.
+func (o *Orchestrator) IsValidService(service string) bool {
+	// Check fixed services
+	if service == constants.ServiceLabBackend || service == constants.ServiceLabFrontend {
+		return true
+	}
+
+	// Check CBT services for enabled networks
+	for _, network := range o.cfg.EnabledNetworks() {
+		if service == constants.ServiceNameCBT(network.Name) ||
+			service == constants.ServiceNameCBTAPI(network.Name) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// GetValidServices returns a list of all valid service names for the current configuration.
+func (o *Orchestrator) GetValidServices() []string {
+	services := []string{
+		constants.ServiceLabBackend,
+		constants.ServiceLabFrontend,
+	}
+
+	// Add network-specific services
+	for _, network := range o.cfg.EnabledNetworks() {
+		services = append(services, constants.ServiceNameCBT(network.Name))
+		services = append(services, constants.ServiceNameCBTAPI(network.Name))
+	}
+
+	return services
+}
+
 // Logs shows logs for a service.
 func (o *Orchestrator) Logs(ctx context.Context, service string, follow bool) error {
 	if service == "" {
