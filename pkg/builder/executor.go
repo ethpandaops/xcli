@@ -99,7 +99,11 @@ func (e *Executor) Execute(ctx context.Context) error {
 		return fmt.Errorf("build failed with %d errors: %v", len(errors), errors)
 	}
 
-	// Success case: progress bar auto-completes at 100%, don't call Stop()
+	// Success case: explicitly stop progress bar to prevent duplicate rendering
+	if progressBar != nil {
+		_ = progressBar.Stop()
+	}
+
 	return nil
 }
 

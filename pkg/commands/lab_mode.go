@@ -56,6 +56,13 @@ Examples:
 				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
 			}
 
+			// Check if already in requested mode
+			if result.Config.Lab.Mode == mode {
+				ui.Info(fmt.Sprintf("%s mode already active", mode))
+
+				return nil
+			}
+
 			// Update mode and ClickHouse mode
 			// Note: We only change the mode fields, preserving any external credentials
 			// so users can switch back and forth without losing their config
@@ -105,7 +112,7 @@ Examples:
 				return nil
 			}
 
-			ui.Header("Restart stack to apply changes (infrastructure will be rebuilt):")
+			ui.Header("Restart stack to apply changes:")
 			fmt.Println("  xcli lab down && xcli lab up")
 
 			// Optionally restart services automatically

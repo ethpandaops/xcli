@@ -209,6 +209,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	}
 
 	// Phase 3: Setup networks (run migrations)
+	ui.Blank()
 	ui.Header("Phase 4: Network Setup")
 
 	for _, network := range o.cfg.EnabledNetworks() {
@@ -383,6 +384,11 @@ func (o *Orchestrator) StopServices() error {
 
 // Restart restarts a specific service.
 func (o *Orchestrator) Restart(ctx context.Context, service string) error {
+	// Validate service name first
+	if !o.IsValidService(service) {
+		return fmt.Errorf("unknown service: %s", service)
+	}
+
 	// Stop the service
 	if err := o.StopService(ctx, service); err != nil {
 		return fmt.Errorf("failed to stop service: %w", err)
