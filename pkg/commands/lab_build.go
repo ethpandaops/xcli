@@ -15,24 +15,34 @@ func NewLabBuildCommand(log logrus.FieldLogger, configPath string) *cobra.Comman
 
 	cmd := &cobra.Command{
 		Use:   "build",
-		Short: "Build all lab projects",
-		Long: `Build all lab projects without starting services.
+		Short: "Build all lab projects from source without starting services",
+		Long: `Build all lab projects from source without starting services.
 
-This is useful for:
-  - Pre-building before 'xcli lab up --no-build'
-  - CI/CD pipelines
-  - Verifying builds without starting infrastructure
+Purpose:
+  This command is designed for CI/CD pipelines and pre-building scenarios.
+  It compiles all binaries but does NOT start any infrastructure or services.
 
-Projects built:
-  - xatu-cbt (Phase 0)
-  - CBT, lab-backend, lab (Phase 2, parallel)
-  - Protos and cbt-api (Phase 5-6)
+Use cases:
+  • Pre-building before 'xcli lab up --no-build' (faster startup)
+  • CI/CD build verification pipelines
+  • Checking for compilation errors without running services
+  • Creating clean builds from scratch
 
-For rebuilding specific projects during development, use 'xcli lab rebuild'.
+What gets built:
+  Phase 1: xatu-cbt (proto definitions)
+  Phase 2: CBT, lab-backend, lab-frontend (parallel)
+  Phase 3: Proto generation + cbt-api (requires xatu-cbt protos)
+
+Note: This does NOT generate configs or start services. For active development
+with running services, use 'xcli lab rebuild' instead.
+
+Key difference from 'rebuild':
+  • build  = Build everything, don't start services (CI/CD)
+  • rebuild = Build specific component + restart its services (development)
 
 Examples:
-  xcli lab build         # Build all projects
-  xcli lab build --force # Force rebuild even if binaries exist`,
+  xcli lab build         # Build all projects (skip if binaries exist)
+  xcli lab build --force # Force complete rebuild from scratch`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := config.Load(configPath)
 			if err != nil {

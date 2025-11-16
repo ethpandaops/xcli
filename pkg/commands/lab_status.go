@@ -9,12 +9,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewLabPsCommand creates the lab ps command.
-func NewLabPsCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
+// NewLabStatusCommand creates the lab status command.
+func NewLabStatusCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	return &cobra.Command{
-		Use:   "ps",
-		Short: "List running lab services",
-		Long:  `List all running lab services and their status.`,
+		Use:   "status",
+		Short: "Show lab stack status",
+		Long: `Display status of all lab services and infrastructure.
+
+Shows:
+  • Running services and their states
+  • Port bindings
+  • Container health
+  • Infrastructure status (ClickHouse, Redis)
+
+Example:
+  xcli lab status`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := config.Load(configPath)
 			if err != nil {

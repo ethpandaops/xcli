@@ -14,23 +14,30 @@ import (
 func NewLabModeCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mode <local|hybrid>",
-		Short: "Switch between local and hybrid modes",
-		Long: `Switch the lab stack between local and hybrid modes.
+		Short: "Switch deployment mode between fully local and hybrid external data source",
+		Long: `Switch deployment mode between fully local and hybrid external data source.
 
 Modes:
-  local  - Fully local stack with no external dependencies.
-           All services (ClickHouse, Redis) run locally in Docker.
+  local  - Complete local development environment (default)
+           • All services run locally in Docker
+           • Local Xatu ClickHouse for data source
+           • Local CBT ClickHouse for processing
+           • No external dependencies required
+           • Best for: Isolated development, testing, demos
 
-  hybrid - Uses external ClickHouse database for data source.
-           Local ClickHouse CBT and Redis for processing.
-           Requires external_clickhouse configuration in .xcli.yaml.
+  hybrid - Mixed local processing with external production data
+           • External Xatu ClickHouse (production data source)
+           • Local CBT ClickHouse (local processing and storage)
+           • Local Redis for caching
+           • Requires: external_clickhouse configuration in .xcli.yaml
+           • Best for: Testing against production data, debugging live issues
 
-After switching modes, restart the stack with 'xcli lab up' for changes
-to take effect.
+After switching modes, restart the stack for changes to take effect:
+  xcli lab down && xcli lab up
 
 Examples:
-  xcli lab mode local        # Switch to local mode
-  xcli lab mode hybrid       # Switch to hybrid mode`,
+  xcli lab mode local        # Switch to fully local mode
+  xcli lab mode hybrid       # Switch to hybrid mode (requires external ClickHouse config)`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mode := args[0]
