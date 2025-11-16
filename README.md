@@ -1,6 +1,6 @@
 # xcli
 
-Local development orchestration tool for ethPandaOps projects.
+Local development orchestration tool for ethPandaOps projects. 🐼
 
 ## Prerequisites
 
