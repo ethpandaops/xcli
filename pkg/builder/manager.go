@@ -35,11 +35,6 @@ func (m *Manager) SetVerbose(verbose bool) {
 	m.verbose = verbose
 }
 
-// runCmd runs a command using the shared exec runner.
-func (m *Manager) runCmd(cmd *exec.Cmd) error {
-	return executil.RunCmd(cmd, m.verbose)
-}
-
 // BuildAll builds all repositories EXCEPT xatu-cbt (built in Phase 0).
 // Runs CBT, lab-backend, and lab in parallel.
 func (m *Manager) BuildAll(ctx context.Context, force bool) error {
@@ -126,7 +121,7 @@ func (m *Manager) BuildCBT(ctx context.Context, force bool) error {
 	cmd := exec.CommandContext(ctx, "go", "build", "-o", binary, ".")
 	cmd.Dir = m.cfg.Repos.CBT
 
-	if err := m.runCmd(cmd); err != nil {
+	if err := executil.RunCmd(cmd, m.verbose); err != nil {
 		return fmt.Errorf("go build failed: %w", err)
 	}
 
@@ -152,7 +147,7 @@ func (m *Manager) buildCBTFrontend(ctx context.Context, force bool) error {
 	cmd := exec.CommandContext(ctx, "pnpm", "install")
 	cmd.Dir = frontendDir
 
-	if err := m.runCmd(cmd); err != nil {
+	if err := executil.RunCmd(cmd, m.verbose); err != nil {
 		return fmt.Errorf("pnpm install failed: %w", err)
 	}
 
@@ -162,7 +157,7 @@ func (m *Manager) buildCBTFrontend(ctx context.Context, force bool) error {
 	cmd = exec.CommandContext(ctx, "pnpm", "build")
 	cmd.Dir = frontendDir
 
-	if err := m.runCmd(cmd); err != nil {
+	if err := executil.RunCmd(cmd, m.verbose); err != nil {
 		return fmt.Errorf("pnpm build failed: %w", err)
 	}
 
@@ -233,7 +228,7 @@ func (m *Manager) BuildLabFrontend(ctx context.Context) error {
 
 	cmd.Env = append(os.Environ(), fmt.Sprintf("OPENAPI_INPUT=%s", openapiURL))
 
-	if err := m.runCmd(cmd); err != nil {
+	if err := executil.RunCmd(cmd, m.verbose); err != nil {
 		return fmt.Errorf("pnpm run generate:api failed: %w", err)
 	}
 
@@ -255,7 +250,7 @@ func (m *Manager) installLabDeps(ctx context.Context, force bool) error {
 	cmd := exec.CommandContext(ctx, "pnpm", "install")
 	cmd.Dir = m.cfg.Repos.Lab
 
-	if err := m.runCmd(cmd); err != nil {
+	if err := executil.RunCmd(cmd, m.verbose); err != nil {
 		return fmt.Errorf("pnpm install failed: %w", err)
 	}
 
@@ -297,7 +292,7 @@ func (m *Manager) GenerateProtos(ctx context.Context) error {
 
 	cmd.Env = append(os.Environ(), fmt.Sprintf("CONFIG_FILE=%s", absConfigPath))
 
-	if err := m.runCmd(cmd); err != nil {
+	if err := executil.RunCmd(cmd, m.verbose); err != nil {
 		return fmt.Errorf("failed to generate cbt-api protos: %w", err)
 	}
 
@@ -329,7 +324,7 @@ func (m *Manager) runMake(ctx context.Context, dir string, target string) error 
 	cmd := exec.CommandContext(ctx, "make", target)
 	cmd.Dir = dir
 
-	if err := m.runCmd(cmd); err != nil {
+	if err := executil.RunCmd(cmd, m.verbose); err != nil {
 		return fmt.Errorf("make %s failed: %w", target, err)
 	}
 

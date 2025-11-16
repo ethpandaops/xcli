@@ -61,11 +61,6 @@ func (m *Manager) SetVerbose(verbose bool) {
 	m.verbose = verbose
 }
 
-// runCmd runs a command using the shared exec runner.
-func (m *Manager) runCmd(cmd *exec.Cmd) error {
-	return executil.RunCmd(cmd, m.verbose)
-}
-
 // Start starts infrastructure via xatu-cbt.
 func (m *Manager) Start(ctx context.Context) error {
 	// Check if infrastructure is already running
@@ -106,7 +101,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, m.xatuCBTPath, args...)
 	cmd.Dir = m.cfg.Repos.XatuCBT
 
-	if err := m.runCmd(cmd); err != nil {
+	if err := executil.RunCmd(cmd, m.verbose); err != nil {
 		spinner.Fail("Failed to start infrastructure services")
 
 		return fmt.Errorf("failed to start infrastructure: %w", err)
@@ -145,7 +140,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, m.xatuCBTPath, "infra", "stop")
 	cmd.Dir = m.cfg.Repos.XatuCBT
 
-	if err := m.runCmd(cmd); err != nil {
+	if err := executil.RunCmd(cmd, m.verbose); err != nil {
 		return fmt.Errorf("failed to stop infrastructure: %w", err)
 	}
 
@@ -168,7 +163,7 @@ func (m *Manager) Reset(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, m.xatuCBTPath, "infra", "reset")
 	cmd.Dir = m.cfg.Repos.XatuCBT
 
-	if err := m.runCmd(cmd); err != nil {
+	if err := executil.RunCmd(cmd, m.verbose); err != nil {
 		return fmt.Errorf("failed to reset infrastructure: %w", err)
 	}
 
@@ -188,7 +183,7 @@ func (m *Manager) SetupNetwork(ctx context.Context, network string) error {
 
 	cmd.Env = append(os.Environ(), fmt.Sprintf("NETWORK=%s", network))
 
-	if err := m.runCmd(cmd); err != nil {
+	if err := executil.RunCmd(cmd, m.verbose); err != nil {
 		return fmt.Errorf("failed to setup network %s: %w", network, err)
 	}
 
