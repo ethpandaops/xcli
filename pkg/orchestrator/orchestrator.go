@@ -17,6 +17,7 @@ import (
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/configgen"
 	"github.com/ethpandaops/xcli/pkg/constants"
+	"github.com/ethpandaops/xcli/pkg/git"
 	"github.com/ethpandaops/xcli/pkg/infrastructure"
 	"github.com/ethpandaops/xcli/pkg/mode"
 	"github.com/ethpandaops/xcli/pkg/portutil"
@@ -109,6 +110,9 @@ func (o *Orchestrator) Config() *config.LabConfig {
 
 // Up starts the complete stack.
 func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) error {
+	// Display startup banner
+	ui.Banner("Starting Lab Stack")
+
 	o.log.Info("starting lab stack")
 
 	// Fast prerequisite validation (read-only checks, no fixing)
@@ -125,15 +129,20 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 
 		o.log.WithField("url", o.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL).Info("testing external ClickHouse connection")
 
+		spinner := ui.NewSpinner("Testing external ClickHouse dsn")
+
 		if err := o.infra.TestExternalConnection(ctx); err != nil {
 			return fmt.Errorf("failed to connect to external ClickHouse: %w", err)
 		}
 
+		spinner.Success("External ClickHouse connection established")
+
 		o.log.Info("external ClickHouse connection verified")
 	}
 
-	// Display startup banner
-	ui.Banner("Starting Lab Stack")
+	// Check git status for all repositories (non-blocking)
+	// Done after prerequisite check to ensure all repos exist
+	o.checkGitStatus(ctx)
 
 	// Check if stack is already running
 	runningProcesses := o.proc.List()
@@ -166,9 +175,15 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 		ui.Header("Phase 1: Building Xatu-CBT")
 		o.log.Info("building xatu-cbt")
 
+		spinner := ui.NewSpinner("Building xatu-cbt")
+
 		if err := o.builder.BuildXatuCBT(ctx, forceBuild); err != nil {
+			spinner.Fail("Failed to build xatu-cbt")
+
 			return fmt.Errorf("failed to build xatu-cbt: %w", err)
 		}
+
+		spinner.Success("Xatu-CBT built successfully")
 
 		o.log.Info("xatu-cbt built successfully")
 	} else {
@@ -214,25 +229,43 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	ui.Blank()
 	ui.Header("Phase 4: Network Setup")
 
+	spinner := ui.NewSpinner("Setting up networks")
+
 	for _, network := range o.cfg.EnabledNetworks() {
+		spinner.UpdateText(fmt.Sprintf("Setting up %s network", network.Name))
+
 		if err := o.infra.SetupNetwork(ctx, network.Name); err != nil {
 			o.log.WithError(err).Warnf("Failed to setup network %s (may already be setup)", network.Name)
 		}
 	}
 
+	spinner.Success("Networks configured")
+
 	// Phase 4: Generate configs (needed for proto generation)
 	ui.Header("Phase 5: Generating Configurations")
 	o.log.Info("generating service configurations")
 
+	configSpinner := ui.NewSpinner("Generating service configurations")
+
 	if err := o.GenerateConfigs(); err != nil {
+		configSpinner.Fail("Failed to generate configurations")
+
 		return fmt.Errorf("failed to generate configs: %w", err)
 	}
 
+	configSpinner.Success("Service configurations generated")
+
 	// Build cbt-api (includes proto generation in its DAG)
 	if !skipBuild {
+		buildSpinner := ui.NewSpinner("Building cbt-api")
+
 		if err := o.builder.BuildCBTAPI(ctx, forceBuild); err != nil {
+			buildSpinner.Fail("Failed to build cbt-api")
+
 			return fmt.Errorf("failed to build cbt-api: %w", err)
 		}
+
+		buildSpinner.Success("CBT API built successfully")
 	}
 
 	// Check for port conflicts before starting services
@@ -248,9 +281,15 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	// Start services
 	ui.Header("Phase 6: Starting Services")
 
+	serviceSpinner := ui.NewSpinner("Starting all services")
+
 	if err := o.startServices(ctx); err != nil {
+		serviceSpinner.Fail("Failed to start services")
+
 		return fmt.Errorf("failed to start services: %w", err)
 	}
+
+	serviceSpinner.Success("All services started")
 
 	ui.Blank()
 	ui.Success("Stack is running!")
@@ -613,6 +652,93 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// checkGitStatus checks if all repositories are up to date with their remotes.
+// This is non-blocking - it only shows warnings if repositories are out of date.
+func (o *Orchestrator) checkGitStatus(ctx context.Context) {
+	spinner := ui.NewSpinner("Checking git status for all repositories")
+
+	checker := git.NewChecker(o.log)
+
+	// Build map of repositories to check
+	repos := map[string]string{
+		"cbt":         o.cfg.Repos.CBT,
+		"xatu-cbt":    o.cfg.Repos.XatuCBT,
+		"cbt-api":     o.cfg.Repos.CBTAPI,
+		"lab-backend": o.cfg.Repos.LabBackend,
+		"lab":         o.cfg.Repos.Lab,
+	}
+
+	o.log.Info("checking git status for all repositories")
+
+	statuses := checker.CheckRepositories(ctx, repos)
+
+	// Check if any repos are out of date
+	hasOutOfDateRepos := false
+	outOfDateRepos := make([]git.RepoStatus, 0)
+
+	for _, status := range statuses {
+		if !status.IsUpToDate {
+			hasOutOfDateRepos = true
+
+			outOfDateRepos = append(outOfDateRepos, status)
+		}
+	}
+
+	// Complete spinner based on results
+	if hasOutOfDateRepos {
+		spinner.Warning("Some repositories are not up to date")
+		ui.Blank()
+
+		// Build table data
+		gitStatuses := make([]ui.GitStatus, 0, len(outOfDateRepos))
+
+		for _, status := range outOfDateRepos {
+			if status.Error != nil {
+				o.log.WithFields(logrus.Fields{
+					"repo":  status.Name,
+					"error": status.Error,
+				}).Debug("git check failed")
+
+				gitStatuses = append(gitStatuses, ui.GitStatus{
+					Repository: status.Name,
+					Branch:     "-",
+					Status:     "Unable to check",
+				})
+			} else if status.BehindBy > 0 || status.AheadBy > 0 {
+				statusMsg := ""
+				if status.BehindBy > 0 && status.AheadBy > 0 {
+					statusMsg = fmt.Sprintf("↓%d ↑%d", status.BehindBy, status.AheadBy)
+				} else if status.BehindBy > 0 {
+					statusMsg = fmt.Sprintf("↓%d behind", status.BehindBy)
+				} else if status.AheadBy > 0 {
+					statusMsg = fmt.Sprintf("↑%d ahead", status.AheadBy)
+				}
+
+				gitStatuses = append(gitStatuses, ui.GitStatus{
+					Repository: status.Name,
+					Branch:     status.CurrentBranch,
+					Status:     statusMsg,
+				})
+
+				o.log.WithFields(logrus.Fields{
+					"repo":   status.Name,
+					"branch": status.CurrentBranch,
+					"behind": status.BehindBy,
+					"ahead":  status.AheadBy,
+				}).Info("repository not up to date")
+			}
+		}
+
+		ui.GitStatusTable(gitStatuses)
+		ui.Blank()
+		fmt.Println("Consider running 'git pull' in the affected repositories.")
+		ui.Blank()
+	} else {
+		spinner.Success("All repositories are up to date")
+		o.log.Info("all repositories are up to date")
+	}
 }
 
 // validatePrerequisites performs fast read-only checks (no auto-fixing).

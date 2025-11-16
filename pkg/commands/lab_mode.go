@@ -46,7 +46,7 @@ Examples:
 				return fmt.Errorf("invalid mode: %s (must be '%s' or '%s')", mode, constants.ModeLocal, constants.ModeHybrid)
 			}
 
-			// Load config
+			// Load config (need full config to save it later)
 			result, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
@@ -56,8 +56,11 @@ Examples:
 				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
 			}
 
+			labCfg := result.Config.Lab
+			cfgPath := result.ConfigPath
+
 			// Check if already in requested mode
-			if result.Config.Lab.Mode == mode {
+			if labCfg.Mode == mode {
 				ui.Info(fmt.Sprintf("%s mode already active", mode))
 
 				return nil
@@ -66,16 +69,16 @@ Examples:
 			// Update mode and ClickHouse mode
 			// Note: We only change the mode fields, preserving any external credentials
 			// so users can switch back and forth without losing their config
-			oldMode := result.Config.Lab.Mode
-			result.Config.Lab.Mode = mode
+			oldMode := labCfg.Mode
+			labCfg.Mode = mode
 
 			hasExternalCredentials := true
 
 			if mode == constants.ModeHybrid {
-				result.Config.Lab.Infrastructure.ClickHouse.Xatu.Mode = constants.InfraModeExternal
+				labCfg.Infrastructure.ClickHouse.Xatu.Mode = constants.InfraModeExternal
 
 				// Check if external credentials are configured
-				if result.Config.Lab.Infrastructure.ClickHouse.Xatu.ExternalURL == "" {
+				if labCfg.Infrastructure.ClickHouse.Xatu.ExternalURL == "" {
 					hasExternalCredentials = false
 
 					ui.Warning("Switching to hybrid mode but no external ClickHouse URL configured")
@@ -88,16 +91,16 @@ Examples:
 					fmt.Println("          externalDatabase: \"default\"")
 				}
 			} else {
-				result.Config.Lab.Infrastructure.ClickHouse.Xatu.Mode = constants.InfraModeLocal
+				labCfg.Infrastructure.ClickHouse.Xatu.Mode = constants.InfraModeLocal
 
 				// Inform user that external credentials are preserved
-				if oldMode == constants.ModeHybrid && result.Config.Lab.Infrastructure.ClickHouse.Xatu.ExternalURL != "" {
+				if oldMode == constants.ModeHybrid && labCfg.Infrastructure.ClickHouse.Xatu.ExternalURL != "" {
 					ui.Success("External ClickHouse credentials preserved for future hybrid mode use")
 				}
 			}
 
 			// Save config
-			if err := result.Config.Save(result.ConfigPath); err != nil {
+			if err := result.Config.Save(cfgPath); err != nil {
 				return fmt.Errorf("failed to save config: %w", err)
 			}
 
@@ -122,7 +125,7 @@ Examples:
 
 			_, _ = fmt.Scanln(&response)
 			if response == "y" || response == "Y" {
-				orch, err := orchestrator.NewOrchestrator(log, result.Config.Lab, result.ConfigPath)
+				orch, err := orchestrator.NewOrchestrator(log, labCfg, cfgPath)
 				if err != nil {
 					return fmt.Errorf("failed to create orchestrator: %w", err)
 				}

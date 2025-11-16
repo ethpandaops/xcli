@@ -363,6 +363,23 @@ func (c *Config) setDefaults() {
 	}
 }
 
+// LoadLabConfig loads and validates lab configuration from the config file.
+// This is a convenience function that combines Load with lab-specific validation.
+// Returns the lab config and the config file path, or an error if loading fails
+// or if the lab configuration is not found.
+func LoadLabConfig(configPath string) (*LabConfig, string, error) {
+	result, err := Load(configPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if result.Config.Lab == nil {
+		return nil, "", fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
+	}
+
+	return result.Config.Lab, result.ConfigPath, nil
+}
+
 // Save writes the configuration to a file.
 func (c *Config) Save(path string) error {
 	// Marshal to YAML

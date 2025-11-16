@@ -28,16 +28,12 @@ Example:
   xcli lab stop cbt-mainnet`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := config.Load(configPath)
+			labCfg, cfgPath, err := config.LoadLabConfig(configPath)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			if result.Config.Lab == nil {
-				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
-			}
-
-			orch, err := orchestrator.NewOrchestrator(log, result.Config.Lab, result.ConfigPath)
+			orch, err := orchestrator.NewOrchestrator(log, labCfg, cfgPath)
 			if err != nil {
 				return fmt.Errorf("failed to create orchestrator: %w", err)
 			}

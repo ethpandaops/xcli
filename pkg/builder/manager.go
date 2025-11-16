@@ -11,7 +11,9 @@ import (
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	executil "github.com/ethpandaops/xcli/pkg/exec"
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
 // Manager handles building all repositories.
@@ -36,36 +38,91 @@ func (m *Manager) SetVerbose(verbose bool) {
 }
 
 // BuildAll builds all repositories EXCEPT xatu-cbt (built in Phase 0).
-// Runs CBT, lab-backend, and lab in parallel.
+// Runs CBT, lab-backend, and lab in parallel using errgroup.
 func (m *Manager) BuildAll(ctx context.Context, force bool) error {
 	m.log.Info("building all repositories")
 
-	// Create dependency graph
-	graph := NewBuildGraph()
+	// Create progress bar if not in verbose mode
+	var progressBar *ui.ProgressBar
+	if !m.verbose {
+		progressBar = ui.NewProgressBar("Building repositories", 3)
+	}
 
-	// Add independent nodes (no dependencies = can run in parallel)
-	if err := graph.AddNode("cbt", func() error {
-		return m.BuildCBT(ctx, force)
-	}); err != nil {
+	g, ctx := errgroup.WithContext(ctx)
+
+	// Build CBT in parallel
+	g.Go(func() error {
+		spinner := m.startBuildSpinner("cbt")
+		err := m.BuildCBT(ctx, force)
+		m.finishBuildSpinner(spinner, "cbt", err, progressBar)
+
+		return err
+	})
+
+	// Build lab-backend in parallel
+	g.Go(func() error {
+		spinner := m.startBuildSpinner("lab-backend")
+		err := m.BuildLabBackend(ctx, force)
+		m.finishBuildSpinner(spinner, "lab-backend", err, progressBar)
+
+		return err
+	})
+
+	// Install lab dependencies in parallel
+	g.Go(func() error {
+		spinner := m.startBuildSpinner("lab")
+		err := m.installLabDeps(ctx, force)
+		m.finishBuildSpinner(spinner, "lab", err, progressBar)
+
+		return err
+	})
+
+	// Wait for all builds to complete
+	if err := g.Wait(); err != nil {
+		if progressBar != nil {
+			_ = progressBar.Stop()
+		}
+
 		return err
 	}
 
-	if err := graph.AddNode("lab-backend", func() error {
-		return m.BuildLabBackend(ctx, force)
-	}); err != nil {
-		return err
+	if progressBar != nil {
+		_ = progressBar.Stop()
 	}
 
-	if err := graph.AddNode("lab", func() error {
-		return m.installLabDeps(ctx, force)
-	}); err != nil {
-		return err
+	return nil
+}
+
+// startBuildSpinner creates a spinner for a build task if not in verbose mode.
+func (m *Manager) startBuildSpinner(name string) *ui.Spinner {
+	if m.verbose {
+		return nil
 	}
 
-	// Execute all in parallel
-	executor := NewExecutor(graph, m.verbose)
+	return ui.NewSilentSpinner(fmt.Sprintf("Building %s", name))
+}
 
-	return executor.Execute(ctx)
+// finishBuildSpinner updates spinner based on build result.
+func (m *Manager) finishBuildSpinner(spinner *ui.Spinner, name string, err error, progressBar *ui.ProgressBar) {
+	if m.verbose {
+		return
+	}
+
+	if spinner == nil {
+		return
+	}
+
+	if err != nil {
+		spinner.Fail(fmt.Sprintf("Failed to build %s", name))
+
+		return
+	}
+
+	_ = spinner.Stop()
+
+	if progressBar != nil {
+		progressBar.Increment()
+	}
 }
 
 // BuildXatuCBT builds only the xatu-cbt binary (needed for infrastructure startup).

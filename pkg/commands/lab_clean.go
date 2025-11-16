@@ -54,13 +54,9 @@ Examples:
 }
 
 func runLabClean(ctx context.Context, log logrus.FieldLogger, configPath string) error {
-	result, err := config.Load(configPath)
+	labCfg, cfgPath, err := config.LoadLabConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	if result.Config.Lab == nil {
-		return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
 	}
 
 	// Always confirm before cleaning
@@ -87,7 +83,7 @@ func runLabClean(ctx context.Context, log logrus.FieldLogger, configPath string)
 	// Step 1: Stop and remove containers/volumes
 	ui.Header("[1/3] Stopping and removing Docker containers and volumes...")
 
-	orch, err := orchestrator.NewOrchestrator(log, result.Config.Lab, result.ConfigPath)
+	orch, err := orchestrator.NewOrchestrator(log, labCfg, cfgPath)
 	if err != nil {
 		return fmt.Errorf("failed to create orchestrator: %w", err)
 	}
@@ -100,7 +96,7 @@ func runLabClean(ctx context.Context, log logrus.FieldLogger, configPath string)
 	// Step 2: Remove .xcli state directory
 	ui.Header("[2/3] Removing generated configuration files...")
 
-	configDir := filepath.Dir(result.ConfigPath)
+	configDir := filepath.Dir(cfgPath)
 	stateDir := filepath.Join(configDir, ".xcli")
 
 	spinner := ui.NewSpinner("Removing generated configuration files")
@@ -121,10 +117,10 @@ func runLabClean(ctx context.Context, log logrus.FieldLogger, configPath string)
 	spinner = ui.NewSpinner("Removing build artifacts")
 
 	repos := map[string]string{
-		"cbt":         result.Config.Lab.Repos.CBT,
-		"xatu-cbt":    result.Config.Lab.Repos.XatuCBT,
-		"cbt-api":     result.Config.Lab.Repos.CBTAPI,
-		"lab-backend": result.Config.Lab.Repos.LabBackend,
+		"cbt":         labCfg.Repos.CBT,
+		"xatu-cbt":    labCfg.Repos.XatuCBT,
+		"cbt-api":     labCfg.Repos.CBTAPI,
+		"lab-backend": labCfg.Repos.LabBackend,
 	}
 
 	totalRemoved := 0

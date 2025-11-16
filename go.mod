@@ -6,9 +6,11 @@ require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.40.3
 	github.com/golang-migrate/migrate/v4 v4.19.0
 	github.com/joho/godotenv v1.5.1
+	github.com/pterm/pterm v0.12.82
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.10.1
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/sync v0.18.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -33,7 +35,6 @@ require (
 	github.com/paulmach/orb v0.11.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/pterm/pterm v0.12.82 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
