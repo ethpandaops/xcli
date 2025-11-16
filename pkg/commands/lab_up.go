@@ -17,8 +17,6 @@ import (
 func NewLabUpCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	var (
 		mode    string
-		noBuild bool
-		rebuild bool
 		verbose bool
 	)
 
@@ -33,16 +31,15 @@ already, run 'xcli lab init' first to ensure all prerequisites are met.
 The stack starts in the configured mode (local or hybrid). Use 'xcli lab mode'
 to switch between modes.
 
+This command always rebuilds all projects to ensure everything is up to date.
+
 Flags:
-  --no-build  Skip building projects (use existing builds)
-  --rebuild   Force rebuild all projects from scratch
   --verbose   Enable verbose output for all operations
   --mode      Override mode for this run (local or hybrid)
 
 Examples:
-  xcli lab up              # Normal startup
-  xcli lab up --verbose    # Startup with detailed output
-  xcli lab up --rebuild    # Force rebuild everything`,
+  xcli lab up              # Start all services (always rebuilds)
+  xcli lab up --verbose    # Startup with detailed output`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Load config
 			result, err := config.Load(configPath)
@@ -95,14 +92,12 @@ Examples:
 				os.Exit(0)
 			}()
 
-			// Start everything
-			return orch.Up(cmd.Context(), noBuild, rebuild)
+			// Always rebuild (skipBuild=false, forceBuild=true)
+			return orch.Up(cmd.Context(), false, true)
 		},
 	}
 
 	cmd.Flags().StringVarP(&mode, "mode", "m", "", "Override mode (local or hybrid)")
-	cmd.Flags().BoolVar(&noBuild, "no-build", false, "Skip building, fail if binaries are missing")
-	cmd.Flags().BoolVar(&rebuild, "rebuild", false, "Force rebuild all binaries even if they exist")
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Show all build/setup command output (default: errors only)")
 
 	return cmd
