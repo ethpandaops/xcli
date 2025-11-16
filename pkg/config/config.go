@@ -136,7 +136,7 @@ func DefaultLab() *LabConfig {
 		Infrastructure: InfrastructureConfig{
 			ClickHouse: ClickHouseConfig{
 				Xatu: ClickHouseClusterConfig{
-					Mode:             constants.InfraModeLocal,
+					Mode:             constants.InfraModeExternal,
 					ExternalURL:      "http://chendpoint-xatu-clickhouse.analytics.production.ethpandaops:9000",
 					ExternalDatabase: "default",
 				},
@@ -468,11 +468,6 @@ func (c *LabConfig) Validate() error {
 			!strings.HasPrefix(c.Infrastructure.ClickHouse.Xatu.ExternalURL, "https://") &&
 			!strings.HasPrefix(c.Infrastructure.ClickHouse.Xatu.ExternalURL, "clickhouse://") {
 			return fmt.Errorf("external_url must start with http://, https://, or clickhouse://")
-		}
-
-		// Warn if using http in production
-		if strings.HasPrefix(c.Infrastructure.ClickHouse.Xatu.ExternalURL, "http://") {
-			fmt.Fprintf(os.Stderr, "WARNING: Using unencrypted HTTP connection to external Xatu cluster\n")
 		}
 	}
 
