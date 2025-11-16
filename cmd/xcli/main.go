@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/ethpandaops/xcli/pkg/commands"
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -31,9 +32,11 @@ func main() {
 		cancel()
 	}()
 
-	// Setup logger
+	// Setup logger with conditional writer
+	// Logs are hidden by default and only shown when --verbose is enabled
+	logWriter := ui.NewConditionalWriter(os.Stdout, false)
 	log := logrus.New()
-	log.SetOutput(os.Stdout)
+	log.SetOutput(logWriter)
 	log.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp: true,
 	})
@@ -50,12 +53,14 @@ func main() {
 	var (
 		configPath string
 		logLevel   string
+		verbose    bool
 	)
 
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", ".xcli.yaml", "Path to config file")
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "Log level (debug, info, warn, error)")
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output (show all logs)")
 
-	// Parse log level
+	// Parse log level and configure verbose mode
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		level, err := logrus.ParseLevel(logLevel)
 		if err != nil {
@@ -63,6 +68,9 @@ func main() {
 		}
 
 		log.SetLevel(level)
+
+		// Enable log writer based on verbose flag
+		logWriter.SetEnabled(verbose)
 
 		return nil
 	}

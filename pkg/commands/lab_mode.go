@@ -6,6 +6,7 @@ import (
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -70,8 +71,8 @@ Examples:
 				if result.Config.Lab.Infrastructure.ClickHouse.Xatu.ExternalURL == "" {
 					hasExternalCredentials = false
 
-					fmt.Println("\n⚠ Warning: Switching to hybrid mode but no external ClickHouse URL configured")
-					fmt.Println("You'll need to set this in .xcli.yaml before running 'xcli lab up':")
+					ui.Warning("Switching to hybrid mode but no external ClickHouse URL configured")
+					ui.Info("You'll need to set this in .xcli.yaml before running 'xcli lab up':")
 					fmt.Println("  lab:")
 					fmt.Println("    infrastructure:")
 					fmt.Println("      clickhouse:")
@@ -84,7 +85,7 @@ Examples:
 
 				// Inform user that external credentials are preserved
 				if oldMode == constants.ModeHybrid && result.Config.Lab.Infrastructure.ClickHouse.Xatu.ExternalURL != "" {
-					fmt.Println("\n✓ External ClickHouse credentials preserved for future hybrid mode use")
+					ui.Success("External ClickHouse credentials preserved for future hybrid mode use")
 				}
 			}
 
@@ -94,17 +95,17 @@ Examples:
 			}
 
 			log.WithField("mode", mode).Info("mode updated")
-			fmt.Printf("\n✓ Mode switched to: %s\n", mode)
+			ui.Success(fmt.Sprintf("Mode switched to: %s", mode))
 
 			// Don't offer to restart if switching to hybrid without credentials
 			if mode == constants.ModeHybrid && !hasExternalCredentials {
-				fmt.Println("\nPlease configure external ClickHouse credentials in .xcli.yaml")
-				fmt.Println("Then run: xcli lab down && xcli lab up")
+				ui.Info("Please configure external ClickHouse credentials in .xcli.yaml")
+				ui.Info("Then run: xcli lab down && xcli lab up")
 
 				return nil
 			}
 
-			fmt.Println("\nRestart stack to apply changes (infrastructure will be rebuilt):")
+			ui.Header("Restart stack to apply changes (infrastructure will be rebuilt):")
 			fmt.Println("  xcli lab down && xcli lab up")
 
 			// Optionally restart services automatically
@@ -128,7 +129,7 @@ Examples:
 					return fmt.Errorf("failed to start services: %w", err)
 				}
 
-				fmt.Println("\n✓ Services restarted in new mode")
+				ui.Success("Services restarted in new mode")
 			}
 
 			return nil

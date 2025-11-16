@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 )
 
@@ -53,8 +54,19 @@ func (d *Discovery) DiscoverRepos() (*config.LabReposConfig, error) {
 
 	// Check each repository
 	for name, info := range repoMap {
-		err := d.validateRepo(name, *info.path)
+		// Validate repository with spinner
+		var validationErr error
+
+		err := ui.WithSpinner(fmt.Sprintf("Checking repository: %s", name), func() error {
+			validationErr = d.validateRepo(name, *info.path)
+
+			return nil // Don't fail spinner on validation error, we handle it below
+		})
 		if err != nil {
+			return nil, err
+		}
+
+		if validationErr != nil {
 			// Check if it's a "not found" error
 			absPath, _ := filepath.Abs(*info.path)
 			if _, statErr := os.Stat(absPath); os.IsNotExist(statErr) {
@@ -89,7 +101,7 @@ func (d *Discovery) DiscoverRepos() (*config.LabReposConfig, error) {
 				}
 			} else {
 				// Some other validation error
-				return nil, fmt.Errorf("failed to validate %s: %w", name, err)
+				return nil, fmt.Errorf("failed to validate %s: %w", name, validationErr)
 			}
 		}
 
@@ -188,9 +200,14 @@ func (d *Discovery) cloneRepo(repoName, targetPath, branch string) error {
 
 	d.log.WithFields(logFields).Info("cloning repository")
 
+	// Create spinner for clone operation
+	spinner := ui.NewSpinner(fmt.Sprintf("Cloning %s", repoName))
+
 	// Ensure parent directory exists
 	parentDir := filepath.Dir(targetPath)
 	if err := os.MkdirAll(parentDir, 0755); err != nil {
+		spinner.Fail(fmt.Sprintf("Failed to clone %s", repoName))
+
 		return fmt.Errorf("failed to create parent directory: %w", err)
 	}
 
@@ -204,12 +221,17 @@ func (d *Discovery) cloneRepo(repoName, targetPath, branch string) error {
 		cmd = exec.Command("git", "clone", gitURL, targetPath)
 	}
 
+	// In verbose mode, show git output; otherwise, suppress it
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
+		spinner.Fail(fmt.Sprintf("Failed to clone %s", repoName))
+
 		return fmt.Errorf("git clone failed: %w", err)
 	}
+
+	spinner.Success(fmt.Sprintf("Cloned %s", repoName))
 
 	d.log.WithField("repo", repoName).Info("repository cloned successfully")
 

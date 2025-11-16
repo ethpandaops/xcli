@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/ethpandaops/xcli/pkg/ui"
 )
 
 // Executor runs builds in parallel respecting dependencies.
@@ -29,6 +31,14 @@ func (e *Executor) Execute(ctx context.Context) error {
 
 	if len(roots) == 0 {
 		return fmt.Errorf("no root nodes found in build graph")
+	}
+
+	// Create progress bar if not in verbose mode
+	var progressBar *ui.ProgressBar
+	if !e.verbose {
+		progressBar = ui.NewProgressBar("Building repositories", len(e.graph.nodes))
+		// Note: Don't defer Stop() - progress bar auto-completes at 100%
+		// Calling Stop() again causes duplicate rendering
 	}
 
 	var wg sync.WaitGroup
@@ -59,7 +69,7 @@ func (e *Executor) Execute(ctx context.Context) error {
 		go func(node *BuildNode) {
 			defer wg.Done()
 
-			if err := e.executeNode(ctx, node, errChan, startNode); err != nil {
+			if err := e.executeNode(ctx, node, errChan, startNode, progressBar); err != nil {
 				errChan <- err
 			}
 		}(n)
@@ -81,15 +91,21 @@ func (e *Executor) Execute(ctx context.Context) error {
 	}
 
 	if len(errors) > 0 {
+		// Stop progress bar on error
+		if progressBar != nil {
+			_ = progressBar.Stop()
+		}
+
 		return fmt.Errorf("build failed with %d errors: %v", len(errors), errors)
 	}
 
+	// Success case: progress bar auto-completes at 100%, don't call Stop()
 	return nil
 }
 
 // executeNode builds a node after waiting for dependencies.
 // Spawns goroutines for any nodes that depend on this one.
-func (e *Executor) executeNode(ctx context.Context, node *BuildNode, errChan chan<- error, startNode func(*BuildNode)) error {
+func (e *Executor) executeNode(ctx context.Context, node *BuildNode, errChan chan<- error, startNode func(*BuildNode), progressBar *ui.ProgressBar) error {
 	// Wait for dependencies using channels (no busy waiting)
 	for _, dep := range node.Dependencies {
 		if err := dep.Wait(ctx); err != nil {
@@ -106,23 +122,45 @@ func (e *Executor) executeNode(ctx context.Context, node *BuildNode, errChan cha
 		return nil
 	}
 
-	// Execute build
-	if e.verbose {
+	// Create spinner for this build if not in verbose mode
+	var spinner *ui.Spinner
+	if !e.verbose {
+		// Use silent spinner since progress bar shows overall completion
+		spinner = ui.NewSilentSpinner(fmt.Sprintf("Building %s", node.Name))
+	} else {
 		fmt.Printf("→ Building %s...\n", node.Name)
 	}
 
 	startTime := time.Now()
 
-	if err := node.BuildFunc(); err != nil {
-		return fmt.Errorf("build %s failed: %w", node.Name, err)
-	}
+	err := node.BuildFunc()
 
 	duration := time.Since(startTime)
 
 	// Mark as completed and signal waiters
 	node.MarkCompleted()
 
-	if e.verbose {
+	// Update spinner/output based on result
+	if err != nil {
+		if !e.verbose {
+			spinner.Fail(fmt.Sprintf("Failed to build %s", node.Name))
+		}
+
+		return fmt.Errorf("build %s failed: %w", node.Name, err)
+	}
+
+	if !e.verbose {
+		// When there's a progress bar, just stop the spinner silently
+		// The progress bar shows the overall completion status
+		if progressBar != nil {
+			_ = spinner.Stop()
+
+			progressBar.Increment()
+		} else {
+			// No progress bar, show individual success message
+			spinner.SuccessWithDuration(node.Name, duration)
+		}
+	} else {
 		fmt.Printf("✓ Built %s (%.2fs)\n", node.Name, duration.Seconds())
 	}
 

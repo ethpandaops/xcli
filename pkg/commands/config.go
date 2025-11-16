@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/ethpandaops/xcli/pkg/config"
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -54,12 +55,12 @@ func validateConfigForStack(cfg *config.Config, stack string) error {
 	switch stack {
 	case stackAll:
 		if err := cfg.Validate(); err != nil {
-			fmt.Printf("✗ Configuration is invalid:\n  %v\n", err)
+			ui.Error(fmt.Sprintf("Configuration is invalid: %v", err))
 
 			return err
 		}
 
-		fmt.Println("✓ Configuration is valid")
+		ui.Success("Configuration is valid")
 
 		// Show summary for each configured stack
 		if cfg.Lab != nil {
@@ -73,12 +74,12 @@ func validateConfigForStack(cfg *config.Config, stack string) error {
 		}
 
 		if err := cfg.Lab.Validate(); err != nil {
-			fmt.Printf("✗ Lab configuration is invalid:\n  %v\n", err)
+			ui.Error(fmt.Sprintf("Lab configuration is invalid: %v", err))
 
 			return err
 		}
 
-		fmt.Println("✓ Lab configuration is valid")
+		ui.Success("Lab configuration is valid")
 		displayLabSummary(cfg.Lab)
 
 	default:
@@ -90,7 +91,7 @@ func validateConfigForStack(cfg *config.Config, stack string) error {
 
 // displayLabSummary shows a summary of lab configuration.
 func displayLabSummary(labCfg *config.LabConfig) {
-	fmt.Printf("\nLab Stack:\n")
+	fmt.Println("\nLab Stack:")
 	fmt.Printf("  Mode: %s\n", labCfg.Mode)
 	fmt.Printf("  Networks: ")
 

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 )
 
@@ -174,6 +175,9 @@ func (c *checker) executeCommand(ctx context.Context, repoPath string, prereq Pr
 		workDir = filepath.Join(repoPath, prereq.WorkingDir)
 	}
 
+	// Start spinner with prerequisite description
+	spinner := ui.NewSilentSpinner(prereq.Description)
+
 	start := time.Now()
 
 	//nolint:gosec // Command comes from hardcoded prerequisite definitions, not user input
@@ -183,7 +187,12 @@ func (c *checker) executeCommand(ctx context.Context, repoPath string, prereq Pr
 
 	// Capture output for error messages
 	output, err := cmd.CombinedOutput()
+
+	duration := time.Since(start)
+
 	if err != nil {
+		spinner.Fail(prereq.Description)
+
 		return fmt.Errorf(
 			"command failed: %w\nCommand: %s %v\nOutput: %s",
 			err,
@@ -193,7 +202,8 @@ func (c *checker) executeCommand(ctx context.Context, repoPath string, prereq Pr
 		)
 	}
 
-	duration := time.Since(start)
+	// Stop silently - parent lab_init spinner shows overall prereq success
+	_ = spinner.Stop()
 
 	c.log.WithFields(logrus.Fields{
 		"command":  prereq.Command,

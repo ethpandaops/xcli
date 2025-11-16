@@ -9,6 +9,7 @@ import (
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/discovery"
 	"github.com/ethpandaops/xcli/pkg/prerequisites"
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -90,10 +91,18 @@ func runLabInit(ctx context.Context, log logrus.FieldLogger, configPath string) 
 	parentDir := filepath.Join(cwd, "..")
 	disc := discovery.NewDiscovery(log, parentDir)
 
+	ui.Header("Discovering repositories")
+
+	spinner := ui.NewSpinner("Scanning parent directory for required repositories")
+
 	repos, err := disc.DiscoverRepos()
 	if err != nil {
+		spinner.Fail("Repository discovery failed")
+
 		return fmt.Errorf("repository discovery failed: %w", err)
 	}
+
+	spinner.Success("Found all 5 repositories")
 
 	// Run prerequisites for each discovered repository
 	prereqChecker := prerequisites.NewChecker(log)
@@ -106,10 +115,18 @@ func runLabInit(ctx context.Context, log logrus.FieldLogger, configPath string) 
 		"lab":         repos.Lab,
 	}
 
+	ui.Header("Checking prerequisites")
+
 	for repoName, repoPath := range repoMap {
+		spinner = ui.NewSpinner(fmt.Sprintf("Running prerequisites for %s", repoName))
+
 		if err := prereqChecker.Run(ctx, repoPath, repoName); err != nil {
+			spinner.Fail(fmt.Sprintf("Prerequisites failed for %s", repoName))
+
 			return fmt.Errorf("failed to run prerequisites for %s: %w", repoName, err)
 		}
+
+		spinner.Success(fmt.Sprintf("%s prerequisites complete", repoName))
 	}
 
 	// Create lab config with discovered repos
@@ -135,18 +152,25 @@ func runLabInit(ctx context.Context, log logrus.FieldLogger, configPath string) 
 	}
 
 	// Print summary
-	fmt.Println("\n✓ Lab stack initialization complete!")
-	fmt.Printf("\nDiscovered repositories:\n")
-	fmt.Printf("  cbt:         %s\n", repos.CBT)
-	fmt.Printf("  xatu-cbt:    %s\n", repos.XatuCBT)
-	fmt.Printf("  cbt-api:     %s\n", repos.CBTAPI)
-	fmt.Printf("  lab-backend: %s\n", repos.LabBackend)
-	fmt.Printf("  lab:         %s\n", repos.Lab)
+	ui.Success("Lab stack initialization complete!")
 
-	fmt.Printf("\nLab configuration saved to: %s\n", configPath)
-	fmt.Printf("\nNext steps:\n")
-	fmt.Printf("  1. Review and edit the 'lab:' section in %s if needed\n", configPath)
-	fmt.Printf("  2. Run 'xcli lab up' to start the lab stack\n\n")
+	ui.Header("Discovered repositories:")
+
+	rows := [][]string{
+		{"cbt", repos.CBT},
+		{"xatu-cbt", repos.XatuCBT},
+		{"cbt-api", repos.CBTAPI},
+		{"lab-backend", repos.LabBackend},
+		{"lab", repos.Lab},
+	}
+	ui.Table([]string{"Repository", "Path"}, rows)
+
+	ui.Blank()
+	ui.Info(fmt.Sprintf("Lab configuration saved to: %s", configPath))
+
+	ui.Header("Next steps:")
+	fmt.Println("  1. Review and edit the 'lab:' section in .xcli.yaml if needed")
+	fmt.Println("  2. Run 'xcli lab up' to start the lab stack")
 
 	return nil
 }

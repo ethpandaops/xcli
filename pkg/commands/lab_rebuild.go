@@ -6,6 +6,7 @@ import (
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -90,165 +91,201 @@ Note: All rebuild commands automatically restart their respective services if ru
 			case "xatu-cbt":
 				// Full xatu-cbt model update workflow
 				// Flow: xatu-cbt protos → regenerate protos → rebuild cbt-api → regenerate configs → restart services → regenerate lab-frontend types
-				fmt.Println("Starting xatu-cbt model update workflow...")
-				fmt.Println("This will: regenerate protos → rebuild cbt-api → regenerate configs → restart services → regenerate lab-frontend types")
+				ui.Header("Starting xatu-cbt model update workflow")
+				ui.Info("This will: regenerate protos → rebuild cbt-api → regenerate configs → restart services → regenerate lab-frontend types")
+				ui.Blank()
 
 				// Step 1: Regenerate protos + rebuild cbt-api
-				fmt.Println("\n[1/4] Regenerating protos and rebuilding cbt-api...")
+				spinner := ui.NewSpinner("[1/4] Regenerating protos and rebuilding cbt-api")
 
 				if err := orch.Builder().BuildCBTAPI(ctx, true); err != nil {
+					spinner.Fail("Failed to rebuild cbt-api")
+
 					return fmt.Errorf("failed to rebuild cbt-api: %w", err)
 				}
 
+				spinner.Success("Protos regenerated and cbt-api rebuilt")
+
 				// Step 2: Regenerate configs
-				fmt.Println("\n[2/4] Regenerating configs...")
+				spinner = ui.NewSpinner("[2/4] Regenerating configs")
 
 				if err := orch.GenerateConfigs(); err != nil {
+					spinner.Fail("Failed to regenerate configs")
+
 					return fmt.Errorf("failed to regenerate configs: %w", err)
 				}
 
+				spinner.Success("Configs regenerated")
+
 				// Step 3: Restart services (cbt-api + CBT engines)
-				fmt.Println("\n[3/4] Restarting services (cbt-api + CBT engines)...")
+				spinner = ui.NewSpinner("[3/4] Restarting services (cbt-api + CBT engines)")
 
 				// Check if services are running before attempting restart
 				if !orch.AreServicesRunning() {
-					fmt.Println("⚠ Services not currently running - skipping restart and lab-frontend regeneration")
-					fmt.Println("Protos and configs have been regenerated.")
-					fmt.Println("Start services with: xcli lab up")
-					fmt.Println("\n✓ xatu-cbt model update complete (restart skipped)")
+					_ = spinner.Stop()
+
+					ui.Warning("Services not currently running - skipping restart and lab-frontend regeneration")
+					ui.Info("Protos and configs have been regenerated.")
+					ui.Info("Start services with: xcli lab up")
+					ui.Success("xatu-cbt model update complete (restart skipped)")
 
 					return nil
 				}
 
 				if err := orch.RestartServices(ctx, verbose); err != nil {
+					spinner.Fail("Failed to restart services")
+
 					return fmt.Errorf("failed to restart services: %w", err)
 				}
 
+				spinner.Success("Services restarted")
+
 				// Step 4: Regenerate lab-frontend types (must be done after cbt-api is restarted)
-				fmt.Println("\n[4/4] Regenerating lab-frontend API types and restarting...")
+				spinner = ui.NewSpinner("[4/4] Regenerating lab-frontend API types")
 
 				// Wait for cbt-api to be ready (it was just restarted)
-				fmt.Println("Waiting for cbt-api to be ready...")
+				spinner.UpdateText("[4/4] Waiting for cbt-api to be ready")
 
 				if err := orch.WaitForCBTAPIReady(ctx); err != nil {
+					spinner.Fail("cbt-api did not become ready")
+
 					return fmt.Errorf("cbt-api did not become ready: %w", err)
 				}
 
+				spinner.UpdateText("[4/4] Regenerating lab-frontend API types")
+
 				if err := orch.Builder().BuildLabFrontend(ctx); err != nil {
+					spinner.Fail("Failed to regenerate lab-frontend types")
+
 					return fmt.Errorf("failed to regenerate lab-frontend types: %w", err)
 				}
 
+				spinner.UpdateText("[4/4] Restarting lab-frontend")
+
 				// Restart lab-frontend to apply changes
 				if err := orch.Restart(ctx, "lab-frontend"); err != nil {
-					fmt.Printf("⚠ Could not restart lab-frontend: %v\n", err)
-					fmt.Println("If lab-frontend is running, restart it manually:")
-					fmt.Println("  xcli lab restart lab-frontend")
+					spinner.Fail("Could not restart lab-frontend")
+					ui.Warning(fmt.Sprintf("Could not restart lab-frontend: %v", err))
+					ui.Info("If lab-frontend is running, restart it manually:")
+					ui.Info("  xcli lab restart lab-frontend")
 				} else {
-					fmt.Println("✓ lab-frontend restarted")
+					spinner.Success("Lab-frontend API types regenerated and service restarted")
 				}
 
-				fmt.Println("\n✓ xatu-cbt model update complete")
-				fmt.Println("  - Protos regenerated from xatu-cbt")
-				fmt.Println("  - cbt-api rebuilt with new protos")
-				fmt.Println("  - Configs regenerated with new models")
-				fmt.Println("  - Services restarted and running")
-				fmt.Println("  - Lab-frontend API types regenerated and service restarted")
+				ui.Blank()
+				ui.Success("xatu-cbt model update complete")
+				ui.Info("  - Protos regenerated from xatu-cbt")
+				ui.Info("  - cbt-api rebuilt with new protos")
+				ui.Info("  - Configs regenerated with new models")
+				ui.Info("  - Services restarted and running")
+				ui.Info("  - Lab-frontend API types regenerated and service restarted")
 
 			case "cbt":
-				fmt.Println("Rebuilding CBT...")
+				spinner := ui.NewSpinner("Rebuilding CBT")
 
 				if err := orch.Builder().BuildCBT(ctx, true); err != nil {
+					spinner.Fail("Failed to rebuild CBT")
+
 					return fmt.Errorf("failed to rebuild CBT: %w", err)
 				}
 
-				fmt.Println("✓ CBT rebuilt successfully")
+				spinner.Success("CBT rebuilt successfully")
 
 				// Restart all CBT services
-				fmt.Println("\nRestarting CBT services...")
-
 				enabledNetworks := orch.Config().EnabledNetworks()
 				for _, network := range enabledNetworks {
 					serviceName := fmt.Sprintf("cbt-%s", network.Name)
+					spinner = ui.NewSpinner(fmt.Sprintf("Restarting %s", serviceName))
+
 					if err := orch.Restart(ctx, serviceName); err != nil {
-						fmt.Printf("⚠ Could not restart %s: %v\n", serviceName, err)
+						spinner.Warning(fmt.Sprintf("Could not restart %s", serviceName))
 					} else {
-						fmt.Printf("✓ %s restarted\n", serviceName)
+						spinner.Success(fmt.Sprintf("%s restarted", serviceName))
 					}
 				}
 
 			case "cbt-api":
-				fmt.Println("Regenerating protos and rebuilding cbt-api...")
+				spinner := ui.NewSpinner("Regenerating protos and rebuilding cbt-api")
 
 				if err := orch.Builder().BuildCBTAPI(ctx, true); err != nil {
+					spinner.Fail("Failed to rebuild cbt-api")
+
 					return fmt.Errorf("failed to rebuild cbt-api: %w", err)
 				}
 
-				fmt.Println("✓ cbt-api rebuilt successfully")
+				spinner.Success("cbt-api rebuilt successfully")
 
 				// Restart all cbt-api services
-				fmt.Println("\nRestarting cbt-api services...")
-
 				enabledNetworks := orch.Config().EnabledNetworks()
 				for _, network := range enabledNetworks {
 					serviceName := fmt.Sprintf("cbt-api-%s", network.Name)
+					spinner = ui.NewSpinner(fmt.Sprintf("Restarting %s", serviceName))
+
 					if err := orch.Restart(ctx, serviceName); err != nil {
-						fmt.Printf("⚠ Could not restart %s: %v\n", serviceName, err)
+						spinner.Warning(fmt.Sprintf("Could not restart %s", serviceName))
 					} else {
-						fmt.Printf("✓ %s restarted\n", serviceName)
+						spinner.Success(fmt.Sprintf("%s restarted", serviceName))
 					}
 				}
 
-				fmt.Println("\nNote: If you added models in xatu-cbt, use 'xcli lab rebuild xatu-cbt' for full workflow")
+				ui.Blank()
+				ui.Info("Note: If you added models in xatu-cbt, use 'xcli lab rebuild xatu-cbt' for full workflow")
 
 			case "lab-backend":
-				fmt.Println("Rebuilding lab-backend...")
+				spinner := ui.NewSpinner("Rebuilding lab-backend")
 
 				if err := orch.Builder().BuildLabBackend(ctx, true); err != nil {
+					spinner.Fail("Failed to rebuild lab-backend")
+
 					return fmt.Errorf("failed to rebuild lab-backend: %w", err)
 				}
 
-				fmt.Println("✓ lab-backend rebuilt successfully")
+				spinner.Success("lab-backend rebuilt successfully")
 
 				// Restart lab-backend
-				fmt.Println("\nRestarting lab-backend...")
+				spinner = ui.NewSpinner("Restarting lab-backend")
 
 				if err := orch.Restart(ctx, "lab-backend"); err != nil {
-					fmt.Printf("⚠ Could not restart lab-backend: %v\n", err)
-					fmt.Println("If lab-backend is running, restart it manually:")
-					fmt.Println("  xcli lab restart lab-backend")
+					spinner.Fail("Could not restart lab-backend")
+					ui.Info("If lab-backend is running, restart it manually:")
+					ui.Info("  xcli lab restart lab-backend")
 				} else {
-					fmt.Println("✓ lab-backend restarted successfully")
+					spinner.Success("lab-backend restarted successfully")
 				}
 
 			case "lab-frontend":
-				fmt.Println("Regenerating lab-frontend API types from cbt-api...")
+				spinner := ui.NewSpinner("Regenerating lab-frontend API types from cbt-api")
 
 				if err := orch.Builder().BuildLabFrontend(ctx); err != nil {
+					spinner.Fail("Failed to regenerate lab-frontend types")
+
 					return fmt.Errorf("failed to regenerate lab-frontend types: %w", err)
 				}
 
-				fmt.Println("✓ lab-frontend API types regenerated successfully")
+				spinner.Success("lab-frontend API types regenerated successfully")
 
 				// Restart lab-frontend to apply changes
-				fmt.Println("\nRestarting lab-frontend...")
+				spinner = ui.NewSpinner("Restarting lab-frontend")
 
 				if err := orch.Restart(ctx, "lab-frontend"); err != nil {
 					// If restart fails (e.g., service not running), just warn the user
-					fmt.Printf("⚠ Could not restart lab-frontend: %v\n", err)
-					fmt.Println("If lab-frontend is running, restart it manually:")
-					fmt.Println("  xcli lab restart lab-frontend")
+					spinner.Fail("Could not restart lab-frontend")
+					ui.Info("If lab-frontend is running, restart it manually:")
+					ui.Info("  xcli lab restart lab-frontend")
 				} else {
-					fmt.Println("✓ lab-frontend restarted successfully")
+					spinner.Success("lab-frontend restarted successfully")
 				}
 
 			case "all":
-				fmt.Println("Rebuilding all projects")
+				spinner := ui.NewSpinner("Rebuilding all projects")
 				// Uses DAG from Plan 3 for parallel execution
 				if err := orch.Builder().BuildAll(ctx, true); err != nil {
+					spinner.Fail("Failed to rebuild all projects")
+
 					return fmt.Errorf("failed to rebuild all: %w", err)
 				}
 
-				fmt.Println("✓ All projects rebuilt successfully")
+				spinner.Success("All projects rebuilt successfully")
 
 			default:
 				return fmt.Errorf("unknown project: %s\n\nSupported projects: xatu-cbt, cbt, cbt-api, lab-backend, lab-frontend, all", project)
