@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/pterm/pterm"
@@ -15,6 +17,14 @@ type Spinner struct {
 
 // NewSpinner creates and starts a new spinner with the given message.
 func NewSpinner(message string) *Spinner {
+	// Disable spinners in test mode to avoid race conditions with pterm's internal goroutines
+	if isTestMode() {
+		return &Spinner{
+			spinner: nil,
+			message: message,
+		}
+	}
+
 	s, _ := pterm.DefaultSpinner.
 		WithRemoveWhenDone(false). // Keep spinner result, don't remove
 		Start(message)
@@ -28,6 +38,14 @@ func NewSpinner(message string) *Spinner {
 // NewSilentSpinner creates a spinner that will be removed when stopped.
 // Use this for child operations that should disappear without leaving blank lines.
 func NewSilentSpinner(message string) *Spinner {
+	// Disable spinners in test mode to avoid race conditions with pterm's internal goroutines
+	if isTestMode() {
+		return &Spinner{
+			spinner: nil,
+			message: message,
+		}
+	}
+
 	s, _ := pterm.DefaultSpinner.
 		WithRemoveWhenDone(true). // Remove completely when stopped
 		Start(message)
@@ -41,7 +59,10 @@ func NewSilentSpinner(message string) *Spinner {
 // UpdateText updates the spinner message.
 func (s *Spinner) UpdateText(message string) {
 	s.message = message
-	s.spinner.UpdateText(message)
+
+	if s.spinner != nil {
+		s.spinner.UpdateText(message)
+	}
 }
 
 // Success stops the spinner with a success message.
@@ -50,12 +71,16 @@ func (s *Spinner) Success(message string) {
 		message = s.message
 	}
 
-	s.spinner.Success(message)
+	if s.spinner != nil {
+		s.spinner.Success(message)
+	}
 }
 
 // SuccessWithDuration stops spinner with duration display.
 func (s *Spinner) SuccessWithDuration(message string, duration time.Duration) {
-	s.spinner.Success(fmt.Sprintf("%s (%.2fs)", message, duration.Seconds()))
+	if s.spinner != nil {
+		s.spinner.Success(fmt.Sprintf("%s (%.2fs)", message, duration.Seconds()))
+	}
 }
 
 // Fail stops the spinner with an error message.
@@ -64,7 +89,9 @@ func (s *Spinner) Fail(message string) {
 		message = s.message
 	}
 
-	s.spinner.Fail(message)
+	if s.spinner != nil {
+		s.spinner.Fail(message)
+	}
 }
 
 // Warning stops the spinner with a warning message.
@@ -73,12 +100,18 @@ func (s *Spinner) Warning(message string) {
 		message = s.message
 	}
 
-	s.spinner.Warning(message)
+	if s.spinner != nil {
+		s.spinner.Warning(message)
+	}
 }
 
 // Stop stops the spinner without a message.
 func (s *Spinner) Stop() error {
-	return s.spinner.Stop()
+	if s.spinner != nil {
+		return s.spinner.Stop()
+	}
+
+	return nil
 }
 
 // WithSpinner executes a function with a spinner.
@@ -115,4 +148,21 @@ func WithSpinnerAndUpdate(initialMessage string, fn func(update func(string)) er
 	s.Success(initialMessage)
 
 	return nil
+}
+
+// isTestMode checks if we're running in test mode by examining os.Args and environment.
+func isTestMode() bool {
+	// Check if running under go test
+	for _, arg := range os.Args {
+		if strings.HasPrefix(arg, "-test.") {
+			return true
+		}
+	}
+
+	// Check for XCLI_TEST_MODE environment variable (for integration tests)
+	if os.Getenv("XCLI_TEST_MODE") == "true" {
+		return true
+	}
+
+	return false
 }
