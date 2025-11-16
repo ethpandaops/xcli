@@ -1,10 +1,8 @@
 package ui
 
 import (
-	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/pterm/pterm"
 )
@@ -76,13 +74,6 @@ func (s *Spinner) Success(message string) {
 	}
 }
 
-// SuccessWithDuration stops spinner with duration display.
-func (s *Spinner) SuccessWithDuration(message string, duration time.Duration) {
-	if s.spinner != nil {
-		s.spinner.Success(fmt.Sprintf("%s (%.2fs)", message, duration.Seconds()))
-	}
-}
-
 // Fail stops the spinner with an error message.
 func (s *Spinner) Fail(message string) {
 	if message == "" {
@@ -127,25 +118,6 @@ func WithSpinner(message string, fn func() error) error {
 	}
 
 	s.Success(message)
-
-	return nil
-}
-
-// WithSpinnerAndUpdate executes a function with a spinner that can be updated.
-func WithSpinnerAndUpdate(initialMessage string, fn func(update func(string)) error) error {
-	s := NewSpinner(initialMessage)
-	updateFn := func(msg string) {
-		s.UpdateText(msg)
-	}
-
-	err := fn(updateFn)
-	if err != nil {
-		s.Fail(initialMessage)
-
-		return err
-	}
-
-	s.Success(initialMessage)
 
 	return nil
 }

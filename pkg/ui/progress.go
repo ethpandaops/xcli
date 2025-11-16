@@ -93,14 +93,3 @@ func (p *ProgressBar) Stop() error {
 
 	return err
 }
-
-// WithProgress executes a function with a progress bar.
-func WithProgress(title string, total int, fn func(bar *ProgressBar) error) error {
-	bar := NewProgressBar(title, total)
-
-	defer func() {
-		_ = bar.Stop()
-	}()
-
-	return fn(bar)
-}

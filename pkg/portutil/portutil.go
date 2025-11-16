@@ -45,45 +45,6 @@ func CheckPorts(ports []int) []PortConflict {
 	return conflicts
 }
 
-// findPortOwner tries to find the process using a port.
-func findPortOwner(port int) *PortConflict {
-	conflict := &PortConflict{
-		Port: port,
-	}
-
-	// Try lsof (macOS/Linux)
-	// Note: -sTCP:LISTEN finds listening sockets
-	//nolint:gosec // Port number is validated to be an integer
-	cmd := exec.Command("lsof", "-i", fmt.Sprintf(":%d", port), "-sTCP:LISTEN", "-t")
-
-	output, err := cmd.Output()
-	if err != nil {
-		// lsof failed or no process found
-		return conflict
-	}
-
-	if len(output) == 0 {
-		// No process listening on this port
-		return conflict
-	}
-
-	// Parse the first PID (in case multiple processes)
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	if len(lines) > 0 {
-		pidStr := strings.TrimSpace(lines[0])
-		if pid, err := strconv.Atoi(pidStr); err == nil {
-			conflict.PID = pid
-			// Get process name
-			psCmd := exec.Command("ps", "-p", pidStr, "-o", "comm=")
-			if psOutput, err := psCmd.Output(); err == nil {
-				conflict.Process = strings.TrimSpace(string(psOutput))
-			}
-		}
-	}
-
-	return conflict
-}
-
 // FormatConflicts formats port conflicts for display.
 func FormatConflicts(conflicts []PortConflict) string {
 	if len(conflicts) == 0 {
@@ -147,4 +108,43 @@ func KillProcess(pid int) error {
 	}
 
 	return nil
+}
+
+// findPortOwner tries to find the process using a port.
+func findPortOwner(port int) *PortConflict {
+	conflict := &PortConflict{
+		Port: port,
+	}
+
+	// Try lsof (macOS/Linux)
+	// Note: -sTCP:LISTEN finds listening sockets
+	//nolint:gosec // Port number is validated to be an integer
+	cmd := exec.Command("lsof", "-i", fmt.Sprintf(":%d", port), "-sTCP:LISTEN", "-t")
+
+	output, err := cmd.Output()
+	if err != nil {
+		// lsof failed or no process found
+		return conflict
+	}
+
+	if len(output) == 0 {
+		// No process listening on this port
+		return conflict
+	}
+
+	// Parse the first PID (in case multiple processes)
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) > 0 {
+		pidStr := strings.TrimSpace(lines[0])
+		if pid, err := strconv.Atoi(pidStr); err == nil {
+			conflict.PID = pid
+			// Get process name
+			psCmd := exec.Command("ps", "-p", pidStr, "-o", "comm=")
+			if psOutput, err := psCmd.Output(); err == nil {
+				conflict.Process = strings.TrimSpace(string(psOutput))
+			}
+		}
+	}
+
+	return conflict
 }

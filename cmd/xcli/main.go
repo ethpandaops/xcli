@@ -22,25 +22,6 @@ var (
 	date    = "unknown"
 )
 
-// findRepoPath attempts to locate the xcli repository for auto-updates.
-func findRepoPath() string {
-	// Load global config to get xcli path
-	globalCfg, err := config.LoadGlobalConfig()
-	if err != nil {
-		return ""
-	}
-
-	// Verify the path has a .git directory
-	if globalCfg.XCLIPath != "" {
-		gitDir := filepath.Join(globalCfg.XCLIPath, ".git")
-		if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
-			return globalCfg.XCLIPath
-		}
-	}
-
-	return ""
-}
-
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -117,4 +98,23 @@ func main() {
 		log.WithError(err).Error("Command failed")
 		os.Exit(1)
 	}
+}
+
+// findRepoPath attempts to locate the xcli repository for auto-updates.
+func findRepoPath() string {
+	// Load global config to get xcli path
+	globalCfg, err := config.LoadGlobalConfig()
+	if err != nil {
+		return ""
+	}
+
+	// Verify the path has a .git directory
+	if globalCfg.XCLIPath != "" {
+		gitDir := filepath.Join(globalCfg.XCLIPath, ".git")
+		if info, err := os.Stat(gitDir); err == nil && info.IsDir() {
+			return globalCfg.XCLIPath
+		}
+	}
+
+	return ""
 }

@@ -22,6 +22,7 @@ const (
 	gracefulShutdownTimeout = 30 * time.Second
 	// shutdownPollInterval is how often to check if a process has stopped.
 	shutdownPollInterval = 100 * time.Millisecond
+	pidFileVersion       = 1
 )
 
 // Process represents a managed process.
@@ -65,8 +66,6 @@ type PIDFileData struct {
 	Args      []string  `json:"args"`      // Command arguments
 	StartedAt time.Time `json:"startedAt"` // ISO8601 timestamp
 }
-
-const pidFileVersion = 1
 
 // Start starts a new process with optional health checking.
 // If healthCheck is nil, uses NoOpHealthChecker (existing behavior).
@@ -147,33 +146,6 @@ func (m *Manager) Start(ctx context.Context, name string, cmd *exec.Cmd, healthC
 	go m.monitor(name, process, logFd)
 
 	return nil
-}
-
-// monitor watches a process and cleans up when it exits.
-func (m *Manager) monitor(name string, p *Process, logFd *os.File) {
-	defer logFd.Close()
-
-	err := p.Cmd.Wait()
-
-	m.mu.Lock()
-	delete(m.processes, name)
-	m.mu.Unlock()
-
-	// Remove PID file
-	m.removePID(name)
-
-	if err != nil {
-		m.log.WithFields(logrus.Fields{
-			"name": name,
-			"pid":  p.PID,
-			"err":  err,
-		}).Warn("Process exited with error")
-	} else {
-		m.log.WithFields(logrus.Fields{
-			"name": name,
-			"pid":  p.PID,
-		}).Info("Process exited")
-	}
 }
 
 // Stop stops a process gracefully.
@@ -407,61 +379,6 @@ func (m *Manager) TailLogs(ctx context.Context, name string, follow bool) error 
 	return nil
 }
 
-// savePID saves a process PID to disk in JSON format.
-func (m *Manager) savePID(name string, p *Process, cmd *exec.Cmd) {
-	pidDir := filepath.Join(m.stateDir, constants.DirPIDs)
-	if err := os.MkdirAll(pidDir, 0755); err != nil {
-		m.log.WithError(err).Warn("failed to create PID directory")
-
-		return
-	}
-
-	data := PIDFileData{
-		Version:   pidFileVersion,
-		PID:       p.PID,
-		LogFile:   p.LogFile,
-		Command:   cmd.Path,
-		Args:      cmd.Args[1:], // Skip binary name
-		StartedAt: p.Started,
-	}
-
-	jsonData, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		m.log.WithError(err).Warn("failed to marshal PID data")
-
-		return
-	}
-
-	pidFile := filepath.Join(pidDir, fmt.Sprintf(constants.PIDFileTemplate, name))
-	//nolint:gosec // PID file permissions are intentionally 0644 for readability
-	if err := os.WriteFile(pidFile, jsonData, 0644); err != nil {
-		m.log.WithError(err).Warn("failed to write PID file")
-	}
-}
-
-// removePID removes a PID file.
-func (m *Manager) removePID(name string) {
-	pidFile := filepath.Join(m.stateDir, constants.DirPIDs, fmt.Sprintf(constants.PIDFileTemplate, name))
-	os.Remove(pidFile)
-}
-
-// loadPIDs loads PIDs from disk and checks if processes are still running.
-func (m *Manager) loadPIDs() {
-	pidDir := filepath.Join(m.stateDir, constants.DirPIDs)
-
-	entries, err := os.ReadDir(pidDir)
-	if err != nil {
-		return // Directory doesn't exist or can't be read
-	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".pid" {
-			name := entry.Name()[:len(entry.Name())-4] // Remove .pid extension
-			m.loadPID(name)
-		}
-	}
-}
-
 // CleanLogs removes all log files.
 func (m *Manager) CleanLogs() error {
 	logsDir := filepath.Join(m.stateDir, constants.DirLogs)
@@ -537,4 +454,86 @@ func (m *Manager) loadPID(name string) {
 		"name": name,
 		"pid":  data.PID,
 	}).Debug("loaded process from PID file")
+}
+
+// monitor watches a process and cleans up when it exits.
+func (m *Manager) monitor(name string, p *Process, logFd *os.File) {
+	defer logFd.Close()
+
+	err := p.Cmd.Wait()
+
+	m.mu.Lock()
+	delete(m.processes, name)
+	m.mu.Unlock()
+
+	// Remove PID file
+	m.removePID(name)
+
+	if err != nil {
+		m.log.WithFields(logrus.Fields{
+			"name": name,
+			"pid":  p.PID,
+			"err":  err,
+		}).Warn("Process exited with error")
+	} else {
+		m.log.WithFields(logrus.Fields{
+			"name": name,
+			"pid":  p.PID,
+		}).Info("Process exited")
+	}
+}
+
+// savePID saves a process PID to disk in JSON format.
+func (m *Manager) savePID(name string, p *Process, cmd *exec.Cmd) {
+	pidDir := filepath.Join(m.stateDir, constants.DirPIDs)
+	if err := os.MkdirAll(pidDir, 0755); err != nil {
+		m.log.WithError(err).Warn("failed to create PID directory")
+
+		return
+	}
+
+	data := PIDFileData{
+		Version:   pidFileVersion,
+		PID:       p.PID,
+		LogFile:   p.LogFile,
+		Command:   cmd.Path,
+		Args:      cmd.Args[1:], // Skip binary name
+		StartedAt: p.Started,
+	}
+
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		m.log.WithError(err).Warn("failed to marshal PID data")
+
+		return
+	}
+
+	pidFile := filepath.Join(pidDir, fmt.Sprintf(constants.PIDFileTemplate, name))
+	//nolint:gosec // PID file permissions are intentionally 0644 for readability
+	if err := os.WriteFile(pidFile, jsonData, 0644); err != nil {
+		m.log.WithError(err).Warn("failed to write PID file")
+	}
+}
+
+// removePID removes a PID file.
+func (m *Manager) removePID(name string) {
+	pidFile := filepath.Join(m.stateDir, constants.DirPIDs, fmt.Sprintf(constants.PIDFileTemplate, name))
+	os.Remove(pidFile)
+}
+
+// loadPIDs loads PIDs from disk and checks if processes are still running.
+func (m *Manager) loadPIDs() {
+	pidDir := filepath.Join(m.stateDir, constants.DirPIDs)
+
+	entries, err := os.ReadDir(pidDir)
+	if err != nil {
+		return // Directory doesn't exist or can't be read
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".pid" {
+			name := entry.Name()[:len(entry.Name())-4] // Remove .pid extension
+			m.loadPID(name)
+		}
+	}
 }

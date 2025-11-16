@@ -492,17 +492,6 @@ func (o *Orchestrator) StopService(ctx context.Context, service string) error {
 	return err
 }
 
-// isNetworkEnabled checks if a network is enabled in the configuration.
-func (o *Orchestrator) isNetworkEnabled(network string) bool {
-	for _, net := range o.cfg.EnabledNetworks() {
-		if net.Name == network {
-			return true
-		}
-	}
-
-	return false
-}
-
 // IsValidService checks if a service name is valid for the current configuration.
 func (o *Orchestrator) IsValidService(service string) bool {
 	// Check fixed services
@@ -654,6 +643,266 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 	return nil
 }
 
+// GenerateConfigs generates configuration files for all services.
+// Public method so it can be called by rebuild commands.
+func (o *Orchestrator) GenerateConfigs() error {
+	configsDir := filepath.Join(o.stateDir, "configs")
+	if err := os.MkdirAll(configsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create configs directory: %w", err)
+	}
+
+	generator := configgen.NewGenerator(o.log, o.cfg, o.overrides)
+
+	// Generate configs for each network
+	for _, network := range o.cfg.EnabledNetworks() {
+		// Generate CBT overrides first (if any)
+		overridesFilename := fmt.Sprintf(constants.ConfigFileCBTOverride, network.Name)
+		overridesPath := filepath.Join(configsDir, overridesFilename)
+
+		overridesContent, err := generator.GenerateCBTOverrides(network.Name)
+		if err != nil {
+			return fmt.Errorf("failed to generate CBT overrides for %s: %w", network.Name, err)
+		}
+
+		//nolint:gosec // Config file permissions are intentionally 0644 for readability
+		err = os.WriteFile(overridesPath, []byte(overridesContent), 0644)
+		if err != nil {
+			return fmt.Errorf("failed to write CBT overrides: %w", err)
+		}
+
+		slotPos, timestampPos := config.CalculateTwoWeeksAgoPosition(network.Name, network.GenesisTimestamp)
+		o.log.WithFields(logrus.Fields{
+			"network":      network.Name,
+			"slot_limit":   slotPos,
+			"ts_limit":     timestampPos,
+			"duration":     o.cfg.CBT.DefaultBackfillDuration,
+			"user_config":  o.overrides != nil && len(o.overrides.Models) > 0,
+			"has_defaults": o.overrides == nil || o.overrides.DefaultLimits == nil,
+		}).Info("generated cbt model overrides")
+
+		// CBT config
+		cbtFilename := fmt.Sprintf(constants.ConfigFileCBT, network.Name)
+		cbtPath := filepath.Join(configsDir, cbtFilename)
+
+		if hasCustom, customPath := o.hasCustomConfig(cbtFilename); hasCustom {
+			o.log.WithField("network", network.Name).Info("using custom CBT config")
+
+			if err := o.copyCustomConfig(customPath, cbtPath); err != nil {
+				return fmt.Errorf("failed to copy custom CBT config for %s: %w", network.Name, err)
+			}
+		} else {
+			cbtConfig, err := generator.GenerateCBTConfig(network.Name, overridesPath)
+			if err != nil {
+				return fmt.Errorf("failed to generate CBT config for %s: %w", network.Name, err)
+			}
+
+			//nolint:gosec // Config file permissions are intentionally 0644 for readability
+			err = os.WriteFile(cbtPath, []byte(cbtConfig), 0644)
+			if err != nil {
+				return fmt.Errorf("failed to write CBT config: %w", err)
+			}
+		}
+
+		// cbt-api config
+		apiFilename := fmt.Sprintf(constants.ConfigFileCBTAPI, network.Name)
+		apiPath := filepath.Join(configsDir, apiFilename)
+
+		if hasCustom, customPath := o.hasCustomConfig(apiFilename); hasCustom {
+			o.log.WithField("network", network.Name).Info("using custom cbt-api config")
+
+			if err := o.copyCustomConfig(customPath, apiPath); err != nil {
+				return fmt.Errorf("failed to copy custom cbt-api config for %s: %w", network.Name, err)
+			}
+		} else {
+			apiConfig, apiErr := generator.GenerateCBTAPIConfig(network.Name)
+			if apiErr != nil {
+				return fmt.Errorf("failed to generate cbt-api config for %s: %w", network.Name, apiErr)
+			}
+
+			//nolint:gosec // Config file permissions are intentionally 0644 for readability
+			if apiErr := os.WriteFile(apiPath, []byte(apiConfig), 0644); apiErr != nil {
+				return fmt.Errorf("failed to write cbt-api config: %w", apiErr)
+			}
+		}
+	}
+
+	// lab-backend config
+	backendFilename := constants.ConfigFileLabBackend
+	backendPath := filepath.Join(configsDir, backendFilename)
+
+	if hasCustom, customPath := o.hasCustomConfig(backendFilename); hasCustom {
+		o.log.Info("using custom lab-backend config")
+
+		if err := o.copyCustomConfig(customPath, backendPath); err != nil {
+			return fmt.Errorf("failed to copy custom lab-backend config: %w", err)
+		}
+	} else {
+		backendConfig, err := generator.GenerateLabBackendConfig()
+		if err != nil {
+			return fmt.Errorf("failed to generate lab-backend config: %w", err)
+		}
+
+		//nolint:gosec // Config file permissions are intentionally 0644 for readability
+		if err := os.WriteFile(backendPath, []byte(backendConfig), 0644); err != nil {
+			return fmt.Errorf("failed to write lab-backend config: %w", err)
+		}
+	}
+
+	o.log.Info("service configurations generated")
+
+	return nil
+}
+
+// AreServicesRunning checks if CBT and cbt-api services are currently running.
+// Returns true if at least one service is running (safe to restart).
+func (o *Orchestrator) AreServicesRunning() bool {
+	for _, network := range o.cfg.EnabledNetworks() {
+		cbtService := constants.ServiceNameCBT(network.Name)
+		cbtAPIService := constants.ServiceNameCBTAPI(network.Name)
+
+		if _, exists := o.proc.Get(cbtService); exists {
+			return true
+		}
+
+		if _, exists := o.proc.Get(cbtAPIService); exists {
+			return true
+		}
+	}
+
+	return false
+}
+
+// WaitForCBTAPIReady waits for cbt-api services to be ready after restart.
+// Checks the health endpoint of the first enabled network's cbt-api.
+func (o *Orchestrator) WaitForCBTAPIReady(ctx context.Context) error {
+	networks := o.cfg.EnabledNetworks()
+	if len(networks) == 0 {
+		return fmt.Errorf("no networks enabled")
+	}
+
+	// Use the first enabled network's cbt-api
+	port := o.cfg.GetCBTAPIPort(networks[0].Name)
+	healthURL := fmt.Sprintf("http://localhost:%d/health", port)
+
+	// Retry for up to 30 seconds
+	maxRetries := 30
+	retryDelay := 1 * time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		// Try to fetch the health endpoint
+		client := &http.Client{Timeout: 2 * time.Second}
+
+		resp, err := client.Get(healthURL)
+		if err == nil && resp.StatusCode == 200 {
+			resp.Body.Close()
+			o.log.Debug("cbt-api is ready")
+
+			return nil
+		}
+
+		if resp != nil {
+			resp.Body.Close()
+		}
+
+		// Wait before retrying
+		if i < maxRetries-1 {
+			time.Sleep(retryDelay)
+		}
+	}
+
+	return fmt.Errorf("cbt-api did not become ready after %d seconds", maxRetries)
+}
+
+// RestartAllServices restarts ALL services (cbt-api, CBT engines, and lab-backend).
+// Used by 'xcli lab rebuild all' to apply changes across all services.
+// Leverages existing process manager (o.proc) for service lifecycle management.
+func (o *Orchestrator) RestartAllServices(ctx context.Context, verbose bool) error {
+	if verbose {
+		fmt.Println("Restarting all services (cbt-api + CBT engines + lab-backend)...")
+	}
+
+	// Get list of ALL services to restart
+	// Service names follow patterns: "cbt-<network>", "cbt-api-<network>", "lab-backend"
+	enabledNetworks := o.cfg.EnabledNetworks()
+	servicesToRestart := make([]string, 0, 2*len(enabledNetworks)+1)
+
+	// Collect CBT engine service names for all enabled networks
+	for _, network := range enabledNetworks {
+		servicesToRestart = append(servicesToRestart, constants.ServiceNameCBT(network.Name))
+	}
+
+	// Collect cbt-api service names for all enabled networks
+	for _, network := range enabledNetworks {
+		servicesToRestart = append(servicesToRestart, constants.ServiceNameCBTAPI(network.Name))
+	}
+
+	// Add lab-backend
+	servicesToRestart = append(servicesToRestart, constants.ServiceLabBackend)
+
+	if verbose {
+		fmt.Printf("Services to restart: %v\n", servicesToRestart)
+	}
+
+	// Stop all target services first
+	for _, serviceName := range servicesToRestart {
+		if verbose {
+			fmt.Printf("Stopping %s...\n", serviceName)
+		}
+
+		// Use existing process manager Stop method
+		if err := o.proc.Stop(serviceName); err != nil {
+			// Log warning but continue - service might not be running
+			if verbose {
+				fmt.Printf("Warning: Failed to stop %s: %v\n", serviceName, err)
+			}
+		}
+	}
+
+	// Wait for cleanup
+	time.Sleep(500 * time.Millisecond)
+
+	// Use background context for long-running processes
+	processCtx := context.Background()
+
+	// Restart services in proper order
+	// 1. CBT engines first
+	for _, network := range o.cfg.EnabledNetworks() {
+		if verbose {
+			fmt.Printf("Starting CBT engine for %s...\n", network.Name)
+		}
+
+		if err := o.startCBTEngine(processCtx, network.Name); err != nil {
+			return fmt.Errorf("failed to restart CBT engine for %s: %w", network.Name, err)
+		}
+	}
+
+	// 2. cbt-api second
+	for _, network := range o.cfg.EnabledNetworks() {
+		if verbose {
+			fmt.Printf("Starting cbt-api for %s...\n", network.Name)
+		}
+
+		if err := o.startCBTAPI(processCtx, network.Name); err != nil {
+			return fmt.Errorf("failed to restart cbt-api for %s: %w", network.Name, err)
+		}
+	}
+
+	// 3. lab-backend last
+	if verbose {
+		fmt.Printf("Starting lab-backend...\n")
+	}
+
+	if err := o.startLabBackend(processCtx); err != nil {
+		return fmt.Errorf("failed to restart lab-backend: %w", err)
+	}
+
+	if verbose {
+		fmt.Println("✓ All services restarted successfully")
+	}
+
+	return nil
+}
+
 // checkGitStatus checks if all repositories are up to date with their remotes.
 // This is non-blocking - it only shows warnings if repositories are out of date.
 func (o *Orchestrator) checkGitStatus(ctx context.Context) {
@@ -739,6 +988,17 @@ func (o *Orchestrator) checkGitStatus(ctx context.Context) {
 		spinner.Success("All repositories are up to date")
 		o.log.Info("all repositories are up to date")
 	}
+}
+
+// isNetworkEnabled checks if a network is enabled in the configuration.
+func (o *Orchestrator) isNetworkEnabled(network string) bool {
+	for _, net := range o.cfg.EnabledNetworks() {
+		if net.Name == network {
+			return true
+		}
+	}
+
+	return false
 }
 
 // validatePrerequisites performs fast read-only checks (no auto-fixing).
@@ -978,116 +1238,6 @@ func (o *Orchestrator) copyCustomConfig(customPath, destPath string) error {
 	return nil
 }
 
-// GenerateConfigs generates configuration files for all services.
-// Public method so it can be called by rebuild commands.
-func (o *Orchestrator) GenerateConfigs() error {
-	configsDir := filepath.Join(o.stateDir, "configs")
-	if err := os.MkdirAll(configsDir, 0755); err != nil {
-		return fmt.Errorf("failed to create configs directory: %w", err)
-	}
-
-	generator := configgen.NewGenerator(o.log, o.cfg, o.overrides)
-
-	// Generate configs for each network
-	for _, network := range o.cfg.EnabledNetworks() {
-		// Generate CBT overrides first (if any)
-		overridesFilename := fmt.Sprintf(constants.ConfigFileCBTOverride, network.Name)
-		overridesPath := filepath.Join(configsDir, overridesFilename)
-
-		overridesContent, err := generator.GenerateCBTOverrides(network.Name)
-		if err != nil {
-			return fmt.Errorf("failed to generate CBT overrides for %s: %w", network.Name, err)
-		}
-
-		//nolint:gosec // Config file permissions are intentionally 0644 for readability
-		err = os.WriteFile(overridesPath, []byte(overridesContent), 0644)
-		if err != nil {
-			return fmt.Errorf("failed to write CBT overrides: %w", err)
-		}
-
-		slotPos, timestampPos := config.CalculateTwoWeeksAgoPosition(network.Name, network.GenesisTimestamp)
-		o.log.WithFields(logrus.Fields{
-			"network":      network.Name,
-			"slot_limit":   slotPos,
-			"ts_limit":     timestampPos,
-			"duration":     o.cfg.CBT.DefaultBackfillDuration,
-			"user_config":  o.overrides != nil && len(o.overrides.Models) > 0,
-			"has_defaults": o.overrides == nil || o.overrides.DefaultLimits == nil,
-		}).Info("generated cbt model overrides")
-
-		// CBT config
-		cbtFilename := fmt.Sprintf(constants.ConfigFileCBT, network.Name)
-		cbtPath := filepath.Join(configsDir, cbtFilename)
-
-		if hasCustom, customPath := o.hasCustomConfig(cbtFilename); hasCustom {
-			o.log.WithField("network", network.Name).Info("using custom CBT config")
-
-			if err := o.copyCustomConfig(customPath, cbtPath); err != nil {
-				return fmt.Errorf("failed to copy custom CBT config for %s: %w", network.Name, err)
-			}
-		} else {
-			cbtConfig, err := generator.GenerateCBTConfig(network.Name, overridesPath)
-			if err != nil {
-				return fmt.Errorf("failed to generate CBT config for %s: %w", network.Name, err)
-			}
-
-			//nolint:gosec // Config file permissions are intentionally 0644 for readability
-			err = os.WriteFile(cbtPath, []byte(cbtConfig), 0644)
-			if err != nil {
-				return fmt.Errorf("failed to write CBT config: %w", err)
-			}
-		}
-
-		// cbt-api config
-		apiFilename := fmt.Sprintf(constants.ConfigFileCBTAPI, network.Name)
-		apiPath := filepath.Join(configsDir, apiFilename)
-
-		if hasCustom, customPath := o.hasCustomConfig(apiFilename); hasCustom {
-			o.log.WithField("network", network.Name).Info("using custom cbt-api config")
-
-			if err := o.copyCustomConfig(customPath, apiPath); err != nil {
-				return fmt.Errorf("failed to copy custom cbt-api config for %s: %w", network.Name, err)
-			}
-		} else {
-			apiConfig, apiErr := generator.GenerateCBTAPIConfig(network.Name)
-			if apiErr != nil {
-				return fmt.Errorf("failed to generate cbt-api config for %s: %w", network.Name, apiErr)
-			}
-
-			//nolint:gosec // Config file permissions are intentionally 0644 for readability
-			if apiErr := os.WriteFile(apiPath, []byte(apiConfig), 0644); apiErr != nil {
-				return fmt.Errorf("failed to write cbt-api config: %w", apiErr)
-			}
-		}
-	}
-
-	// lab-backend config
-	backendFilename := constants.ConfigFileLabBackend
-	backendPath := filepath.Join(configsDir, backendFilename)
-
-	if hasCustom, customPath := o.hasCustomConfig(backendFilename); hasCustom {
-		o.log.Info("using custom lab-backend config")
-
-		if err := o.copyCustomConfig(customPath, backendPath); err != nil {
-			return fmt.Errorf("failed to copy custom lab-backend config: %w", err)
-		}
-	} else {
-		backendConfig, err := generator.GenerateLabBackendConfig()
-		if err != nil {
-			return fmt.Errorf("failed to generate lab-backend config: %w", err)
-		}
-
-		//nolint:gosec // Config file permissions are intentionally 0644 for readability
-		if err := os.WriteFile(backendPath, []byte(backendConfig), 0644); err != nil {
-			return fmt.Errorf("failed to write lab-backend config: %w", err)
-		}
-	}
-
-	o.log.Info("service configurations generated")
-
-	return nil
-}
-
 // startServices starts all service processes.
 func (o *Orchestrator) startServices(ctx context.Context) error {
 	o.log.Info("starting services")
@@ -1118,156 +1268,6 @@ func (o *Orchestrator) startServices(ctx context.Context) error {
 	// Start lab frontend
 	if err := o.startLabFrontend(processCtx); err != nil {
 		return fmt.Errorf("failed to start lab frontend: %w", err)
-	}
-
-	return nil
-}
-
-// AreServicesRunning checks if CBT and cbt-api services are currently running.
-// Returns true if at least one service is running (safe to restart).
-func (o *Orchestrator) AreServicesRunning() bool {
-	for _, network := range o.cfg.EnabledNetworks() {
-		cbtService := constants.ServiceNameCBT(network.Name)
-		cbtAPIService := constants.ServiceNameCBTAPI(network.Name)
-
-		if _, exists := o.proc.Get(cbtService); exists {
-			return true
-		}
-
-		if _, exists := o.proc.Get(cbtAPIService); exists {
-			return true
-		}
-	}
-
-	return false
-}
-
-// WaitForCBTAPIReady waits for cbt-api services to be ready after restart.
-// Checks the health endpoint of the first enabled network's cbt-api.
-func (o *Orchestrator) WaitForCBTAPIReady(ctx context.Context) error {
-	networks := o.cfg.EnabledNetworks()
-	if len(networks) == 0 {
-		return fmt.Errorf("no networks enabled")
-	}
-
-	// Use the first enabled network's cbt-api
-	port := o.cfg.GetCBTAPIPort(networks[0].Name)
-	healthURL := fmt.Sprintf("http://localhost:%d/health", port)
-
-	// Retry for up to 30 seconds
-	maxRetries := 30
-	retryDelay := 1 * time.Second
-
-	for i := 0; i < maxRetries; i++ {
-		// Try to fetch the health endpoint
-		client := &http.Client{Timeout: 2 * time.Second}
-
-		resp, err := client.Get(healthURL)
-		if err == nil && resp.StatusCode == 200 {
-			resp.Body.Close()
-			o.log.Debug("cbt-api is ready")
-
-			return nil
-		}
-
-		if resp != nil {
-			resp.Body.Close()
-		}
-
-		// Wait before retrying
-		if i < maxRetries-1 {
-			time.Sleep(retryDelay)
-		}
-	}
-
-	return fmt.Errorf("cbt-api did not become ready after %d seconds", maxRetries)
-}
-
-// RestartAllServices restarts ALL services (cbt-api, CBT engines, and lab-backend).
-// Used by 'xcli lab rebuild all' to apply changes across all services.
-// Leverages existing process manager (o.proc) for service lifecycle management.
-func (o *Orchestrator) RestartAllServices(ctx context.Context, verbose bool) error {
-	if verbose {
-		fmt.Println("Restarting all services (cbt-api + CBT engines + lab-backend)...")
-	}
-
-	// Get list of ALL services to restart
-	// Service names follow patterns: "cbt-<network>", "cbt-api-<network>", "lab-backend"
-	enabledNetworks := o.cfg.EnabledNetworks()
-	servicesToRestart := make([]string, 0, 2*len(enabledNetworks)+1)
-
-	// Collect CBT engine service names for all enabled networks
-	for _, network := range enabledNetworks {
-		servicesToRestart = append(servicesToRestart, constants.ServiceNameCBT(network.Name))
-	}
-
-	// Collect cbt-api service names for all enabled networks
-	for _, network := range enabledNetworks {
-		servicesToRestart = append(servicesToRestart, constants.ServiceNameCBTAPI(network.Name))
-	}
-
-	// Add lab-backend
-	servicesToRestart = append(servicesToRestart, constants.ServiceLabBackend)
-
-	if verbose {
-		fmt.Printf("Services to restart: %v\n", servicesToRestart)
-	}
-
-	// Stop all target services first
-	for _, serviceName := range servicesToRestart {
-		if verbose {
-			fmt.Printf("Stopping %s...\n", serviceName)
-		}
-
-		// Use existing process manager Stop method
-		if err := o.proc.Stop(serviceName); err != nil {
-			// Log warning but continue - service might not be running
-			if verbose {
-				fmt.Printf("Warning: Failed to stop %s: %v\n", serviceName, err)
-			}
-		}
-	}
-
-	// Wait for cleanup
-	time.Sleep(500 * time.Millisecond)
-
-	// Use background context for long-running processes
-	processCtx := context.Background()
-
-	// Restart services in proper order
-	// 1. CBT engines first
-	for _, network := range o.cfg.EnabledNetworks() {
-		if verbose {
-			fmt.Printf("Starting CBT engine for %s...\n", network.Name)
-		}
-
-		if err := o.startCBTEngine(processCtx, network.Name); err != nil {
-			return fmt.Errorf("failed to restart CBT engine for %s: %w", network.Name, err)
-		}
-	}
-
-	// 2. cbt-api second
-	for _, network := range o.cfg.EnabledNetworks() {
-		if verbose {
-			fmt.Printf("Starting cbt-api for %s...\n", network.Name)
-		}
-
-		if err := o.startCBTAPI(processCtx, network.Name); err != nil {
-			return fmt.Errorf("failed to restart cbt-api for %s: %w", network.Name, err)
-		}
-	}
-
-	// 3. lab-backend last
-	if verbose {
-		fmt.Printf("Starting lab-backend...\n")
-	}
-
-	if err := o.startLabBackend(processCtx); err != nil {
-		return fmt.Errorf("failed to restart lab-backend: %w", err)
-	}
-
-	if verbose {
-		fmt.Println("✓ All services restarted successfully")
 	}
 
 	return nil
