@@ -1,3 +1,5 @@
+// Package constants defines shared constants for service names,
+// modes, and configuration across the xcli application.
 package constants
 
 import "fmt"

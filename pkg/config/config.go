@@ -1,3 +1,5 @@
+// Package config handles loading, validation, and management of xcli configuration
+// including lab stack settings, network configurations, and infrastructure options.
 package config
 
 import (

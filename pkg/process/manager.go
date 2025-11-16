@@ -1,3 +1,5 @@
+// Package process manages long-running service processes with PID tracking,
+// log management, health checking, and graceful shutdown capabilities.
 package process
 
 import (
@@ -13,6 +15,13 @@ import (
 
 	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	// gracefulShutdownTimeout is the maximum time to wait for a process to stop gracefully.
+	gracefulShutdownTimeout = 30 * time.Second
+	// shutdownPollInterval is how often to check if a process has stopped.
+	shutdownPollInterval = 100 * time.Millisecond
 )
 
 // Process represents a managed process.
@@ -36,7 +45,7 @@ type Manager struct {
 func NewManager(log logrus.FieldLogger, stateDir string) *Manager {
 	m := &Manager{
 		log:       log.WithField("component", "process-manager"),
-		processes: make(map[string]*Process),
+		processes: make(map[string]*Process, 10), // Typical: 5-10 services
 		stateDir:  stateDir,
 	}
 
@@ -46,7 +55,8 @@ func NewManager(log logrus.FieldLogger, stateDir string) *Manager {
 	return m
 }
 
-// PIDFileData represents the structure of a PID file.
+// PIDFileData represents the JSON structure of a persisted PID file
+// containing process metadata for crash recovery and monitoring.
 type PIDFileData struct {
 	Version   int       `json:"version"` // Format version (currently 1)
 	PID       int       `json:"pid"`
@@ -192,10 +202,10 @@ func (m *Manager) Stop(name string) error {
 		return fmt.Errorf("failed to send SIGTERM: %w", err)
 	}
 
-	// Wait up to 30 seconds for graceful shutdown
-	// Poll every 100ms to check if process is gone
-	for i := 0; i < 300; i++ {
-		time.Sleep(100 * time.Millisecond)
+	// Wait for graceful shutdown
+	maxAttempts := int(gracefulShutdownTimeout / shutdownPollInterval)
+	for i := 0; i < maxAttempts; i++ {
+		time.Sleep(shutdownPollInterval)
 
 		if err := process.Signal(syscall.Signal(0)); err != nil {
 			// Process is gone

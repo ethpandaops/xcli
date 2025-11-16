@@ -1,3 +1,5 @@
+// Package orchestrator manages the complete lab stack lifecycle including
+// infrastructure, builds, configuration generation, and service management.
 package orchestrator
 
 import (
@@ -153,7 +155,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 			fmt.Print(portutil.FormatConflicts(portConflicts))
 		}
 
-		return fmt.Errorf("stack is already running")
+		return fmt.Errorf("cannot start stack: %d processes running and %d port conflicts detected", len(runningProcesses), len(portConflicts))
 	}
 
 	// Phase 0: Build xatu-cbt (ONCE, not in Phase 2)
@@ -340,7 +342,9 @@ func (o *Orchestrator) Down(ctx context.Context) error {
 
 	for _, pattern := range patterns {
 		pkillCmd := exec.Command("pkill", "-KILL", "-f", pattern)
-		_ = pkillCmd.Run() // Ignore errors - pattern might not match anything
+		if err := pkillCmd.Run(); err != nil {
+			o.log.WithError(err).WithField("pattern", pattern).Debug("pkill found no matching processes")
+		}
 	}
 
 	// Reset infrastructure (stops containers and removes volumes)

@@ -1,7 +1,8 @@
+// Package builder handles building all lab repositories including
+// Go binaries, frontend dependencies, and protobuf generation.
 package builder
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/ethpandaops/xcli/pkg/config"
+	executil "github.com/ethpandaops/xcli/pkg/exec"
 	"github.com/sirupsen/logrus"
 )
 
@@ -33,33 +35,9 @@ func (m *Manager) SetVerbose(verbose bool) {
 	m.verbose = verbose
 }
 
-// runCmd runs a command with appropriate output handling.
+// runCmd runs a command using the shared exec runner.
 func (m *Manager) runCmd(cmd *exec.Cmd) error {
-	if m.verbose {
-		// Verbose mode: show all output in real-time
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
-		return cmd.Run()
-	}
-
-	// Quiet mode: capture output, only show if command fails
-	var output bytes.Buffer
-
-	cmd.Stdout = &output
-	cmd.Stderr = &output
-
-	if err := cmd.Run(); err != nil {
-		// Command failed - show captured output
-		if output.Len() > 0 {
-			os.Stderr.Write(output.Bytes())
-		}
-
-		return err
-	}
-
-	// Command succeeded - no output
-	return nil
+	return executil.RunCmd(cmd, m.verbose)
 }
 
 // BuildAll builds all repositories EXCEPT xatu-cbt (built in Phase 0).

@@ -1,3 +1,5 @@
+// Package mode defines operational modes (local vs hybrid) for the lab stack,
+// determining which infrastructure services to use and how they're configured.
 package mode
 
 import (
