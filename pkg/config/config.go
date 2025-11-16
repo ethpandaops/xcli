@@ -127,7 +127,7 @@ func DefaultLab() *LabConfig {
 			LabBackend: "../lab-backend",
 			Lab:        "../lab",
 		},
-		Mode: constants.ModeLocal,
+		Mode: constants.ModeHybrid,
 		Networks: []NetworkConfig{
 			{Name: "mainnet", Enabled: true, PortOffset: 0},
 			{Name: "sepolia", Enabled: false, PortOffset: 1},
