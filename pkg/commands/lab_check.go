@@ -180,7 +180,7 @@ func runLabCheck(ctx context.Context, log logrus.FieldLogger, configPath string)
 
 		allPassed = false
 	} else {
-		spinner.Success("Docker Compose available")
+		spinner.Success("Docker compose available")
 	}
 
 	// Summary

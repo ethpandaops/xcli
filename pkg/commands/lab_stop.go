@@ -44,6 +44,18 @@ Example:
 
 			service := args[0]
 
+			// Validate service name and provide helpful error
+			if !orch.IsValidService(service) {
+				ui.Error(fmt.Sprintf("Unknown service: %s", service))
+				fmt.Println("\nAvailable services:")
+
+				for _, s := range orch.GetValidServices() {
+					fmt.Printf("  - %s\n", s)
+				}
+
+				return fmt.Errorf("unknown service: %s", service)
+			}
+
 			spinner := ui.NewSpinner(fmt.Sprintf("Stopping %s", service))
 
 			if err := orch.StopService(cmd.Context(), service); err != nil {

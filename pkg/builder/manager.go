@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 
 	"github.com/ethpandaops/xcli/pkg/config"
-	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 )
 
@@ -169,12 +168,6 @@ func (m *Manager) buildCBTFrontend(ctx context.Context, force bool) error {
 		return nil
 	}
 
-	// Create spinner for frontend build (only if not in verbose mode)
-	var spinner *ui.Spinner
-	if !m.verbose {
-		spinner = ui.NewSilentSpinner("Installing CBT frontend dependencies")
-	}
-
 	// Always install dependencies to ensure they match package.json
 	m.log.WithField("repo", "cbt/frontend").Info("installing dependencies")
 
@@ -182,34 +175,17 @@ func (m *Manager) buildCBTFrontend(ctx context.Context, force bool) error {
 	cmd.Dir = frontendDir
 
 	if err := m.runCmd(cmd); err != nil {
-		if !m.verbose {
-			spinner.Fail("CBT frontend dependencies installation failed")
-		}
-
 		return fmt.Errorf("pnpm install failed: %w", err)
 	}
 
 	// Build frontend
-	if !m.verbose {
-		spinner.UpdateText("Building CBT frontend assets")
-	}
-
 	m.log.WithField("repo", "cbt/frontend").Info("building frontend")
 
 	cmd = exec.CommandContext(ctx, "pnpm", "build")
 	cmd.Dir = frontendDir
 
 	if err := m.runCmd(cmd); err != nil {
-		if !m.verbose {
-			spinner.Fail("CBT frontend build failed")
-		}
-
 		return fmt.Errorf("pnpm build failed: %w", err)
-	}
-
-	if !m.verbose {
-		// Stop spinner silently - the executor's progress bar shows completion
-		_ = spinner.Stop()
 	}
 
 	return nil
@@ -296,28 +272,24 @@ func (m *Manager) installLabDeps(ctx context.Context, force bool) error {
 		return nil
 	}
 
-	// Create spinner only if not in verbose mode
-	var spinner *ui.Spinner
-	if !m.verbose {
-		spinner = ui.NewSilentSpinner("Installing lab dependencies")
-	}
-
 	m.log.WithField("repo", "lab").Info("installing dependencies")
 
 	cmd := exec.CommandContext(ctx, "pnpm", "install")
 	cmd.Dir = m.cfg.Repos.Lab
 
 	if err := m.runCmd(cmd); err != nil {
-		if !m.verbose {
-			spinner.Fail("Lab dependencies installation failed")
-		}
-
 		return fmt.Errorf("pnpm install failed: %w", err)
 	}
 
-	if !m.verbose {
-		// Stop spinner silently - the executor's progress bar shows completion
-		_ = spinner.Stop()
+	return nil
+}
+
+// GenerateXatuCBTProtos generates protobuf files for xatu-cbt.
+func (m *Manager) GenerateXatuCBTProtos(ctx context.Context) error {
+	m.log.WithField("repo", "xatu-cbt").Info("generating protos")
+
+	if err := m.runMake(ctx, m.cfg.Repos.XatuCBT, "proto"); err != nil {
+		return fmt.Errorf("failed to generate xatu-cbt protos: %w", err)
 	}
 
 	return nil
@@ -325,18 +297,9 @@ func (m *Manager) installLabDeps(ctx context.Context, force bool) error {
 
 // GenerateProtos generates protobuf files for cbt-api.
 func (m *Manager) GenerateProtos(ctx context.Context) error {
-	// Skip xatu-cbt proto generation - it calls infra start internally which we've already done
-	// The xatu-cbt binary doesn't need protos to run
-
 	// Generate cbt-api protos (only for first network, they're network-agnostic)
 	// We'll use mainnet as the source for table schemas
 	network := m.cfg.EnabledNetworks()[0]
-
-	// Create spinner only if not in verbose mode
-	var spinner *ui.Spinner
-	if !m.verbose {
-		spinner = ui.NewSilentSpinner("Generating protocol buffers")
-	}
 
 	m.log.WithFields(logrus.Fields{
 		"repo":    "cbt-api",
@@ -348,10 +311,6 @@ func (m *Manager) GenerateProtos(ctx context.Context) error {
 
 	absConfigPath, err := filepath.Abs(configPath)
 	if err != nil {
-		if !m.verbose {
-			spinner.Fail("Proto generation failed")
-		}
-
 		return fmt.Errorf("failed to get absolute config path: %w", err)
 	}
 
@@ -361,16 +320,7 @@ func (m *Manager) GenerateProtos(ctx context.Context) error {
 	cmd.Env = append(os.Environ(), fmt.Sprintf("CONFIG_FILE=%s", absConfigPath))
 
 	if err := m.runCmd(cmd); err != nil {
-		if !m.verbose {
-			spinner.Fail("Proto generation failed")
-		}
-
 		return fmt.Errorf("failed to generate cbt-api protos: %w", err)
-	}
-
-	if !m.verbose {
-		// Stop spinner silently - the executor's progress bar shows completion
-		_ = spinner.Stop()
 	}
 
 	return nil

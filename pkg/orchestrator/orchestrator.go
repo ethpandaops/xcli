@@ -209,6 +209,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	}
 
 	// Phase 3: Setup networks (run migrations)
+	ui.Blank()
 	ui.Header("Phase 4: Network Setup")
 
 	for _, network := range o.cfg.EnabledNetworks() {
@@ -383,6 +384,11 @@ func (o *Orchestrator) StopServices() error {
 
 // Restart restarts a specific service.
 func (o *Orchestrator) Restart(ctx context.Context, service string) error {
+	// Validate service name first
+	if !o.IsValidService(service) {
+		return fmt.Errorf("unknown service: %s", service)
+	}
+
 	// Stop the service
 	if err := o.StopService(ctx, service); err != nil {
 		return fmt.Errorf("failed to stop service: %w", err)
@@ -452,6 +458,40 @@ func (o *Orchestrator) isNetworkEnabled(network string) bool {
 	}
 
 	return false
+}
+
+// IsValidService checks if a service name is valid for the current configuration.
+func (o *Orchestrator) IsValidService(service string) bool {
+	// Check fixed services
+	if service == constants.ServiceLabBackend || service == constants.ServiceLabFrontend {
+		return true
+	}
+
+	// Check CBT services for enabled networks
+	for _, network := range o.cfg.EnabledNetworks() {
+		if service == constants.ServiceNameCBT(network.Name) ||
+			service == constants.ServiceNameCBTAPI(network.Name) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// GetValidServices returns a list of all valid service names for the current configuration.
+func (o *Orchestrator) GetValidServices() []string {
+	services := []string{
+		constants.ServiceLabBackend,
+		constants.ServiceLabFrontend,
+	}
+
+	// Add network-specific services
+	for _, network := range o.cfg.EnabledNetworks() {
+		services = append(services, constants.ServiceNameCBT(network.Name))
+		services = append(services, constants.ServiceNameCBTAPI(network.Name))
+	}
+
+	return services
 }
 
 // Logs shows logs for a service.
@@ -1013,18 +1053,18 @@ func (o *Orchestrator) WaitForCBTAPIReady(ctx context.Context) error {
 	return fmt.Errorf("cbt-api did not become ready after %d seconds", maxRetries)
 }
 
-// RestartServices restarts cbt-api and CBT engines without full stack restart.
-// Used by 'xcli lab rebuild xatu-cbt' to apply proto/config changes.
+// RestartAllServices restarts ALL services (cbt-api, CBT engines, and lab-backend).
+// Used by 'xcli lab rebuild all' to apply changes across all services.
 // Leverages existing process manager (o.proc) for service lifecycle management.
-func (o *Orchestrator) RestartServices(ctx context.Context, verbose bool) error {
+func (o *Orchestrator) RestartAllServices(ctx context.Context, verbose bool) error {
 	if verbose {
-		fmt.Println("Restarting services (cbt-api + CBT engines)...")
+		fmt.Println("Restarting all services (cbt-api + CBT engines + lab-backend)...")
 	}
 
-	// Get list of services to restart (cbt-api and CBT engines only)
-	// Service names follow patterns: "cbt-<network>", "cbt-api-<network>"
+	// Get list of ALL services to restart
+	// Service names follow patterns: "cbt-<network>", "cbt-api-<network>", "lab-backend"
 	enabledNetworks := o.cfg.EnabledNetworks()
-	servicesToRestart := make([]string, 0, 2*len(enabledNetworks))
+	servicesToRestart := make([]string, 0, 2*len(enabledNetworks)+1)
 
 	// Collect CBT engine service names for all enabled networks
 	for _, network := range enabledNetworks {
@@ -1035,6 +1075,9 @@ func (o *Orchestrator) RestartServices(ctx context.Context, verbose bool) error 
 	for _, network := range enabledNetworks {
 		servicesToRestart = append(servicesToRestart, constants.ServiceNameCBTAPI(network.Name))
 	}
+
+	// Add lab-backend
+	servicesToRestart = append(servicesToRestart, constants.ServiceLabBackend)
 
 	if verbose {
 		fmt.Printf("Services to restart: %v\n", servicesToRestart)
@@ -1084,7 +1127,18 @@ func (o *Orchestrator) RestartServices(ctx context.Context, verbose bool) error 
 		}
 	}
 
-	fmt.Println("✓ Services restarted successfully")
+	// 3. lab-backend last
+	if verbose {
+		fmt.Printf("Starting lab-backend...\n")
+	}
+
+	if err := o.startLabBackend(processCtx); err != nil {
+		return fmt.Errorf("failed to restart lab-backend: %w", err)
+	}
+
+	if verbose {
+		fmt.Println("✓ All services restarted successfully")
+	}
 
 	return nil
 }
