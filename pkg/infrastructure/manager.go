@@ -17,6 +17,7 @@ import (
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/ethpandaops/xcli/pkg/mode"
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/clickhouse" // migrate clickhouse driver
 	_ "github.com/golang-migrate/migrate/v4/source/file"         // migrate file source driver
@@ -106,6 +107,9 @@ func (m *Manager) Start(ctx context.Context) error {
 		"xatu_source": xatuSource,
 	}).Info("starting infrastructure")
 
+	// Create spinner for infrastructure startup
+	spinner := ui.NewSpinner("Starting infrastructure services")
+
 	// Build command arguments
 	args := []string{"infra", "start", "--xatu-source", xatuSource}
 
@@ -119,13 +123,21 @@ func (m *Manager) Start(ctx context.Context) error {
 	cmd.Dir = m.cfg.Repos.XatuCBT
 
 	if err := m.runCmd(cmd); err != nil {
+		spinner.Fail("Failed to start infrastructure services")
+
 		return fmt.Errorf("failed to start infrastructure: %w", err)
 	}
 
 	// Wait for services to be ready
-	if err := m.WaitForReady(ctx, 120*time.Second); err != nil {
+	spinner.UpdateText("Waiting for services to be healthy")
+
+	if err := m.WaitForReady(ctx, 120*time.Second, spinner); err != nil {
+		spinner.Fail("Infrastructure failed to become ready")
+
 		return fmt.Errorf("infrastructure did not become ready: %w", err)
 	}
+
+	spinner.Success("Infrastructure services are healthy")
 
 	// Run xatu migrations if in local mode (external Xatu already has schema)
 	if xatuSource == constants.InfraModeLocal {
@@ -137,8 +149,6 @@ func (m *Manager) Start(ctx context.Context) error {
 
 		m.log.Info("xatu migrations completed successfully")
 	}
-
-	m.log.Info("infrastructure started successfully")
 
 	return nil
 }
@@ -217,7 +227,7 @@ func (m *Manager) IsRunning() bool {
 }
 
 // WaitForReady waits for infrastructure to be ready.
-func (m *Manager) WaitForReady(ctx context.Context, timeout time.Duration) error {
+func (m *Manager) WaitForReady(ctx context.Context, timeout time.Duration, spinner *ui.Spinner) error {
 	// Get ports from mode (instead of hard-coded checks)
 	ports := m.mode.GetHealthCheckPorts()
 
@@ -232,11 +242,17 @@ func (m *Manager) WaitForReady(ctx context.Context, timeout time.Duration) error
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
+	attempt := 0
+	maxAttempts := int(timeout / (2 * time.Second))
+
 	for {
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("timeout waiting for infrastructure (%s mode)", m.mode.Name())
 		case <-ticker.C:
+			attempt++
+			spinner.UpdateText(fmt.Sprintf("Health check %d/%d - waiting for services", attempt, maxAttempts))
+
 			allReady := true
 
 			for _, port := range ports {
@@ -418,17 +434,22 @@ func (m *Manager) parseXatuCBTEnv() (map[string]string, error) {
 // This creates the external source tables (beacon_api_*, canonical_*, mev_relay_*, etc.)
 // that CBT transformations depend on.
 func (m *Manager) runXatuMigrations(ctx context.Context) error {
+	spinner := ui.NewSilentSpinner("Running database migrations")
+
 	// Path to xatu migrations (cloned by xatu-cbt infra start)
 	migrationsPath := filepath.Join(m.cfg.Repos.XatuCBT, "xatu", "deploy", "migrations", "clickhouse")
 
 	// Check if migrations directory exists
 	if _, err := os.Stat(migrationsPath); os.IsNotExist(err) {
+		spinner.Fail("Database migrations failed")
+
 		return fmt.Errorf("xatu migrations not found at %s - xatu repo may not be cloned", migrationsPath)
 	}
 
 	// Parse xatu-cbt .env to get ClickHouse credentials
 	env, err := m.parseXatuCBTEnv()
 	if err != nil {
+		spinner.Fail("Database migrations failed")
 		return fmt.Errorf("failed to parse xatu-cbt .env: %w", err)
 	}
 
@@ -469,6 +490,7 @@ func (m *Manager) runXatuMigrations(ctx context.Context) error {
 		connStr,
 	)
 	if err != nil {
+		spinner.Fail("Database migrations failed")
 		return fmt.Errorf("failed to create migration instance: %w", err)
 	}
 
@@ -479,25 +501,37 @@ func (m *Manager) runXatuMigrations(ctx context.Context) error {
 	}()
 
 	// Run migrations
+	spinner.UpdateText("Applying database migrations")
+
 	err = migration.Up()
 	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		spinner.Fail("Database migrations failed")
+
 		return fmt.Errorf("failed to apply migrations: %w", err)
 	}
 
 	if errors.Is(err, migrate.ErrNoChange) {
 		m.log.Debug("no new xatu migrations to apply")
+		// Stop silently - parent Start() spinner shows overall success
+		_ = spinner.Stop()
 	} else {
 		// Get version to log what was applied
 		version, dirty, vErr := migration.Version()
 		if vErr != nil && !errors.Is(vErr, migrate.ErrNilVersion) {
+			spinner.Fail("Database migrations failed")
+
 			return fmt.Errorf("failed to get migration version: %w", vErr)
 		}
 
 		if dirty {
+			spinner.Fail("Database migrations failed")
+
 			return fmt.Errorf("migration left database in dirty state")
 		}
 
 		m.log.WithField("version", version).Info("xatu migrations applied")
+		// Stop silently - parent Start() spinner shows overall success
+		_ = spinner.Stop()
 	}
 
 	return nil

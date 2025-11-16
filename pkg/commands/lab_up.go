@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -81,8 +82,8 @@ Examples:
 			go func() {
 				sig := <-sigChan
 				log.WithField("signal", sig.String()).Info("received shutdown signal")
-				fmt.Println("\n\n⚠ Interrupt received, shutting down gracefully...")
-				fmt.Println("(Press Ctrl+C again to force quit)")
+				ui.Warning("Interrupt received, shutting down gracefully...")
+				ui.Info("(Press Ctrl+C again to force quit)")
 
 				// Stop all services
 				if err := orch.StopServices(); err != nil {
@@ -90,7 +91,7 @@ Examples:
 					os.Exit(1)
 				}
 
-				fmt.Println("✓ All services stopped")
+				ui.Success("All services stopped")
 				os.Exit(0)
 			}()
 

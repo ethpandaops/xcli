@@ -5,6 +5,7 @@ import (
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -41,11 +42,16 @@ Example:
 				return fmt.Errorf("failed to create orchestrator: %w", err)
 			}
 
-			if err := orch.StopService(cmd.Context(), args[0]); err != nil {
+			service := args[0]
+
+			spinner := ui.NewSpinner(fmt.Sprintf("Stopping %s", service))
+
+			if err := orch.StopService(cmd.Context(), service); err != nil {
+				spinner.Fail(fmt.Sprintf("Failed to stop %s", service))
 				return fmt.Errorf("failed to stop service: %w", err)
 			}
 
-			fmt.Printf("\n✓ Service %s stopped successfully\n", args[0])
+			spinner.Success(fmt.Sprintf("%s stopped successfully", service))
 
 			return nil
 		},

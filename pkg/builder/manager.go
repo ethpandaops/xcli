@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/ethpandaops/xcli/pkg/config"
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 )
 
@@ -169,26 +170,51 @@ func (m *Manager) buildCBTFrontend(ctx context.Context, force bool) error {
 		return nil
 	}
 
+	// Create spinner for frontend build (only if not in verbose mode)
+	var spinner *ui.Spinner
+	if !m.verbose {
+		spinner = ui.NewSilentSpinner("Building CBT frontend")
+	}
+
 	// Install dependencies if needed
 	if !m.dirExists(nodeModules) {
+		if !m.verbose {
+			spinner.UpdateText("Installing CBT frontend dependencies")
+		}
+
 		m.log.WithField("repo", "cbt/frontend").Info("installing dependencies")
 
 		cmd := exec.CommandContext(ctx, "pnpm", "install")
 		cmd.Dir = frontendDir
 
 		if err := m.runCmd(cmd); err != nil {
+			if !m.verbose {
+				spinner.Fail("CBT frontend dependencies installation failed")
+			}
 			return fmt.Errorf("pnpm install failed: %w", err)
 		}
 	}
 
 	// Build frontend
+	if !m.verbose {
+		spinner.UpdateText("Building CBT frontend assets")
+	}
+
 	m.log.WithField("repo", "cbt/frontend").Info("building frontend")
 
 	cmd := exec.CommandContext(ctx, "pnpm", "build")
 	cmd.Dir = frontendDir
 
 	if err := m.runCmd(cmd); err != nil {
+		if !m.verbose {
+			spinner.Fail("CBT frontend build failed")
+		}
 		return fmt.Errorf("pnpm build failed: %w", err)
+	}
+
+	if !m.verbose {
+		// Stop spinner silently - the executor's progress bar shows completion
+		_ = spinner.Stop()
 	}
 
 	return nil
@@ -197,41 +223,28 @@ func (m *Manager) buildCBTFrontend(ctx context.Context, force bool) error {
 // BuildCBTAPI builds cbt-api with proto generation
 // Proto generation MUST happen first (explicit dependency in graph).
 func (m *Manager) BuildCBTAPI(ctx context.Context, force bool) error {
-	graph := NewBuildGraph()
-
-	// Proto generation has no dependencies (root node)
-	if err := graph.AddNode("proto-gen", func() error {
-		return m.GenerateProtos(ctx)
-	}); err != nil {
+	// Step 1: Generate protos
+	if err := m.GenerateProtos(ctx); err != nil {
 		return err
 	}
 
-	// cbt-api build depends on proto generation
-	if err := graph.AddNode("cbt-api", func() error {
-		binary := filepath.Join(m.cfg.Repos.CBTAPI, "bin", "server")
+	// Step 2: Build cbt-api binary
+	binary := filepath.Join(m.cfg.Repos.CBTAPI, "bin", "server")
 
-		if !force && m.binaryExists(binary) {
-			m.log.WithField("repo", "cbt-api").Info("binary exists, skipping build")
-
-			return nil
-		}
-
-		m.log.WithField("repo", "cbt-api").Info("building project")
-
-		// Generate OpenAPI and other code (requires proto to be run first)
-		if err := m.runMake(ctx, m.cfg.Repos.CBTAPI, "generate"); err != nil {
-			return fmt.Errorf("make generate failed: %w", err)
-		}
-
-		// Build the binary
-		return m.runMake(ctx, m.cfg.Repos.CBTAPI, "build-binary")
-	}, "proto-gen"); err != nil {
-		return err
+	if !force && m.binaryExists(binary) {
+		m.log.WithField("repo", "cbt-api").Info("binary exists, skipping build")
+		return nil
 	}
 
-	executor := NewExecutor(graph, m.verbose)
+	m.log.WithField("repo", "cbt-api").Info("building project")
 
-	return executor.Execute(ctx)
+	// Generate OpenAPI and other code (requires proto to be run first)
+	if err := m.runMake(ctx, m.cfg.Repos.CBTAPI, "generate"); err != nil {
+		return fmt.Errorf("make generate failed: %w", err)
+	}
+
+	// Build the binary
+	return m.runMake(ctx, m.cfg.Repos.CBTAPI, "build-binary")
 }
 
 // BuildLabBackend builds lab-backend binary.
@@ -287,13 +300,27 @@ func (m *Manager) installLabDeps(ctx context.Context, force bool) error {
 		return nil
 	}
 
+	// Create spinner only if not in verbose mode
+	var spinner *ui.Spinner
+	if !m.verbose {
+		spinner = ui.NewSilentSpinner("Installing lab dependencies")
+	}
+
 	m.log.WithField("repo", "lab").Info("installing dependencies")
 
 	cmd := exec.CommandContext(ctx, "pnpm", "install")
 	cmd.Dir = m.cfg.Repos.Lab
 
 	if err := m.runCmd(cmd); err != nil {
+		if !m.verbose {
+			spinner.Fail("Lab dependencies installation failed")
+		}
 		return fmt.Errorf("pnpm install failed: %w", err)
+	}
+
+	if !m.verbose {
+		// Stop spinner silently - the executor's progress bar shows completion
+		_ = spinner.Stop()
 	}
 
 	return nil
@@ -308,6 +335,12 @@ func (m *Manager) GenerateProtos(ctx context.Context) error {
 	// We'll use mainnet as the source for table schemas
 	network := m.cfg.EnabledNetworks()[0]
 
+	// Create spinner only if not in verbose mode
+	var spinner *ui.Spinner
+	if !m.verbose {
+		spinner = ui.NewSilentSpinner("Generating protocol buffers")
+	}
+
 	m.log.WithFields(logrus.Fields{
 		"repo":    "cbt-api",
 		"network": network.Name,
@@ -318,6 +351,9 @@ func (m *Manager) GenerateProtos(ctx context.Context) error {
 
 	absConfigPath, err := filepath.Abs(configPath)
 	if err != nil {
+		if !m.verbose {
+			spinner.Fail("Proto generation failed")
+		}
 		return fmt.Errorf("failed to get absolute config path: %w", err)
 	}
 
@@ -327,10 +363,16 @@ func (m *Manager) GenerateProtos(ctx context.Context) error {
 	cmd.Env = append(os.Environ(), fmt.Sprintf("CONFIG_FILE=%s", absConfigPath))
 
 	if err := m.runCmd(cmd); err != nil {
+		if !m.verbose {
+			spinner.Fail("Proto generation failed")
+		}
 		return fmt.Errorf("failed to generate cbt-api protos: %w", err)
 	}
 
-	m.log.Info("proto generation complete")
+	if !m.verbose {
+		// Stop spinner silently - the executor's progress bar shows completion
+		_ = spinner.Stop()
+	}
 
 	return nil
 }

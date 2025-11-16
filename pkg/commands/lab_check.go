@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/ethpandaops/xcli/pkg/config"
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -46,42 +47,40 @@ Example:
 }
 
 func runLabCheck(ctx context.Context, log logrus.FieldLogger, configPath string) error {
-	fmt.Println("Running lab environment health checks...")
+	ui.Header("Running lab environment health checks...")
 
 	allPassed := true
 
 	// Check 1: Configuration file
-	fmt.Print("✓ Checking configuration file... ")
+	spinner := ui.NewSpinner("Checking configuration file")
 
 	result, err := config.Load(configPath)
 	if err != nil {
-		fmt.Printf("✗\n  Error: %v\n", err)
+		spinner.Fail(fmt.Sprintf("Configuration file error: %v", err))
 
 		allPassed = false
 	} else if result.Config.Lab == nil {
-		fmt.Println("✗")
-		fmt.Println("  Error: Lab configuration not found")
-		fmt.Println("  Run: xcli lab init")
+		spinner.Fail("Lab configuration not found - Run: xcli lab init")
 
 		allPassed = false
 	} else {
-		fmt.Println("✓")
+		spinner.Success("Configuration file valid")
 	}
 
 	// Check 2: Configuration validity
 	if result != nil && result.Config.Lab != nil {
-		fmt.Print("✓ Validating configuration... ")
+		spinner = ui.NewSpinner("Validating configuration")
 
 		if err := result.Config.Lab.Validate(); err != nil {
-			fmt.Printf("✗\n  Error: %v\n", err)
+			spinner.Fail(fmt.Sprintf("Configuration validation failed: %v", err))
 
 			allPassed = false
 		} else {
-			fmt.Println("✓")
+			spinner.Success("Configuration valid")
 		}
 
 		// Check 3: Repository paths
-		fmt.Print("✓ Checking repository paths... ")
+		spinner = ui.NewSpinner("Checking repository paths")
 
 		repoCheckPassed := true
 		repos := map[string]string{
@@ -110,21 +109,20 @@ func runLabCheck(ctx context.Context, log logrus.FieldLogger, configPath string)
 		}
 
 		if !repoCheckPassed {
-			fmt.Println("✗")
-
+			failMsg := "Missing repositories - Run: xcli lab init"
 			for _, repo := range missingRepos {
-				fmt.Printf("  Missing: %s\n", repo)
+				failMsg += fmt.Sprintf("\n    %s", repo)
 			}
 
-			fmt.Println("  Run: xcli lab init")
+			spinner.Fail(failMsg)
 
 			allPassed = false
 		} else {
-			fmt.Printf("✓ (all 5 repos found)\n")
+			spinner.Success("All repository paths valid")
 		}
 
 		// Check 4: Prerequisites (node_modules, etc.)
-		fmt.Print("✓ Checking prerequisites... ")
+		spinner = ui.NewSpinner("Checking prerequisites")
 
 		prereqPassed := true
 		prereqIssues := []string{}
@@ -148,60 +146,54 @@ func runLabCheck(ctx context.Context, log logrus.FieldLogger, configPath string)
 		}
 
 		if !prereqPassed {
-			fmt.Println("✗")
-
+			failMsg := "Missing prerequisites - Run: xcli lab init"
 			for _, issue := range prereqIssues {
-				fmt.Printf("  Missing: %s\n", issue)
+				failMsg += fmt.Sprintf("\n    %s", issue)
 			}
 
-			fmt.Println("  Run: xcli lab init")
+			spinner.Fail(failMsg)
 
 			allPassed = false
 		} else {
-			fmt.Println("✓")
+			spinner.Success("All prerequisites met")
 		}
 	}
 
 	// Check 5: Docker
-	fmt.Print("✓ Checking Docker daemon... ")
+	spinner = ui.NewSpinner("Checking Docker daemon")
 
 	cmd := exec.CommandContext(ctx, "docker", "info")
 	if err := cmd.Run(); err != nil {
-		fmt.Println("✗")
-		fmt.Println("  Error: Docker daemon not accessible")
-		fmt.Println("  Ensure Docker Desktop is running")
-
+		spinner.Fail("Docker daemon not accessible - Ensure Docker Desktop is running")
 		allPassed = false
 	} else {
-		fmt.Println("✓")
+		spinner.Success("Docker daemon accessible")
 	}
 
 	// Check 6: Docker Compose
-	fmt.Print("✓ Checking Docker Compose... ")
+	spinner = ui.NewSpinner("Checking Docker Compose")
 
 	cmd = exec.CommandContext(ctx, "docker", "compose", "version")
 	if err := cmd.Run(); err != nil {
-		fmt.Println("✗")
-		fmt.Println("  Error: Docker Compose not available")
-
+		spinner.Fail("Docker Compose not available")
 		allPassed = false
 	} else {
-		fmt.Println("✓")
+		spinner.Success("Docker Compose available")
 	}
 
 	// Summary
-	fmt.Println()
+	ui.Blank()
 
 	if allPassed {
-		fmt.Println("✓ All checks passed! Environment is ready.")
-		fmt.Println("\nNext steps:")
+		ui.Success("All checks passed! Environment is ready.")
+		ui.Header("Next steps:")
 		fmt.Println("  xcli lab up              # Start the lab stack")
 		fmt.Println("  xcli lab up --no-build   # Start without building (if already built)")
 
 		return nil
 	}
 
-	fmt.Println("✗ Some checks failed. Please resolve the issues above.")
+	ui.Error("Some checks failed. Please resolve the issues above.")
 
 	return fmt.Errorf("environment checks failed")
 }

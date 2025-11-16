@@ -5,6 +5,7 @@ import (
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -85,14 +86,14 @@ the new configs.`,
 				return fmt.Errorf("failed to create orchestrator: %w", err)
 			}
 
-			fmt.Println("Regenerating service configurations...")
+			ui.Info("Regenerating service configurations...")
 
 			if err := orch.GenerateConfigs(); err != nil {
 				return fmt.Errorf("failed to regenerate configs: %w", err)
 			}
 
-			fmt.Println("\n✓ All service configurations regenerated successfully")
-			fmt.Println("\nTo apply changes, restart affected services:")
+			ui.Success("All service configurations regenerated successfully")
+			ui.Header("To apply changes, restart affected services:")
 			fmt.Println("  xcli lab restart lab-backend")
 			fmt.Println("  xcli lab restart cbt-api-mainnet")
 			fmt.Println("  xcli lab restart cbt-mainnet")

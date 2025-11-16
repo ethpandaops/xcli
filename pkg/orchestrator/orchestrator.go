@@ -19,6 +19,7 @@ import (
 	"github.com/ethpandaops/xcli/pkg/mode"
 	"github.com/ethpandaops/xcli/pkg/portutil"
 	"github.com/ethpandaops/xcli/pkg/process"
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 )
 
@@ -129,15 +130,18 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 		o.log.Info("external ClickHouse connection verified")
 	}
 
+	// Display startup banner
+	ui.Banner("Starting Lab Stack")
+
 	// Check if stack is already running
 	runningProcesses := o.proc.List()
 	portConflicts := o.checkPortConflicts()
 
 	if len(runningProcesses) > 0 || len(portConflicts) > 0 {
-		fmt.Println("\n⚠ Stack is already running (or ports are in use)")
+		ui.Warning("Stack is already running (or ports are in use)")
 
 		if len(runningProcesses) > 0 {
-			fmt.Println("\nRunning services:")
+			ui.Header("Running services:")
 
 			for _, p := range runningProcesses {
 				fmt.Printf("  - %s (PID %d)\n", p.Name, p.PID)
@@ -157,6 +161,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	// Reason: Infrastructure startup requires xatu-cbt binary to run migrations and services
 	// This ensures xatu-cbt is ready before starting infrastructure in Phase 1
 	if !skipBuild {
+		ui.Header("Phase 1: Building Xatu-CBT")
 		o.log.Info("building xatu-cbt")
 
 		if err := o.builder.BuildXatuCBT(ctx, forceBuild); err != nil {
@@ -172,6 +177,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	}
 
 	// Phase 1: Start infrastructure
+	ui.Header("Phase 2: Starting Infrastructure")
 	o.log.WithField("mode", o.mode.Name()).Info("starting infrastructure")
 
 	if err := o.infra.Start(ctx); err != nil {
@@ -184,6 +190,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	// Note: xatu-cbt already built in Phase 0
 	// BuildAll now runs: CBT || lab-backend || lab (parallel execution)
 	if !skipBuild {
+		ui.Header("Phase 3: Building Services")
 		o.log.Info("building repositories")
 
 		if err := o.builder.BuildAll(ctx, forceBuild); err != nil {
@@ -202,6 +209,8 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	}
 
 	// Phase 3: Setup networks (run migrations)
+	ui.Header("Phase 4: Network Setup")
+
 	for _, network := range o.cfg.EnabledNetworks() {
 		if err := o.infra.SetupNetwork(ctx, network.Name); err != nil {
 			o.log.WithError(err).Warnf("Failed to setup network %s (may already be setup)", network.Name)
@@ -209,6 +218,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	}
 
 	// Phase 4: Generate configs (needed for proto generation)
+	ui.Header("Phase 5: Generating Configurations")
 	o.log.Info("generating service configurations")
 
 	if err := o.GenerateConfigs(); err != nil {
@@ -226,28 +236,52 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	o.log.Info("checking for port conflicts")
 
 	if conflicts := o.checkPortConflicts(); len(conflicts) > 0 {
-		fmt.Println("\n⚠ Port conflicts detected!")
+		ui.Warning("Port conflicts detected!")
 		fmt.Print(portutil.FormatConflicts(conflicts))
 
 		return fmt.Errorf("port conflicts prevent starting services")
 	}
 
 	// Start services
+	ui.Header("Phase 6: Starting Services")
+
 	if err := o.startServices(ctx); err != nil {
 		return fmt.Errorf("failed to start services: %w", err)
 	}
 
-	fmt.Println("\n✓ Stack is running!")
-	fmt.Println("\nServices:")
-	fmt.Printf("  Lab Frontend:     http://localhost:%d\n", o.cfg.Ports.LabFrontend)
-	fmt.Printf("  Lab Backend:      http://localhost:%d\n", o.cfg.Ports.LabBackend)
+	ui.Blank()
+	ui.Success("Stack is running!")
 
-	for _, net := range o.cfg.EnabledNetworks() {
-		fmt.Printf("  CBT API (%s):    http://localhost:%d\n", net.Name, o.cfg.GetCBTAPIPort(net.Name))
-		fmt.Printf("  CBT Frontend (%s): http://localhost:%d\n", net.Name, o.cfg.GetCBTFrontendPort(net.Name))
+	// Build services list
+	services := []ui.Service{
+		{
+			Name:   "Lab Frontend",
+			URL:    fmt.Sprintf("http://localhost:%d", o.cfg.Ports.LabFrontend),
+			Status: "running",
+		},
+		{
+			Name:   "Lab Backend",
+			URL:    fmt.Sprintf("http://localhost:%d", o.cfg.Ports.LabBackend),
+			Status: "running",
+		},
 	}
 
-	fmt.Println()
+	for _, net := range o.cfg.EnabledNetworks() {
+		services = append(services, ui.Service{
+			Name:   fmt.Sprintf("CBT API (%s)", net.Name),
+			URL:    fmt.Sprintf("http://localhost:%d", o.cfg.GetCBTAPIPort(net.Name)),
+			Status: "running",
+		})
+		services = append(services, ui.Service{
+			Name:   fmt.Sprintf("CBT Frontend (%s)", net.Name),
+			URL:    fmt.Sprintf("http://localhost:%d", o.cfg.GetCBTFrontendPort(net.Name)),
+			Status: "running",
+		})
+	}
+
+	ui.Header("Services")
+	ui.ServiceTable(services)
+	ui.Blank()
 
 	return nil
 }
@@ -257,25 +291,40 @@ func (o *Orchestrator) Down(ctx context.Context) error {
 	o.log.Info("tearing down stack")
 
 	// Stop services first
+	spinner := ui.NewSpinner("Stopping services")
+
 	o.log.Info("stopping services")
 
 	if err := o.proc.StopAll(); err != nil {
 		o.log.WithError(err).Warn("failed to stop services")
+		spinner.Warning("Services stopped (with warnings)")
+	} else {
+		spinner.Success("Services stopped")
 	}
 
 	// Check for and clean up orphaned processes
+	spinner = ui.NewSpinner("Cleaning up orphaned processes")
+
 	o.log.Info("checking for orphaned processes")
 
 	orphanedCount := o.cleanupOrphanedProcesses()
 	if orphanedCount > 0 {
 		o.log.WithField("count", orphanedCount).Info("cleaned up orphaned processes")
+		spinner.Success(fmt.Sprintf("Cleaned up %d orphaned processes", orphanedCount))
+	} else {
+		spinner.Success("No orphaned processes found")
 	}
 
 	// Clean log files
+	spinner = ui.NewSpinner("Cleaning log files")
+
 	o.log.Info("cleaning log files")
 
 	if err := o.proc.CleanLogs(); err != nil {
 		o.log.WithError(err).Warn("failed to clean logs")
+		spinner.Warning("Log cleanup completed (with warnings)")
+	} else {
+		spinner.Success("Log files cleaned")
 	}
 
 	// Final cleanup: Kill any remaining pnpm/vite/esbuild processes
@@ -294,14 +343,20 @@ func (o *Orchestrator) Down(ctx context.Context) error {
 	}
 
 	// Reset infrastructure (stops containers and removes volumes)
+	spinner = ui.NewSpinner("Stopping infrastructure and removing volumes")
+
 	o.log.Info("resetting infrastructure")
 
 	if err := o.infra.Reset(ctx); err != nil {
+		spinner.Fail("Failed to reset infrastructure")
 		return fmt.Errorf("failed to reset infrastructure: %w", err)
 	}
 
+	spinner.Success("Infrastructure stopped and volumes removed")
+
 	o.log.Info("teardown complete")
-	fmt.Println("\n✓ Stack torn down successfully")
+	ui.Blank()
+	ui.Success("Stack torn down successfully")
 	fmt.Println("\nAll services stopped, logs cleaned, and volumes removed.")
 	fmt.Println("Run 'xcli lab up' to start fresh.")
 
@@ -310,12 +365,16 @@ func (o *Orchestrator) Down(ctx context.Context) error {
 
 // StopServices stops all running services without tearing down infrastructure.
 func (o *Orchestrator) StopServices() error {
+	spinner := ui.NewSpinner("Stopping all services")
+
 	o.log.Info("stopping all services")
 
 	if err := o.proc.StopAll(); err != nil {
+		spinner.Fail("Failed to stop all services")
 		return fmt.Errorf("failed to stop services: %w", err)
 	}
 
+	spinner.Success("All services stopped")
 	return nil
 }
 
@@ -328,8 +387,12 @@ func (o *Orchestrator) Restart(ctx context.Context, service string) error {
 
 	o.log.WithField("service", service).Info("service stopped, starting again")
 
-	// Start it again
-	return o.StartService(ctx, service)
+	// Start the service
+	if err := o.StartService(ctx, service); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // StartService starts a specific service by name.
@@ -412,15 +475,18 @@ func (o *Orchestrator) Logs(ctx context.Context, service string, follow bool) er
 // Status shows service status.
 func (o *Orchestrator) Status(ctx context.Context) error {
 	// Show current mode
-	fmt.Printf("Mode: %s\n\n", o.mode.Name())
+	ui.Info(fmt.Sprintf("Mode: %s", o.mode.Name()))
+	ui.Blank()
 
 	// Show infrastructure status
-	fmt.Println("Infrastructure:")
+	ui.Header("Infrastructure")
 
 	infraStatus := o.infra.Status()
 
 	// Use mode interface to determine if external ClickHouse is used
 	needsExternal := o.mode.NeedsExternalClickHouse()
+
+	infraServices := []ui.Service{}
 
 	for name, running := range infraStatus {
 		// Skip showing Xatu ClickHouse status in hybrid mode (it's external)
@@ -428,40 +494,60 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 			continue
 		}
 
-		status := "✗ down"
+		status := "down"
 		if running {
-			status = "✓ running"
+			status = "running"
 		}
 
-		fmt.Printf("  %-20s %s\n", name, status)
+		infraServices = append(infraServices, ui.Service{
+			Name:   name,
+			URL:    "-",
+			Status: status,
+		})
 	}
 
 	// In hybrid mode, show external Xatu connection info
 	if needsExternal {
 		externalInfo := o.sanitizeURL(o.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL)
-		fmt.Printf("  %-20s ↗ external (%s)\n",
-			"ClickHouse Xatu",
-			externalInfo,
-		)
+		infraServices = append(infraServices, ui.Service{
+			Name:   "ClickHouse Xatu (external)",
+			URL:    externalInfo,
+			Status: "running",
+		})
 	}
 
+	ui.ServiceTable(infraServices)
+
 	// Show services
-	fmt.Println("\nServices:")
+	ui.Blank()
+	ui.Header("Services")
 
 	processes := o.proc.List()
+
 	if len(processes) == 0 {
 		fmt.Println("  No services running")
 	} else {
+		services := []ui.Service{}
+
 		for _, p := range processes {
-			fmt.Printf("  %-30s ✓ running (PID %d)\n", p.Name, p.PID)
+			// Determine URL based on service name
+			url := o.getServiceURL(p.Name)
+			services = append(services, ui.Service{
+				Name:   p.Name,
+				URL:    url,
+				Status: "running",
+			})
 		}
+
+		ui.ServiceTable(services)
 	}
 
 	// Check for orphaned processes
 	conflicts := o.checkPortConflicts()
 	if len(conflicts) > 0 && len(processes) == 0 {
 		// Only show orphan warning if no managed processes are running
-		fmt.Println("\n⚠ Warning: Orphaned processes detected on lab ports")
+		ui.Blank()
+		ui.Warning("Orphaned processes detected on lab ports")
 		fmt.Println("These processes may be from a previous xcli session:")
 
 		for _, c := range conflicts {
@@ -645,6 +731,29 @@ func (o *Orchestrator) getServicePorts(service string) []int {
 	}
 
 	return nil
+}
+
+// getServiceURL returns the URL for a service based on its name.
+func (o *Orchestrator) getServiceURL(service string) string {
+	switch service {
+	case constants.ServiceLabFrontend:
+		return fmt.Sprintf("http://localhost:%d", o.cfg.Ports.LabFrontend)
+	case constants.ServiceLabBackend:
+		return fmt.Sprintf("http://localhost:%d", o.cfg.Ports.LabBackend)
+	default:
+		// Check if it's a CBT or CBT-API service
+		for _, network := range o.cfg.EnabledNetworks() {
+			if service == constants.ServiceNameCBT(network.Name) {
+				return fmt.Sprintf("http://localhost:%d", o.cfg.GetCBTFrontendPort(network.Name))
+			}
+
+			if service == constants.ServiceNameCBTAPI(network.Name) {
+				return fmt.Sprintf("http://localhost:%d", o.cfg.GetCBTAPIPort(network.Name))
+			}
+		}
+	}
+
+	return "-"
 }
 
 // sanitizeURL removes credentials from a URL for display purposes.

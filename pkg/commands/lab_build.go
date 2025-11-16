@@ -5,6 +5,7 @@ import (
 
 	"github.com/ethpandaops/xcli/pkg/builder"
 	"github.com/ethpandaops/xcli/pkg/config"
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -60,15 +61,16 @@ Examples:
 
 			buildMgr := builder.NewManager(log, result.Config.Lab)
 
-			fmt.Println("building all lab repositories")
+			ui.Header("Building all lab repositories")
+			ui.Blank()
 
 			if err := buildMgr.BuildAll(cmd.Context(), force); err != nil {
 				return fmt.Errorf("build failed: %w", err)
 			}
 
-			fmt.Println("\n✓ Build complete!")
-			fmt.Println("\nNote: cbt-api protos not generated (requires infrastructure).")
-			fmt.Println("Run 'xcli lab up' to start infrastructure and complete the build.")
+			ui.Success("Build complete!")
+			ui.Info("Note: cbt-api protos not generated (requires infrastructure).")
+			ui.Info("Run 'xcli lab up' to start infrastructure and complete the build.")
 
 			return nil
 		},

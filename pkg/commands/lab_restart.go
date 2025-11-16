@@ -5,6 +5,7 @@ import (
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -31,7 +32,17 @@ func NewLabRestartCommand(log logrus.FieldLogger, configPath string) *cobra.Comm
 				return fmt.Errorf("failed to create orchestrator: %w", err)
 			}
 
-			return orch.Restart(cmd.Context(), args[0])
+			service := args[0]
+
+			spinner := ui.NewSpinner(fmt.Sprintf("Restarting %s", service))
+
+			if err := orch.Restart(cmd.Context(), service); err != nil {
+				spinner.Fail(fmt.Sprintf("Failed to restart %s", service))
+				return fmt.Errorf("failed to restart service: %w", err)
+			}
+
+			spinner.Success(fmt.Sprintf("%s restarted successfully", service))
+			return nil
 		},
 	}
 }

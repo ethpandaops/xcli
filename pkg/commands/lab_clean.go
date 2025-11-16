@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -69,7 +70,7 @@ func runLabClean(ctx context.Context, log logrus.FieldLogger, configPath string,
 
 	// Confirm unless --force
 	if !force {
-		fmt.Println("⚠️  WARNING: This will remove all lab containers, volumes, and generated files!")
+		ui.Warning("WARNING: This will remove all lab containers, volumes, and generated files!")
 		fmt.Println("\nThis includes:")
 		fmt.Println("  • All Docker containers and volumes (data will be lost)")
 		fmt.Println("  • Generated configs in .xcli/ directory")
@@ -82,16 +83,16 @@ func runLabClean(ctx context.Context, log logrus.FieldLogger, configPath string,
 		_, _ = fmt.Scanln(&response)
 
 		if response != "y" && response != "Y" {
-			fmt.Println("Cancelled.")
+			ui.Info("Cancelled.")
 
 			return nil
 		}
 	}
 
-	fmt.Println("\nCleaning lab workspace...")
+	ui.Header("Cleaning lab workspace...")
 
 	// Step 1: Stop and remove containers/volumes
-	fmt.Println("\n[1/3] Stopping and removing Docker containers and volumes...")
+	ui.Header("[1/3] Stopping and removing Docker containers and volumes...")
 
 	orch, err := orchestrator.NewOrchestrator(log, result.Config.Lab, result.ConfigPath)
 	if err != nil {
@@ -99,28 +100,32 @@ func runLabClean(ctx context.Context, log logrus.FieldLogger, configPath string,
 	}
 
 	if err := orch.Down(ctx); err != nil {
-		fmt.Printf("⚠️  Warning: Failed to stop services: %v\n", err)
-		fmt.Println("Continuing with cleanup...")
+		ui.Warning(fmt.Sprintf("Failed to stop services: %v", err))
+		ui.Info("Continuing with cleanup...")
 	}
 
 	// Step 2: Remove .xcli state directory
-	fmt.Println("\n[2/3] Removing generated configuration files...")
+	ui.Header("[2/3] Removing generated configuration files...")
 
 	configDir := filepath.Dir(result.ConfigPath)
 	stateDir := filepath.Join(configDir, ".xcli")
 
+	spinner := ui.NewSpinner("Removing generated configuration files")
+
 	if _, err := os.Stat(stateDir); err == nil {
 		if err := os.RemoveAll(stateDir); err != nil {
-			fmt.Printf("⚠️  Warning: Failed to remove %s: %v\n", stateDir, err)
+			spinner.Warning(fmt.Sprintf("Failed to remove %s: %v", stateDir, err))
 		} else {
-			fmt.Printf("  ✓ Removed %s\n", stateDir)
+			spinner.Success("Generated files removed")
 		}
 	} else {
-		fmt.Println("  (no .xcli directory found)")
+		spinner.Success("No generated files found")
 	}
 
 	// Step 3: Remove build artifacts
-	fmt.Println("\n[3/3] Removing build artifacts...")
+	ui.Header("[3/3] Removing build artifacts...")
+
+	spinner = ui.NewSpinner("Removing build artifacts")
 
 	repos := map[string]string{
 		"cbt":         result.Config.Lab.Repos.CBT,
@@ -129,11 +134,11 @@ func runLabClean(ctx context.Context, log logrus.FieldLogger, configPath string,
 		"lab-backend": result.Config.Lab.Repos.LabBackend,
 	}
 
+	totalRemoved := 0
+
 	for name, path := range repos {
 		absPath, err := filepath.Abs(path)
 		if err != nil {
-			fmt.Printf("⚠️  Warning: Invalid path for %s: %v\n", name, err)
-
 			continue
 		}
 
@@ -147,16 +152,22 @@ func runLabClean(ctx context.Context, log logrus.FieldLogger, configPath string,
 		for _, artifact := range artifacts {
 			if _, err := os.Stat(artifact); err == nil {
 				if err := os.RemoveAll(artifact); err != nil {
-					fmt.Printf("⚠️  Warning: Failed to remove %s: %v\n", artifact, err)
+					spinner.Warning(fmt.Sprintf("Failed to remove %s: %v", artifact, err))
 				} else {
-					fmt.Printf("  ✓ Removed %s\n", artifact)
+					totalRemoved++
 				}
 			}
 		}
 	}
 
-	fmt.Println("\n✓ Lab workspace cleaned successfully!")
-	fmt.Println("\nNext steps:")
+	if totalRemoved > 0 {
+		spinner.Success(fmt.Sprintf("Removed %d build artifacts", totalRemoved))
+	} else {
+		spinner.Success("No build artifacts found")
+	}
+
+	ui.Success("Lab workspace cleaned successfully!")
+	ui.Header("Next steps:")
 	fmt.Println("  xcli lab build         # Rebuild all projects")
 	fmt.Println("  xcli lab up            # Build and start the stack")
 	fmt.Println("  xcli lab up --rebuild  # Force rebuild and start")
