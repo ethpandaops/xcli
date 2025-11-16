@@ -46,12 +46,9 @@ Services:
 ```bash
 xcli lab init                    # Initialize configuration
 xcli lab check                   # Verify environment (repos, Docker, config)
-xcli lab up                      # Start all services
-xcli lab up --rebuild            # Force rebuild before starting
-xcli lab up --no-build           # Skip build (fail if binaries missing)
+xcli lab up                      # Start all services (always rebuilds)
 xcli lab down                    # Stop and remove containers/volumes
 xcli lab clean                   # Remove all containers, volumes, and build artifacts
-xcli lab clean --force           # Skip confirmation prompt
 xcli lab status                  # Show service status
 ```
 
@@ -59,8 +56,7 @@ xcli lab status                  # Show service status
 
 ```bash
 # Build (CI/CD, pre-building without starting services)
-xcli lab build                   # Build all binaries (skips if exist)
-xcli lab build -f                # Force rebuild all
+xcli lab build                   # Build all binaries
 
 # Rebuild (development - rebuilds and auto-restarts services)
 xcli lab rebuild <target>        # Rebuild specific component + restart

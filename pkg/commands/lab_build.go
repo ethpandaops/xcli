@@ -12,8 +12,6 @@ import (
 
 // NewLabBuildCommand creates the lab build command.
 func NewLabBuildCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
-	var force bool
-
 	cmd := &cobra.Command{
 		Use:   "build",
 		Short: "Build all lab projects from source without starting services",
@@ -24,7 +22,7 @@ Purpose:
   It compiles all binaries but does NOT start any infrastructure or services.
 
 Use cases:
-  • Pre-building before 'xcli lab up --no-build' (faster startup)
+  • Pre-building before starting services
   • CI/CD build verification pipelines
   • Checking for compilation errors without running services
   • Creating clean builds from scratch
@@ -34,6 +32,8 @@ What gets built:
   Phase 2: CBT, lab-backend, lab-frontend (parallel)
   Phase 3: Proto generation + cbt-api (requires xatu-cbt protos)
 
+This command always rebuilds all projects to ensure everything is up to date.
+
 Note: This does NOT generate configs or start services. For active development
 with running services, use 'xcli lab rebuild' instead.
 
@@ -42,8 +42,7 @@ Key difference from 'rebuild':
   • rebuild = Build specific component + restart its services (development)
 
 Examples:
-  xcli lab build         # Build all projects (skip if binaries exist)
-  xcli lab build --force # Force complete rebuild from scratch`,
+  xcli lab build         # Build all projects`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := config.Load(configPath)
 			if err != nil {
@@ -64,7 +63,8 @@ Examples:
 			ui.Header("Building all lab repositories")
 			ui.Blank()
 
-			if err := buildMgr.BuildAll(cmd.Context(), force); err != nil {
+			// Always force rebuild
+			if err := buildMgr.BuildAll(cmd.Context(), true); err != nil {
 				return fmt.Errorf("build failed: %w", err)
 			}
 
@@ -75,8 +75,6 @@ Examples:
 			return nil
 		},
 	}
-
-	cmd.Flags().BoolVarP(&force, "force", "f", false, "Force rebuild even if binaries exist")
 
 	return cmd
 }

@@ -15,8 +15,6 @@ import (
 
 // NewLabCleanCommand creates the lab clean command.
 func NewLabCleanCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
-	var force bool
-
 	cmd := &cobra.Command{
 		Use:   "clean",
 		Short: "Remove all generated artifacts and containers",
@@ -46,19 +44,16 @@ Use cases:
   • Switching between major configuration changes
 
 Examples:
-  xcli lab clean         # Interactive confirmation
-  xcli lab clean --force # Skip confirmation prompt`,
+  xcli lab clean                   # Remove all containers, volumes, and build artifacts`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runLabClean(cmd.Context(), log, configPath, force)
+			return runLabClean(cmd.Context(), log, configPath)
 		},
 	}
-
-	cmd.Flags().BoolVarP(&force, "force", "f", false, "Skip confirmation prompt")
 
 	return cmd
 }
 
-func runLabClean(ctx context.Context, log logrus.FieldLogger, configPath string, force bool) error {
+func runLabClean(ctx context.Context, log logrus.FieldLogger, configPath string) error {
 	result, err := config.Load(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
@@ -68,25 +63,23 @@ func runLabClean(ctx context.Context, log logrus.FieldLogger, configPath string,
 		return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
 	}
 
-	// Confirm unless --force
-	if !force {
-		ui.Warning("WARNING: This will remove all lab containers, volumes, and generated files!")
-		fmt.Println("\nThis includes:")
-		fmt.Println("  • All Docker containers and volumes (data will be lost)")
-		fmt.Println("  • Generated configs in .xcli/ directory")
-		fmt.Println("  • Build artifacts (binaries)")
-		fmt.Println("  • Proto-generated files")
-		fmt.Print("\nContinue? (y/N): ")
+	// Always confirm before cleaning
+	ui.Warning("WARNING: This will remove all lab containers, volumes, and generated files!")
+	fmt.Println("\nThis includes:")
+	fmt.Println("  • All Docker containers and volumes (data will be lost)")
+	fmt.Println("  • Generated configs in .xcli/ directory")
+	fmt.Println("  • Build artifacts (binaries)")
+	fmt.Println("  • Proto-generated files")
+	fmt.Print("\nContinue? (y/N): ")
 
-		var response string
+	var response string
 
-		_, _ = fmt.Scanln(&response)
+	_, _ = fmt.Scanln(&response)
 
-		if response != "y" && response != "Y" {
-			ui.Info("Cancelled.")
+	if response != "y" && response != "Y" {
+		ui.Info("Cancelled.")
 
-			return nil
-		}
+		return nil
 	}
 
 	ui.Header("Cleaning lab workspace...")
