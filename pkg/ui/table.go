@@ -58,3 +58,23 @@ func ServiceTable(services []Service) {
 
 	Table(headers, rows)
 }
+
+// GitStatus represents a git repository status for display in a GitStatusTable.
+type GitStatus struct {
+	Repository string
+	Branch     string
+	Status     string
+}
+
+// GitStatusTable creates a formatted table for git repository status.
+// Displays repository name, current branch, and status (up to date or behind/ahead commits).
+func GitStatusTable(statuses []GitStatus) {
+	headers := []string{"Repository", "Branch", "Status"}
+	rows := [][]string{}
+
+	for _, status := range statuses {
+		rows = append(rows, []string{status.Repository, status.Branch, pterm.Yellow(status.Status)})
+	}
+
+	Table(headers, rows)
+}

@@ -42,28 +42,23 @@ Examples:
   xcli lab up --verbose    # Startup with detailed output`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Load config
-			result, err := config.Load(configPath)
+			labCfg, cfgPath, err := config.LoadLabConfig(configPath)
 			if err != nil {
-				return fmt.Errorf("failed to load config: %w", err)
-			}
-
-			// Check lab config exists
-			if result.Config.Lab == nil {
-				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
+				return err
 			}
 
 			// Override mode if specified
 			if mode != "" {
-				result.Config.Lab.Mode = mode
+				labCfg.Mode = mode
 			}
 
 			// Validate lab config
-			if validationErr := result.Config.Lab.Validate(); validationErr != nil {
+			if validationErr := labCfg.Validate(); validationErr != nil {
 				return fmt.Errorf("invalid lab configuration: %w", validationErr)
 			}
 
 			// Create orchestrator
-			orch, err := orchestrator.NewOrchestrator(log, result.Config.Lab, result.ConfigPath)
+			orch, err := orchestrator.NewOrchestrator(log, labCfg, cfgPath)
 			if err != nil {
 				return fmt.Errorf("failed to create orchestrator: %w", err)
 			}

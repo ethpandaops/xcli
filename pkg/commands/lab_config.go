@@ -40,7 +40,7 @@ Note: These commands are also available via:
 		},
 	})
 
-	// config validate subcommand - now uses shared helper
+	// config validate subcommand
 	cmd.AddCommand(&cobra.Command{
 		Use:   "validate",
 		Short: "Validate lab configuration",
@@ -71,17 +71,13 @@ Regenerates configurations for:
 Note: This does NOT restart services. Use 'xcli lab restart <service>' to apply
 the new configs.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := config.Load(configPath)
+			labCfg, cfgPath, err := config.LoadLabConfig(configPath)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			if result.Config.Lab == nil {
-				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
-			}
-
 			// Create orchestrator
-			orch, err := orchestrator.NewOrchestrator(log, result.Config.Lab, result.ConfigPath)
+			orch, err := orchestrator.NewOrchestrator(log, labCfg, cfgPath)
 			if err != nil {
 				return fmt.Errorf("failed to create orchestrator: %w", err)
 			}

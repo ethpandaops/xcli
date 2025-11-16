@@ -44,21 +44,17 @@ Key difference from 'rebuild':
 Examples:
   xcli lab build         # Build all projects`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := config.Load(configPath)
+			labCfg, _, err := config.LoadLabConfig(configPath)
 			if err != nil {
-				return fmt.Errorf("failed to load config: %w", err)
-			}
-
-			if result.Config.Lab == nil {
-				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
+				return err
 			}
 
 			// Only validate repo paths for build command - infrastructure config not needed
-			if err := result.Config.Lab.ValidateRepos(); err != nil {
+			if err := labCfg.ValidateRepos(); err != nil {
 				return fmt.Errorf("invalid lab configuration: %w", err)
 			}
 
-			buildMgr := builder.NewManager(log, result.Config.Lab)
+			buildMgr := builder.NewManager(log, labCfg)
 
 			ui.Header("Building all lab repositories")
 			ui.Blank()

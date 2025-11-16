@@ -54,13 +54,9 @@ func runLabCheck(ctx context.Context, log logrus.FieldLogger, configPath string)
 	// Check 1: Configuration file
 	spinner := ui.NewSpinner("Checking configuration file")
 
-	result, err := config.Load(configPath)
+	labCfg, _, err := config.LoadLabConfig(configPath)
 	if err != nil {
 		spinner.Fail(fmt.Sprintf("Configuration file error: %v", err))
-
-		allPassed = false
-	} else if result.Config.Lab == nil {
-		spinner.Fail("Lab configuration not found - Run: xcli lab init")
 
 		allPassed = false
 	} else {
@@ -68,10 +64,10 @@ func runLabCheck(ctx context.Context, log logrus.FieldLogger, configPath string)
 	}
 
 	// Check 2: Configuration validity
-	if result != nil && result.Config.Lab != nil {
+	if labCfg != nil {
 		spinner = ui.NewSpinner("Validating configuration")
 
-		if err := result.Config.Lab.Validate(); err != nil {
+		if err := labCfg.Validate(); err != nil {
 			spinner.Fail(fmt.Sprintf("Configuration validation failed: %v", err))
 
 			allPassed = false
@@ -84,11 +80,11 @@ func runLabCheck(ctx context.Context, log logrus.FieldLogger, configPath string)
 
 		repoCheckPassed := true
 		repos := map[string]string{
-			"cbt":         result.Config.Lab.Repos.CBT,
-			"xatu-cbt":    result.Config.Lab.Repos.XatuCBT,
-			"cbt-api":     result.Config.Lab.Repos.CBTAPI,
-			"lab-backend": result.Config.Lab.Repos.LabBackend,
-			"lab":         result.Config.Lab.Repos.Lab,
+			"cbt":         labCfg.Repos.CBT,
+			"xatu-cbt":    labCfg.Repos.XatuCBT,
+			"cbt-api":     labCfg.Repos.CBTAPI,
+			"lab-backend": labCfg.Repos.LabBackend,
+			"lab":         labCfg.Repos.Lab,
 		}
 
 		missingRepos := []string{}
@@ -128,7 +124,7 @@ func runLabCheck(ctx context.Context, log logrus.FieldLogger, configPath string)
 		prereqIssues := []string{}
 
 		// Check lab-frontend node_modules
-		labPath, _ := filepath.Abs(result.Config.Lab.Repos.Lab)
+		labPath, _ := filepath.Abs(labCfg.Repos.Lab)
 		labNodeModules := filepath.Join(labPath, "node_modules")
 
 		if _, err := os.Stat(labNodeModules); os.IsNotExist(err) {
@@ -137,7 +133,7 @@ func runLabCheck(ctx context.Context, log logrus.FieldLogger, configPath string)
 		}
 
 		// Check lab-backend .env
-		labBackendPath, _ := filepath.Abs(result.Config.Lab.Repos.LabBackend)
+		labBackendPath, _ := filepath.Abs(labCfg.Repos.LabBackend)
 		labBackendEnv := filepath.Join(labBackendPath, ".env")
 
 		if _, err := os.Stat(labBackendEnv); os.IsNotExist(err) {
