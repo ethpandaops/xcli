@@ -21,23 +21,6 @@ func Table(headers []string, rows [][]string) {
 	_ = pterm.DefaultTable.WithHasHeader().WithData(data).Render()
 }
 
-// KeyValueTable creates a two-column table for key-value pairs.
-// If a title is provided, it will be displayed as a header before the table.
-// The keys and values from the map are displayed in "Key" and "Value" columns.
-// Note: Map iteration order is not guaranteed, so the rows may appear in any order.
-func KeyValueTable(title string, data map[string]string) {
-	rows := [][]string{}
-	for k, v := range data {
-		rows = append(rows, []string{k, v})
-	}
-
-	if title != "" {
-		Header(title)
-	}
-
-	Table([]string{"Key", "Value"}, rows)
-}
-
 // ServiceTable creates a formatted table for services with color-coded status.
 // Services with "running" status are displayed in green, all others in red.
 // The table displays three columns: Service name, URL, and Status.

@@ -6,6 +6,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Compile-time interface check.
+var _ Checker = (*checker)(nil)
+
 // PrerequisiteType represents the type of prerequisite.
 type PrerequisiteType string
 
@@ -54,9 +57,6 @@ type Checker interface {
 	// CheckAndRun checks and runs prerequisites if needed.
 	CheckAndRun(ctx context.Context, repoPath string, repoName string) error
 }
-
-// Compile-time interface check.
-var _ Checker = (*checker)(nil)
 
 // checker implements the Checker interface.
 type checker struct {

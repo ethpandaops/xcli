@@ -8,8 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ethpandaops/xcli/pkg/constants"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ethpandaops/xcli/pkg/constants"
 )
 
 // Config represents the xcli root configuration
@@ -167,110 +168,6 @@ func DefaultLab() *LabConfig {
 	}
 }
 
-// FindConfig searches for a config file using multiple strategies:
-// 1. Search upward from current directory to filesystem root
-// 2. Search immediate child directories
-// 3. Check global config for registered project paths
-// Returns the absolute path to the config file, or the provided fallback path if not found.
-func FindConfig(fallback string) string {
-	const configFileName = ".xcli.yaml"
-
-	// Start from current working directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fallback
-	}
-
-	// Strategy 1: Search upward
-	if path := searchUpward(cwd, configFileName); path != "" {
-		return path
-	}
-
-	// Strategy 2: Search immediate child directories
-	if path := searchChildren(cwd, configFileName); path != "" {
-		return path
-	}
-
-	// Strategy 3: Check global config
-	if path := searchGlobalConfig(); path != "" {
-		return path
-	}
-
-	return fallback
-}
-
-// searchUpward walks up the directory tree looking for the config file.
-func searchUpward(startDir, configFileName string) string {
-	currentDir := startDir
-
-	for {
-		configPath := filepath.Join(currentDir, configFileName)
-
-		// Check if config exists in current directory
-		if _, err := os.Stat(configPath); err == nil {
-			// Found it - return absolute path
-			absPath, err := filepath.Abs(configPath)
-			if err != nil {
-				return configPath // Return non-absolute if Abs fails
-			}
-
-			return absPath
-		}
-
-		// Move to parent directory
-		parentDir := filepath.Dir(currentDir)
-
-		// Check if we've reached the root
-		if parentDir == currentDir {
-			return "" // Not found
-		}
-
-		currentDir = parentDir
-	}
-}
-
-// searchChildren looks for config file in immediate child directories.
-func searchChildren(parentDir, configFileName string) string {
-	entries, err := os.ReadDir(parentDir)
-	if err != nil {
-		return ""
-	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		configPath := filepath.Join(parentDir, entry.Name(), configFileName)
-		if _, err := os.Stat(configPath); err == nil {
-			// Found it - return absolute path
-			absPath, err := filepath.Abs(configPath)
-			if err != nil {
-				return configPath
-			}
-
-			return absPath
-		}
-	}
-
-	return ""
-}
-
-// searchGlobalConfig checks the global config file for the xcli installation path.
-func searchGlobalConfig() string {
-	globalCfg, err := LoadGlobalConfig()
-	if err != nil || globalCfg.XCLIPath == "" {
-		return ""
-	}
-
-	configPath := filepath.Join(globalCfg.XCLIPath, ".xcli.yaml")
-	if _, err := os.Stat(configPath); err == nil {
-		return configPath
-	}
-
-	return ""
-}
-
 // LoadResult contains the loaded config and the resolved config file path.
 type LoadResult struct {
 	Config     *Config
@@ -339,28 +236,6 @@ func Load(path string) (*LoadResult, error) {
 		Config:     &cfg,
 		ConfigPath: absPath,
 	}, nil
-}
-
-// setDefaults applies default values to unset fields.
-func (c *Config) setDefaults() {
-	if c.Lab == nil {
-		c.Lab = DefaultLab()
-
-		return
-	}
-
-	// Infrastructure defaults
-	if c.Lab.Infrastructure.ClickHouseXatuPort == 0 {
-		c.Lab.Infrastructure.ClickHouseXatuPort = 8123
-	}
-
-	if c.Lab.Infrastructure.ClickHouseCBTPort == 0 {
-		c.Lab.Infrastructure.ClickHouseCBTPort = 8124
-	}
-
-	if c.Lab.Infrastructure.RedisPort == 0 {
-		c.Lab.Infrastructure.RedisPort = 6380
-	}
 }
 
 // LoadLabConfig loads and validates lab configuration from the config file.
@@ -536,4 +411,130 @@ func (c *LabConfig) GetCBTFrontendPort(network string) int {
 	}
 
 	return 0
+}
+
+// FindConfig searches for a config file using multiple strategies:
+// 1. Search upward from current directory to filesystem root
+// 2. Search immediate child directories
+// 3. Check global config for registered project paths
+// Returns the absolute path to the config file, or the provided fallback path if not found.
+func FindConfig(fallback string) string {
+	const configFileName = ".xcli.yaml"
+
+	// Start from current working directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fallback
+	}
+
+	// Strategy 1: Search upward
+	if path := searchUpward(cwd, configFileName); path != "" {
+		return path
+	}
+
+	// Strategy 2: Search immediate child directories
+	if path := searchChildren(cwd, configFileName); path != "" {
+		return path
+	}
+
+	// Strategy 3: Check global config
+	if path := searchGlobalConfig(); path != "" {
+		return path
+	}
+
+	return fallback
+}
+
+// searchUpward walks up the directory tree looking for the config file.
+func searchUpward(startDir, configFileName string) string {
+	currentDir := startDir
+
+	for {
+		configPath := filepath.Join(currentDir, configFileName)
+
+		// Check if config exists in current directory
+		if _, err := os.Stat(configPath); err == nil {
+			// Found it - return absolute path
+			absPath, err := filepath.Abs(configPath)
+			if err != nil {
+				return configPath // Return non-absolute if Abs fails
+			}
+
+			return absPath
+		}
+
+		// Move to parent directory
+		parentDir := filepath.Dir(currentDir)
+
+		// Check if we've reached the root
+		if parentDir == currentDir {
+			return "" // Not found
+		}
+
+		currentDir = parentDir
+	}
+}
+
+// searchChildren looks for config file in immediate child directories.
+func searchChildren(parentDir, configFileName string) string {
+	entries, err := os.ReadDir(parentDir)
+	if err != nil {
+		return ""
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		configPath := filepath.Join(parentDir, entry.Name(), configFileName)
+		if _, err := os.Stat(configPath); err == nil {
+			// Found it - return absolute path
+			absPath, err := filepath.Abs(configPath)
+			if err != nil {
+				return configPath
+			}
+
+			return absPath
+		}
+	}
+
+	return ""
+}
+
+// searchGlobalConfig checks the global config file for the xcli installation path.
+func searchGlobalConfig() string {
+	globalCfg, err := LoadGlobalConfig()
+	if err != nil || globalCfg.XCLIPath == "" {
+		return ""
+	}
+
+	configPath := filepath.Join(globalCfg.XCLIPath, ".xcli.yaml")
+	if _, err := os.Stat(configPath); err == nil {
+		return configPath
+	}
+
+	return ""
+}
+
+// setDefaults applies default values to unset fields.
+func (c *Config) setDefaults() {
+	if c.Lab == nil {
+		c.Lab = DefaultLab()
+
+		return
+	}
+
+	// Infrastructure defaults
+	if c.Lab.Infrastructure.ClickHouseXatuPort == 0 {
+		c.Lab.Infrastructure.ClickHouseXatuPort = 8123
+	}
+
+	if c.Lab.Infrastructure.ClickHouseCBTPort == 0 {
+		c.Lab.Infrastructure.ClickHouseCBTPort = 8124
+	}
+
+	if c.Lab.Infrastructure.RedisPort == 0 {
+		c.Lab.Infrastructure.RedisPort = 6380
+	}
 }
