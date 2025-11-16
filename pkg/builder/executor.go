@@ -44,7 +44,7 @@ func (e *Executor) Execute(ctx context.Context) error {
 	var wg sync.WaitGroup
 
 	errChan := make(chan error, len(e.graph.nodes))
-	started := make(map[string]bool) // Track which nodes have been started
+	started := make(map[string]bool, len(e.graph.nodes)) // Track which nodes have been started
 
 	var startMu sync.Mutex
 

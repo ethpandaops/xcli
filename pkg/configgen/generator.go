@@ -1,3 +1,5 @@
+// Package configgen generates service configuration files from templates
+// for CBT engines, APIs, and other lab services.
 package configgen
 
 import (
@@ -18,6 +20,13 @@ import (
 //go:embed templates/*
 var templatesFS embed.FS
 
+const (
+	// cbtMetricsPortBase is the base port for CBT engine metrics endpoints.
+	cbtMetricsPortBase = 9100
+	// cbtAPIMetricsPortBase is the base port for CBT API metrics endpoints.
+	cbtAPIMetricsPortBase = 9200
+)
+
 // Generator generates service configuration files.
 type Generator struct {
 	log       logrus.FieldLogger
@@ -36,13 +45,12 @@ func NewGenerator(log logrus.FieldLogger, cfg *config.LabConfig, overrides *conf
 
 // GenerateCBTConfig generates CBT configuration for a network.
 func (g *Generator) GenerateCBTConfig(network string, overridesPath string) (string, error) {
-	// Assign metrics ports: 9100, 9101, 9102, etc. (leave room for other services)
-	metricsPort := 9100
+	metricsPort := cbtMetricsPortBase
 	redisDB := 0
 
 	for i, net := range g.cfg.EnabledNetworks() {
 		if net.Name == network {
-			metricsPort = 9100 + i
+			metricsPort = cbtMetricsPortBase + i
 			redisDB = i // mainnet=0, sepolia=1, holesky=2, etc.
 
 			break
@@ -90,13 +98,11 @@ func (g *Generator) GenerateCBTConfig(network string, overridesPath string) (str
 // GenerateCBTAPIConfig generates cbt-api configuration for a network.
 func (g *Generator) GenerateCBTAPIConfig(network string) (string, error) {
 	port := g.cfg.GetCBTAPIPort(network)
-
-	// Assign metrics ports: 9200, 9201, 9202, etc. (separate range from CBT engines)
-	metricsPort := 9200
+	metricsPort := cbtAPIMetricsPortBase
 
 	for i, net := range g.cfg.EnabledNetworks() {
 		if net.Name == network {
-			metricsPort = 9200 + i
+			metricsPort = cbtAPIMetricsPortBase + i
 
 			break
 		}

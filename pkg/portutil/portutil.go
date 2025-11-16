@@ -1,3 +1,5 @@
+// Package portutil provides utilities for port conflict detection
+// and process identification on macOS and Linux systems.
 package portutil
 
 import (
@@ -7,7 +9,8 @@ import (
 	"strings"
 )
 
-// PortConflict represents a port that's already in use.
+// PortConflict represents a port conflict with details about
+// the process currently using the port.
 type PortConflict struct {
 	Port    int
 	Service string

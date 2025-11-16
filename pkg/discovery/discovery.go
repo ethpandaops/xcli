@@ -1,3 +1,5 @@
+// Package discovery handles repository discovery and cloning
+// for the lab stack components.
 package discovery
 
 import (

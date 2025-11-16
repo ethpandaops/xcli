@@ -1,3 +1,5 @@
+// Package ui provides terminal user interface components including
+// spinners, status messages, tables, and formatted output.
 package ui
 
 import (

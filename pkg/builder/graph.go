@@ -64,8 +64,8 @@ type BuildGraph struct {
 // NewBuildGraph creates a new empty build graph.
 func NewBuildGraph() *BuildGraph {
 	return &BuildGraph{
-		nodes:      make(map[string]*BuildNode),
-		dependents: make(map[string][]*BuildNode),
+		nodes:      make(map[string]*BuildNode, 5), // Typical: 3-5 build targets
+		dependents: make(map[string][]*BuildNode, 5),
 	}
 }
 

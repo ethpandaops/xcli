@@ -1,3 +1,5 @@
+// Package infrastructure manages Docker-based infrastructure services (ClickHouse, Redis)
+// via xatu-cbt, including health checks, migrations, and mode-specific configuration.
 package infrastructure
 
 import (
@@ -16,6 +18,7 @@ import (
 	_ "github.com/ClickHouse/clickhouse-go/v2" // clickhouse database driver
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
+	executil "github.com/ethpandaops/xcli/pkg/exec"
 	"github.com/ethpandaops/xcli/pkg/mode"
 	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/golang-migrate/migrate/v4"
@@ -23,6 +26,11 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"         // migrate file source driver
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	// infrastructureReadyTimeout is the maximum time to wait for infrastructure to become ready.
+	infrastructureReadyTimeout = 120 * time.Second
 )
 
 // Manager handles infrastructure via xatu-cbt.
@@ -51,35 +59,6 @@ func NewManager(log logrus.FieldLogger, cfg *config.LabConfig, m mode.Mode) *Man
 // SetVerbose sets verbose mode for infrastructure commands.
 func (m *Manager) SetVerbose(verbose bool) {
 	m.verbose = verbose
-}
-
-// runCmd runs a command with appropriate output handling.
-func (m *Manager) runCmd(cmd *exec.Cmd) error {
-	if m.verbose {
-		// Verbose mode: show all output in real-time
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
-		return cmd.Run()
-	}
-
-	// Quiet mode: capture output, only show if command fails
-	var output bytes.Buffer
-
-	cmd.Stdout = &output
-	cmd.Stderr = &output
-
-	if err := cmd.Run(); err != nil {
-		// Command failed - show captured output
-		if output.Len() > 0 {
-			os.Stderr.Write(output.Bytes())
-		}
-
-		return err
-	}
-
-	// Command succeeded - no output
-	return nil
 }
 
 // Start starts infrastructure via xatu-cbt.
@@ -122,7 +101,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, m.xatuCBTPath, args...)
 	cmd.Dir = m.cfg.Repos.XatuCBT
 
-	if err := m.runCmd(cmd); err != nil {
+	if err := executil.RunCmd(cmd, m.verbose); err != nil {
 		spinner.Fail("Failed to start infrastructure services")
 
 		return fmt.Errorf("failed to start infrastructure: %w", err)
@@ -131,7 +110,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	// Wait for services to be ready
 	spinner.UpdateText("Waiting for services to be healthy")
 
-	if err := m.WaitForReady(ctx, 120*time.Second, spinner); err != nil {
+	if err := m.WaitForReady(ctx, infrastructureReadyTimeout, spinner); err != nil {
 		spinner.Fail("Infrastructure failed to become ready")
 
 		return fmt.Errorf("infrastructure did not become ready: %w", err)
@@ -161,7 +140,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, m.xatuCBTPath, "infra", "stop")
 	cmd.Dir = m.cfg.Repos.XatuCBT
 
-	if err := m.runCmd(cmd); err != nil {
+	if err := executil.RunCmd(cmd, m.verbose); err != nil {
 		return fmt.Errorf("failed to stop infrastructure: %w", err)
 	}
 
@@ -184,7 +163,7 @@ func (m *Manager) Reset(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, m.xatuCBTPath, "infra", "reset")
 	cmd.Dir = m.cfg.Repos.XatuCBT
 
-	if err := m.runCmd(cmd); err != nil {
+	if err := executil.RunCmd(cmd, m.verbose); err != nil {
 		return fmt.Errorf("failed to reset infrastructure: %w", err)
 	}
 
@@ -204,7 +183,7 @@ func (m *Manager) SetupNetwork(ctx context.Context, network string) error {
 
 	cmd.Env = append(os.Environ(), fmt.Sprintf("NETWORK=%s", network))
 
-	if err := m.runCmd(cmd); err != nil {
+	if err := executil.RunCmd(cmd, m.verbose); err != nil {
 		return fmt.Errorf("failed to setup network %s: %w", network, err)
 	}
 

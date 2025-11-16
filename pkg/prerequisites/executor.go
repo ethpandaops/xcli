@@ -1,3 +1,5 @@
+// Package prerequisites manages repository setup requirements including
+// file copying, directory checks, and command execution.
 package prerequisites
 
 import (
