@@ -1,6 +1,6 @@
 # xcli
 
-Local development orchestration tool for ethPandaOps projects. 
+Local development orchestration tool for ethPandaOps projects.
 
 ## Prerequisites
 
@@ -31,6 +31,7 @@ make install    # Install globally (optional)
 xcli lab init     # Initialize config (creates .xcli.yaml)
 xcli lab check    # Verify environment is ready
 xcli lab up       # Start the stack
+xcli lab tui      # Launch interactive dashboard
 xcli lab status   # Check status
 ```
 
@@ -38,6 +39,32 @@ Services:
 - Lab Frontend: http://localhost:5173
 - Lab Backend: http://localhost:8080
 - cbt-api: http://localhost:8091 (mainnet)
+
+## Interactive Dashboard
+
+Launch a real-time TUI dashboard to monitor and control all services:
+
+```bash
+xcli lab tui
+```
+
+Features:
+- Real-time service status with health indicators
+- Live log streaming from all services
+- Interactive controls (start/stop/restart with single key)
+- Infrastructure monitoring
+- Vim-style keyboard navigation
+
+Keyboard shortcuts:
+- `↑/↓` or `j/k`: Navigate services
+- `s`: Start service
+- `t`: Stop service
+- `r`: Restart service
+- `Tab`: Switch panels
+- `PgUp/PgDown`: Scroll logs
+- `q`: Quit
+
+**Note**: Requires interactive terminal. For non-interactive use (CI/scripts), use `xcli lab status` instead.
 
 ## Commands
 
