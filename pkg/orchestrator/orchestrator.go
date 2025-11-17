@@ -108,6 +108,26 @@ func (o *Orchestrator) Config() *config.LabConfig {
 	return o.cfg
 }
 
+// ProcessManager returns the process manager for external access.
+func (o *Orchestrator) ProcessManager() *process.Manager {
+	return o.proc
+}
+
+// InfrastructureManager returns the infrastructure manager.
+func (o *Orchestrator) InfrastructureManager() *infrastructure.Manager {
+	return o.infra
+}
+
+// GetServiceURL returns the URL for a service (make existing method public).
+func (o *Orchestrator) GetServiceURL(service string) string {
+	return o.getServiceURL(service)
+}
+
+// GetServicePorts returns ports used by a service (make existing method public).
+func (o *Orchestrator) GetServicePorts(service string) []int {
+	return o.getServicePorts(service)
+}
+
 // Up starts the complete stack.
 func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) error {
 	// Display startup banner
