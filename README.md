@@ -1,6 +1,6 @@
 # xcli
 
-Local development orchestration tool for ethPandaOps projects. 
+Local development orchestration tool for ethPandaOps projects.
 
 ## Prerequisites
 
@@ -31,7 +31,7 @@ make install    # Install globally (optional)
 xcli lab init     # Initialize config (creates .xcli.yaml)
 xcli lab check    # Verify environment is ready
 xcli lab up       # Start the stack
-xcli lab tui      # Launch interactive dashboard (NEW!)
+xcli lab tui      # Launch interactive dashboard
 xcli lab status   # Check status
 ```
 
