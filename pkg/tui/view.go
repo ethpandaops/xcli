@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// View renders the TUI
+// View renders the TUI.
 func (m Model) View() string {
 	if m.width == 0 {
 		return "Initializing..."
@@ -105,6 +105,7 @@ func (m Model) renderLogsPanel() string {
 		if m.followMode {
 			header += " [LIVE]"
 		}
+
 		rows = append(rows, header)
 		rows = append(rows, strings.Repeat("─", 100))
 
@@ -126,10 +127,12 @@ func (m Model) renderLogsPanel() string {
 			} else {
 				start = 0
 			}
+
 			end = len(logs)
 		} else {
 			// Manual scroll mode - use logScroll offset
 			start = m.logScroll
+
 			end = start + logPanelHeight - 2
 			if end > len(logs) {
 				end = len(logs)
@@ -148,18 +151,22 @@ func (m Model) renderLogsPanel() string {
 					// Truncate and add ellipsis
 					truncated := ""
 					currentLen := 0
+
 					for _, r := range formatted {
 						truncated += string(r)
 						// Only count non-ANSI characters
 						if r != '\x1b' {
 							currentLen++
 						}
+
 						if currentLen >= maxWidth-3 {
 							break
 						}
 					}
+
 					formatted = truncated + "..."
 				}
+
 				rows = append(rows, formatted)
 			}
 		}
@@ -171,11 +178,13 @@ func (m Model) renderLogsPanel() string {
 	if logPanelHeight < 10 {
 		logPanelHeight = 10
 	}
+
 	return StylePanel.Width(m.width - 4).Height(logPanelHeight).Render(content)
 }
 
 func (m Model) renderHelp() string {
 	help := "[↑/↓] Navigate  [s] Start  [t] Stop  [r] Restart  [u/d] Scroll  [g] Jump to Latest  [q] Quit"
+
 	return StyleHelp.Render(help)
 }
 
@@ -190,6 +199,7 @@ func (m Model) renderStatusBar() string {
 	for i, net := range networks {
 		networkNames[i] = net.Name
 	}
+
 	networksStr := strings.Join(networkNames, ", ")
 	if networksStr == "" {
 		networksStr = "none"
@@ -197,6 +207,7 @@ func (m Model) renderStatusBar() string {
 
 	status := fmt.Sprintf("Mode: %s | Networks: %s | Updated: %s",
 		mode, networksStr, lastUpdate)
+
 	return StyleStatusBar.Render(status)
 }
 
@@ -204,12 +215,15 @@ func formatDuration(d time.Duration) string {
 	if d == 0 {
 		return "-"
 	}
+
 	if d < time.Minute {
 		return fmt.Sprintf("%ds", int(d.Seconds()))
 	}
+
 	if d < time.Hour {
 		return fmt.Sprintf("%dm", int(d.Minutes()))
 	}
+
 	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
 }
 

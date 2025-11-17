@@ -51,6 +51,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle service events
 		event := Event(msg)
 		m.handleEvent(event)
+
 		return m, waitForEvent(m.eventBus.Subscribe())
 
 	case logMsg:
@@ -71,6 +72,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case healthMsg:
 		m.health = msg
+
 		return m, nil
 	}
 
@@ -81,6 +83,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c":
 		m.cleanup()
+
 		return m, tea.Quit
 
 	case "up", "k":

@@ -65,7 +65,12 @@ func (ls *LogStreamer) Start(serviceName, logFile string) error {
 }
 
 func (ls *LogStreamer) streamLogs(ctx context.Context, serviceName string, stdout any) {
-	scanner := bufio.NewScanner(stdout.(interface{ Read([]byte) (int, error) }))
+	reader, ok := stdout.(interface{ Read([]byte) (int, error) })
+	if !ok {
+		return
+	}
+
+	scanner := bufio.NewScanner(reader)
 	// Increase buffer size for long log lines
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1024*1024)

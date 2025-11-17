@@ -7,17 +7,17 @@ import (
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
 )
 
-// OrchestratorWrapper wraps the orchestrator for TUI access
+// OrchestratorWrapper wraps the orchestrator for TUI access.
 type OrchestratorWrapper struct {
 	orch *orchestrator.Orchestrator
 }
 
-// NewOrchestratorWrapper creates a wrapper
+// NewOrchestratorWrapper creates a wrapper.
 func NewOrchestratorWrapper(orch *orchestrator.Orchestrator) *OrchestratorWrapper {
 	return &OrchestratorWrapper{orch: orch}
 }
 
-// ServiceInfo contains service status information
+// ServiceInfo contains service status information.
 type ServiceInfo struct {
 	Name    string
 	Status  string // "running", "stopped", "crashed"
@@ -29,14 +29,14 @@ type ServiceInfo struct {
 	LogFile string
 }
 
-// InfraInfo contains infrastructure status
+// InfraInfo contains infrastructure status.
 type InfraInfo struct {
 	Name   string
 	Status string // "running", "stopped"
 	Type   string // "clickhouse", "redis"
 }
 
-// GetServices returns current service statuses
+// GetServices returns current service statuses.
 func (w *OrchestratorWrapper) GetServices() []ServiceInfo {
 	validServices := w.orch.GetValidServices()
 	processes := w.orch.ProcessManager().List()
@@ -70,7 +70,7 @@ func (w *OrchestratorWrapper) GetServices() []ServiceInfo {
 	return services
 }
 
-// GetInfrastructure returns infrastructure statuses
+// GetInfrastructure returns infrastructure statuses.
 func (w *OrchestratorWrapper) GetInfrastructure() []InfraInfo {
 	infraMgr := w.orch.InfrastructureManager()
 	statuses := infraMgr.Status()
@@ -100,12 +100,12 @@ func (w *OrchestratorWrapper) GetInfrastructure() []InfraInfo {
 	return infra
 }
 
-// StartService starts a service
+// StartService starts a service.
 func (w *OrchestratorWrapper) StartService(ctx context.Context, name string) error {
 	return w.orch.StartService(ctx, name)
 }
 
-// StopService stops a service
+// StopService stops a service.
 func (w *OrchestratorWrapper) StopService(ctx context.Context, name string) error {
 	return w.orch.StopService(ctx, name)
 }

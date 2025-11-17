@@ -62,20 +62,20 @@ func (m Model) Init() tea.Cmd {
 	)
 }
 
-// Messages for Bubbletea
+// Messages for Bubbletea.
 type tickMsg time.Time
 type eventMsg Event
 type logMsg LogLine
 type healthMsg map[string]HealthStatus
 
-// tick returns a command that waits for next tick
+// tick returns a command that waits for next tick.
 func tick() tea.Cmd {
 	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
 }
 
-// waitForEvent returns a command that waits for next event
+// waitForEvent returns a command that waits for next event.
 func waitForEvent(ch chan Event) tea.Cmd {
 	return func() tea.Msg {
 		return eventMsg(<-ch)
