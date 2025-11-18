@@ -21,9 +21,13 @@ func (m Model) View() string {
 	title := StyleTitle.Render("xcli Lab Stack Dashboard")
 	sections = append(sections, title)
 
-	// Services panel (full width, no infrastructure panel)
+	// Services panel and right side panel (activity + actions) side by side
 	servicesPanel := m.renderServicesPanel()
-	sections = append(sections, servicesPanel)
+	rightPanel := m.renderRightPanel()
+
+	// Join services and right panel horizontally
+	topRow := lipgloss.JoinHorizontal(lipgloss.Top, servicesPanel, rightPanel)
+	sections = append(sections, topRow)
 
 	// Logs panel
 	logsPanel := m.renderLogsPanel()
@@ -37,7 +41,24 @@ func (m Model) View() string {
 	status := m.renderStatusBar()
 	sections = append(sections, status)
 
-	return lipgloss.JoinVertical(lipgloss.Left, sections...)
+	mainView := lipgloss.JoinVertical(lipgloss.Left, sections...)
+
+	// Overlay menu if visible
+	if m.showMenu && m.selectedIndex < len(m.services) {
+		serviceName := m.services[m.selectedIndex].Name
+		menuContent := RenderMenu(serviceName, m.menuActions)
+
+		// Place menu centered on screen
+		return lipgloss.Place(
+			m.width,
+			m.height,
+			lipgloss.Center,
+			lipgloss.Center,
+			menuContent,
+		)
+	}
+
+	return mainView
 }
 
 func (m Model) renderServicesPanel() string {
@@ -78,7 +99,7 @@ func (m Model) renderServicesPanel() string {
 			serviceName, statusStr, uptimeStr, healthStr)
 
 		// Highlight selected
-		if i == m.selectedIndex && m.activePanel == "services" {
+		if i == m.selectedIndex && m.activePanel == panelServices {
 			row = StyleSelected.Render(row)
 		}
 
@@ -91,8 +112,102 @@ func (m Model) renderServicesPanel() string {
 	if panelHeight > 12 {
 		panelHeight = 12 // Cap at 12 lines
 	}
-	// Full width now (no infrastructure panel)
-	return StylePanel.Width(m.width - 4).Height(panelHeight).Render(content)
+
+	// Services panel takes 2/3 of width
+	panelWidth := (m.width * 2 / 3) - 2
+
+	return StylePanel.Width(panelWidth).Height(panelHeight).Render(content)
+}
+
+func (m Model) renderRightPanel() string {
+	// Right panel takes 1/3 of width
+	panelWidth := (m.width / 3) - 2
+
+	// Calculate height to match services panel
+	panelHeight := len(m.services) + 4
+	if panelHeight > 12 {
+		panelHeight = 12
+	}
+
+	var rows []string
+
+	// Activity section
+	if m.activity != "" {
+		elapsed := time.Since(m.activityStart).Round(time.Second)
+
+		// Spinner frames
+		spinnerFrames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+		frameIndex := int(elapsed.Seconds()) % len(spinnerFrames)
+		spinner := spinnerFrames[frameIndex]
+
+		titleStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(ColorYellow)
+
+		spinnerStyle := lipgloss.NewStyle().
+			Foreground(ColorYellow)
+
+		elapsedStyle := lipgloss.NewStyle().
+			Foreground(ColorGray)
+
+		rows = append(rows, titleStyle.Render("ACTIVITY"))
+		rows = append(rows, strings.Repeat("─", 24))
+		rows = append(rows, spinnerStyle.Render(spinner)+" "+m.activity)
+		rows = append(rows, elapsedStyle.Render(fmt.Sprintf("Elapsed: %s", elapsed)))
+	} else {
+		titleStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(ColorGray)
+
+		rows = append(rows, titleStyle.Render("ACTIVITY"))
+		rows = append(rows, strings.Repeat("─", 24))
+		rows = append(rows, lipgloss.NewStyle().Foreground(ColorGray).Render("Idle"))
+	}
+
+	// Spacer
+	rows = append(rows, "")
+
+	// Actions section
+	actionsTitleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorCyan)
+
+	rows = append(rows, actionsTitleStyle.Render("ACTIONS"))
+	rows = append(rows, strings.Repeat("─", 24))
+
+	// Rebuild All button
+	var buttonStyle lipgloss.Style
+
+	if m.activePanel == panelActions {
+		// Selected/focused state
+		buttonStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("0")).
+			Background(ColorCyan).
+			Padding(0, 1)
+	} else {
+		// Normal state
+		buttonStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("15")).
+			Background(lipgloss.Color("238")).
+			Padding(0, 1)
+	}
+
+	keyStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorGreen)
+
+	if m.activePanel == panelActions {
+		keyStyle = keyStyle.Foreground(lipgloss.Color("0"))
+	}
+
+	button := buttonStyle.Render(keyStyle.Render("R") + " Rebuild All")
+	rows = append(rows, button)
+
+	content := strings.Join(rows, "\n")
+
+	return StylePanel.Width(panelWidth).Height(panelHeight).Render(content)
 }
 
 func (m Model) renderLogsPanel() string {
@@ -183,7 +298,7 @@ func (m Model) renderLogsPanel() string {
 }
 
 func (m Model) renderHelp() string {
-	help := "[↑/↓] Navigate  [s] Start  [t] Stop  [r] Restart  [u/d] Scroll  [g] Jump to Latest  [q] Quit"
+	help := "[↑/↓] Navigate  [Tab] Switch Panel  [Enter] Select  [r] Rebuild  [u/d] Scroll  [q] Quit"
 
 	return StyleHelp.Render(help)
 }
@@ -228,18 +343,20 @@ func formatDuration(d time.Duration) string {
 }
 
 func formatLogLine(line LogLine) string {
-	timestamp := line.Timestamp.Format("15:04:05")
-	level := line.Level
+	// Color the level indicator
+	var levelIndicator string
 
-	// Color by level
-	switch level {
+	switch line.Level {
 	case "ERROR", "ERRO":
-		level = StyleError.Render(level)
-	case "WARN":
-		level = lipgloss.NewStyle().Foreground(ColorYellow).Render(level)
-	case "INFO":
-		level = lipgloss.NewStyle().Foreground(ColorBlue).Render(level)
+		levelIndicator = StyleError.Render("E")
+	case "WARN", "WARNING":
+		levelIndicator = lipgloss.NewStyle().Foreground(ColorYellow).Render("W")
+	case "DEBUG":
+		levelIndicator = lipgloss.NewStyle().Foreground(ColorGray).Render("D")
+	default:
+		levelIndicator = lipgloss.NewStyle().Foreground(ColorBlue).Render("I")
 	}
 
-	return fmt.Sprintf("%s [%s] %s", timestamp, level, line.Message)
+	// Show level indicator + full log line
+	return fmt.Sprintf("%s %s", levelIndicator, line.Message)
 }

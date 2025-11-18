@@ -21,6 +21,14 @@ type Model struct {
 	logScroll     int
 	followMode    bool // Auto-scroll to bottom as new logs arrive
 
+	// Menu State
+	showMenu    bool         // Whether the context menu is visible
+	menuActions []MenuAction // Current menu actions
+
+	// Activity State
+	activity      string    // Current activity description (empty if idle)
+	activityStart time.Time // When the activity started
+
 	// Lifecycle
 	updateTicker  *time.Ticker
 	logStreamer   *LogStreamer
@@ -46,7 +54,7 @@ func NewModel(wrapper *OrchestratorWrapper) Model {
 		logs:           make(map[string][]LogLine),
 		health:         make(map[string]HealthStatus),
 		selectedIndex:  0,
-		activePanel:    "services",
+		activePanel:    panelServices,
 		logScroll:      0,
 		followMode:     true, // Start in follow mode
 		updateTicker:   time.NewTicker(2 * time.Second),
@@ -67,6 +75,9 @@ type tickMsg time.Time
 type eventMsg Event
 type logMsg LogLine
 type healthMsg map[string]HealthStatus
+type activityDoneMsg struct {
+	err error
+}
 
 // tick returns a command that waits for next tick.
 func tick() tea.Cmd {
