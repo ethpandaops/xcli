@@ -74,12 +74,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.health = msg
 
 		return m, nil
+
+	case activityDoneMsg:
+		// Activity completed - clear the indicator
+		m.activity = ""
+
+		return m, nil
 	}
 
 	return m, nil
 }
 
 func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle menu-specific keys when menu is open
+	if m.showMenu {
+		return m.handleMenuKeyPress(msg)
+	}
+
 	switch msg.String() {
 	case "q", "ctrl+c":
 		m.cleanup()
@@ -97,51 +108,69 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "tab":
-		// Cycle through panels
-		panels := []string{"services", "logs", "infra"}
-		for i, p := range panels {
-			if p == m.activePanel {
-				m.activePanel = panels[(i+1)%len(panels)]
-
-				break
-			}
+		// Cycle through panels: services → actions → services
+		switch m.activePanel {
+		case panelServices:
+			m.activePanel = panelActions
+		case panelActions:
+			m.activePanel = panelServices
+		default:
+			m.activePanel = panelServices
 		}
 
-	case "s":
-		// Start selected service
-		if m.selectedIndex < len(m.services) {
-			svc := m.services[m.selectedIndex]
-			if svc.Status == statusStopped {
-				ctx := context.Background()
+	case "enter":
+		// Behavior depends on active panel
+		if m.activePanel == panelActions {
+			// Activate Rebuild All
+			m.activity = "Rebuilding all services..."
+			m.activityStart = time.Now()
 
-				go func() {
-					_ = m.wrapper.StartService(ctx, svc.Name) // Errors logged internally
-				}()
+			return m, func() tea.Msg {
+				ctx := context.Background()
+				err := m.wrapper.RebuildAll(ctx)
+
+				return activityDoneMsg{err: err}
 			}
+		} else if m.selectedIndex < len(m.services) {
+			// Open action menu for selected service
+			svc := m.services[m.selectedIndex]
+			m.menuActions = GetMenuActions(svc.Status)
+			m.showMenu = true
 		}
 
-	case "t":
-		// Stop selected service
-		if m.selectedIndex < len(m.services) {
+	case "a":
+		// Open action menu for selected service (alternative key)
+		if m.activePanel == panelServices && m.selectedIndex < len(m.services) {
 			svc := m.services[m.selectedIndex]
-			if svc.Status == statusRunning {
-				ctx := context.Background()
-
-				go func() {
-					_ = m.wrapper.StopService(ctx, svc.Name) // Errors logged internally
-				}()
-			}
+			m.menuActions = GetMenuActions(svc.Status)
+			m.showMenu = true
 		}
 
 	case "r":
-		// Restart selected service
+		// Quick rebuild (global shortcut)
 		if m.selectedIndex < len(m.services) {
 			svc := m.services[m.selectedIndex]
-			ctx := context.Background()
+			m.activity = "Rebuilding " + svc.Name + "..."
+			m.activityStart = time.Now()
 
-			go func() {
-				_ = m.wrapper.RestartService(ctx, svc.Name) // Errors logged internally
-			}()
+			return m, func() tea.Msg {
+				ctx := context.Background()
+				err := m.wrapper.RebuildService(ctx, svc.Name)
+
+				return activityDoneMsg{err: err}
+			}
+		}
+
+	case "R":
+		// Rebuild All (Shift+R) - full stack rebuild
+		m.activity = "Rebuilding all services..."
+		m.activityStart = time.Now()
+
+		return m, func() tea.Msg {
+			ctx := context.Background()
+			err := m.wrapper.RebuildAll(ctx)
+
+			return activityDoneMsg{err: err}
 		}
 
 	case "pgup", "u":
@@ -162,6 +191,101 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Go to bottom and enable follow mode
 		m.followMode = true
 		m.logScroll = 0
+	}
+
+	return m, nil
+}
+
+func (m Model) handleMenuKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		// Close menu
+		m.showMenu = false
+		m.menuActions = nil
+
+	case "s":
+		// Start service
+		if m.selectedIndex < len(m.services) {
+			svc := m.services[m.selectedIndex]
+			if svc.Status == statusStopped {
+				m.activity = "Starting " + svc.Name + "..."
+				m.activityStart = time.Now()
+				m.showMenu = false
+				m.menuActions = nil
+
+				return m, func() tea.Msg {
+					ctx := context.Background()
+					err := m.wrapper.StartService(ctx, svc.Name)
+
+					return activityDoneMsg{err: err}
+				}
+			}
+		}
+
+		m.showMenu = false
+		m.menuActions = nil
+
+	case "t":
+		// Stop service
+		if m.selectedIndex < len(m.services) {
+			svc := m.services[m.selectedIndex]
+			if svc.Status == statusRunning {
+				m.activity = "Stopping " + svc.Name + "..."
+				m.activityStart = time.Now()
+				m.showMenu = false
+				m.menuActions = nil
+
+				return m, func() tea.Msg {
+					ctx := context.Background()
+					err := m.wrapper.StopService(ctx, svc.Name)
+
+					return activityDoneMsg{err: err}
+				}
+			}
+		}
+
+		m.showMenu = false
+		m.menuActions = nil
+
+	case "r":
+		// Restart service
+		if m.selectedIndex < len(m.services) {
+			svc := m.services[m.selectedIndex]
+			m.activity = "Restarting " + svc.Name + "..."
+			m.activityStart = time.Now()
+			m.showMenu = false
+			m.menuActions = nil
+
+			return m, func() tea.Msg {
+				ctx := context.Background()
+				err := m.wrapper.RestartService(ctx, svc.Name)
+
+				return activityDoneMsg{err: err}
+			}
+		}
+
+		m.showMenu = false
+		m.menuActions = nil
+
+	case "b":
+		// Rebuild service
+		if m.selectedIndex < len(m.services) {
+			svc := m.services[m.selectedIndex]
+			m.activity = "Rebuilding " + svc.Name + "..."
+			m.activityStart = time.Now()
+			m.showMenu = false
+			m.menuActions = nil
+
+			return m, func() tea.Msg {
+				ctx := context.Background()
+				err := m.wrapper.RebuildService(ctx, svc.Name)
+
+				return activityDoneMsg{err: err}
+			}
+		}
+
+		m.showMenu = false
+		m.menuActions = nil
 	}
 
 	return m, nil

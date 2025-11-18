@@ -120,6 +120,7 @@ func (ls *LogStreamer) Stop() {
 }
 
 // parseLine parses a log line into structured format.
+// Preserves full log content while extracting timestamp and level for display.
 func parseLine(service, raw string) LogLine {
 	// Strip ANSI color codes
 	stripped := stripansi.Strip(raw)
@@ -129,38 +130,43 @@ func parseLine(service, raw string) LogLine {
 		Raw:       raw,
 		Timestamp: time.Now(),
 		Level:     "INFO",
-		Message:   stripped,
+		Message:   stripped, // Keep full line content
 	}
 
-	// Parse common log formats
+	// Try to extract timestamp from logrus format: time="2025-11-18T11:53:53-03:00"
+	reTime := regexp.MustCompile(`time="([^"]+)"`)
+	if matches := reTime.FindStringSubmatch(stripped); len(matches) == 2 {
+		if t, err := time.Parse("2006-01-02T15:04:05-07:00", matches[1]); err == nil {
+			line.Timestamp = t
+		}
+	}
+
+	// Extract level from logrus format: level=warning or level=info
+	reLevel := regexp.MustCompile(`level=(\w+)`)
+	if matches := reLevel.FindStringSubmatch(stripped); len(matches) == 2 {
+		line.Level = strings.ToUpper(matches[1])
+
+		return line
+	}
+
 	// Format 1: [LEVEL][timestamp] message
-	re1 := regexp.MustCompile(`\[([A-Z]+)\]\[([^\]]+)\]\s*(.*)`)
-	if matches := re1.FindStringSubmatch(stripped); len(matches) == 4 {
+	re1 := regexp.MustCompile(`\[([A-Z]+)\]\[([^\]]+)\]`)
+	if matches := re1.FindStringSubmatch(stripped); len(matches) == 3 {
 		line.Level = matches[1]
 		if t, err := time.Parse("2006-01-02T15:04:05-07:00", matches[2]); err == nil {
 			line.Timestamp = t
 		}
 
-		line.Message = matches[3]
-
 		return line
 	}
 
-	// Format 2: level=info msg="message"
-	re2 := regexp.MustCompile(`level=(\w+)\s+msg="([^"]*)"`)
-	if matches := re2.FindStringSubmatch(stripped); len(matches) == 3 {
-		line.Level = strings.ToUpper(matches[1])
-		line.Message = matches[2]
-
-		return line
-	}
-
-	// Extract level from anywhere in line
-	if strings.Contains(strings.ToUpper(stripped), "ERROR") {
+	// Extract level from anywhere in line as fallback
+	upperStripped := strings.ToUpper(stripped)
+	if strings.Contains(upperStripped, "ERROR") || strings.Contains(upperStripped, "ERRO") {
 		line.Level = "ERROR"
-	} else if strings.Contains(strings.ToUpper(stripped), "WARN") {
+	} else if strings.Contains(upperStripped, "WARN") {
 		line.Level = "WARN"
-	} else if strings.Contains(strings.ToUpper(stripped), "DEBUG") {
+	} else if strings.Contains(upperStripped, "DEBUG") {
 		line.Level = "DEBUG"
 	}
 

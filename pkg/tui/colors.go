@@ -5,6 +5,9 @@ import "github.com/charmbracelet/lipgloss"
 const (
 	statusRunning = "running"
 	statusStopped = "stopped"
+
+	panelServices = "services"
+	panelActions  = "actions"
 )
 
 var (
