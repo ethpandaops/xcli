@@ -45,6 +45,12 @@ func GetMenuActions(status string) []MenuAction {
 			Description: "Rebuild and restart",
 			Enabled:     true,
 		},
+		{
+			Key:         "l",
+			Label:       "Logs (new window)",
+			Description: "Open logs in new terminal",
+			Enabled:     isRunning,
+		},
 	}
 }
 

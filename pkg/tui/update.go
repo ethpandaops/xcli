@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"os/exec"
+	"runtime"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -286,9 +288,50 @@ func (m Model) handleMenuKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		m.showMenu = false
 		m.menuActions = nil
+
+	case "l":
+		// Open logs in new terminal window
+		if m.selectedIndex < len(m.services) {
+			svc := m.services[m.selectedIndex]
+			if svc.Status == statusRunning {
+				go openLogsInNewTerminal(svc.Name)
+			}
+		}
+
+		m.showMenu = false
+		m.menuActions = nil
 	}
 
 	return m, nil
+}
+
+// openLogsInNewTerminal opens a new terminal window with logs for the service.
+func openLogsInNewTerminal(serviceName string) {
+	cmd := "xcli lab logs -f " + serviceName
+
+	switch runtime.GOOS {
+	case "darwin":
+		// Open in Terminal.app
+		script := `tell application "Terminal"
+			do script "` + cmd + `"
+			activate
+		end tell`
+		// #nosec G204 - serviceName is from internal service list, not user input
+		_ = exec.Command("osascript", "-e", script).Start()
+
+	case "linux":
+		// Try common terminal emulators in order of preference
+		if _, err := exec.LookPath("gnome-terminal"); err == nil {
+			// #nosec G204 - cmd is constructed from internal service name
+			_ = exec.Command("gnome-terminal", "--", "sh", "-c", cmd).Start()
+		} else if _, err := exec.LookPath("konsole"); err == nil {
+			// #nosec G204 - cmd is constructed from internal service name
+			_ = exec.Command("konsole", "-e", "sh", "-c", cmd).Start()
+		} else if _, err := exec.LookPath("xterm"); err == nil {
+			// #nosec G204 - cmd is constructed from internal service name
+			_ = exec.Command("xterm", "-e", cmd).Start()
+		}
+	}
 }
 
 func (m Model) handleEvent(event Event) {
