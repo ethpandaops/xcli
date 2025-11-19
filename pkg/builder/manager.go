@@ -224,8 +224,27 @@ func (m *Manager) BuildLabFrontend(ctx context.Context) error {
 func (m *Manager) GenerateXatuCBTProtos(ctx context.Context) error {
 	m.log.WithField("repo", "xatu-cbt").Info("generating protos")
 
+	// Clean generated proto files before regenerating to avoid stale files
+	if err := m.CleanXatuCBTProtos(); err != nil {
+		m.log.WithError(err).Warn("failed to clean xatu-cbt protos, continuing anyway")
+	}
+
 	if err := m.runMake(ctx, m.cfg.Repos.XatuCBT, "proto"); err != nil {
 		return fmt.Errorf("failed to generate xatu-cbt protos: %w", err)
+	}
+
+	return nil
+}
+
+// CleanXatuCBTProtos removes generated proto files from xatu-cbt.
+func (m *Manager) CleanXatuCBTProtos() error {
+	m.log.WithField("repo", "xatu-cbt").Info("cleaning generated proto files")
+
+	// xatu-cbt generates protos to pkg/proto/clickhouse/
+	protoDir := filepath.Join(m.cfg.Repos.XatuCBT, "pkg", "proto", "clickhouse")
+
+	if err := os.RemoveAll(protoDir); err != nil {
+		return fmt.Errorf("failed to remove xatu-cbt proto directory: %w", err)
 	}
 
 	return nil
@@ -242,6 +261,11 @@ func (m *Manager) GenerateProtos(ctx context.Context) error {
 		"network": network.Name,
 	}).Info("generating protos")
 
+	// Clean generated files before regenerating to avoid stale files
+	if err := m.CleanCBTAPIGenerated(); err != nil {
+		m.log.WithError(err).Warn("failed to clean cbt-api generated files, continuing anyway")
+	}
+
 	// Use the generated config file
 	configPath := filepath.Join(".xcli", "configs", fmt.Sprintf("cbt-api-%s.yaml", network.Name))
 
@@ -257,6 +281,40 @@ func (m *Manager) GenerateProtos(ctx context.Context) error {
 
 	if err := executil.RunCmd(cmd, m.verbose); err != nil {
 		return fmt.Errorf("failed to generate cbt-api protos: %w", err)
+	}
+
+	return nil
+}
+
+// CleanCBTAPIGenerated removes all generated files from cbt-api.
+// This includes proto files, handlers, server implementation, and OpenAPI specs.
+func (m *Manager) CleanCBTAPIGenerated() error {
+	m.log.WithField("repo", "cbt-api").Info("cleaning generated files")
+
+	// Files and directories to remove (matches cbt-api Makefile clean target)
+	toRemove := []string{
+		// Proto generated directory
+		filepath.Join(m.cfg.Repos.CBTAPI, "pkg", "proto", "clickhouse"),
+		// Generated handler code
+		filepath.Join(m.cfg.Repos.CBTAPI, "internal", "handlers", "generated.go"),
+		// Generated server implementation
+		filepath.Join(m.cfg.Repos.CBTAPI, "internal", "server", "implementation.go"),
+		// Embedded OpenAPI spec
+		filepath.Join(m.cfg.Repos.CBTAPI, "internal", "server", "openapi.yaml"),
+		// Root OpenAPI spec
+		filepath.Join(m.cfg.Repos.CBTAPI, "openapi.yaml"),
+		// Proto descriptors
+		filepath.Join(m.cfg.Repos.CBTAPI, ".descriptors.pb"),
+		// Discovered tables cache
+		filepath.Join(m.cfg.Repos.CBTAPI, ".tables.txt"),
+		// Temp directory
+		filepath.Join(m.cfg.Repos.CBTAPI, "tmp"),
+	}
+
+	for _, path := range toRemove {
+		if err := os.RemoveAll(path); err != nil {
+			m.log.WithError(err).WithField("path", path).Warn("failed to remove generated file")
+		}
 	}
 
 	return nil
