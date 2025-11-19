@@ -6,7 +6,7 @@ BUILD_DIR=bin
 VERSION?=dev
 COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DATE=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
-LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)"
+LDFLAGS=-ldflags "-X main.buildVersion=$(VERSION) -X main.buildCommit=$(COMMIT) -X main.buildDate=$(DATE)"
 
 # Go parameters
 GOCMD=go

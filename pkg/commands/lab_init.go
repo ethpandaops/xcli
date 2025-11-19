@@ -10,6 +10,7 @@ import (
 	"github.com/ethpandaops/xcli/pkg/discovery"
 	"github.com/ethpandaops/xcli/pkg/prerequisites"
 	"github.com/ethpandaops/xcli/pkg/ui"
+	"github.com/ethpandaops/xcli/pkg/version"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -37,6 +38,9 @@ After 'xcli lab init' succeeds, you can start the stack with 'xcli lab up'.`,
 }
 
 func runLabInit(ctx context.Context, log logrus.FieldLogger, configPath string) error {
+	// Print the welcome banner
+	ui.PrintInitBanner(version.GetVersion())
+
 	log.Info("initializing lab stack")
 
 	// Load existing config if it exists, otherwise start fresh

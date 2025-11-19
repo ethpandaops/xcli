@@ -6,6 +6,7 @@ import (
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/ui"
+	"github.com/ethpandaops/xcli/pkg/version"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -30,6 +31,9 @@ If the configuration file already exists, this command will exit without changes
 }
 
 func runRootInit(log logrus.FieldLogger, configPath string) error {
+	// Print the welcome banner
+	ui.PrintInitBanner(version.GetVersion())
+
 	log.Info("initializing xcli configuration")
 
 	// Check if config already exists

@@ -12,15 +12,24 @@ import (
 	"github.com/ethpandaops/xcli/pkg/commands"
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/ui"
+	"github.com/ethpandaops/xcli/pkg/version"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
+// Build-time variables set via ldflags.
 var (
-	version = "dev"
-	commit  = "none"
-	date    = "unknown"
+	buildVersion = "dev"
+	buildCommit  = "none"
+	buildDate    = "unknown"
 )
+
+func init() {
+	// Set package-level version variables from build flags
+	version.Version = buildVersion
+	version.Commit = buildCommit
+	version.Date = buildDate
+}
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -46,7 +55,7 @@ func main() {
 
 	// Check for updates and auto-upgrade if needed (runs quickly due to caching)
 	if repoPath := findRepoPath(); repoPath != "" {
-		upgrader := autoupgrade.NewService(log, repoPath, commit)
+		upgrader := autoupgrade.NewService(log, repoPath, version.Commit)
 		if err := upgrader.CheckAndUpgrade(ctx); err != nil {
 			log.WithError(err).Debug("Auto-upgrade check failed")
 		}
@@ -57,7 +66,7 @@ func main() {
 		Use:     "xcli",
 		Short:   "Local development orchestration tool for ethPandaOps",
 		Long:    `xcli orchestrates local development environments for ethPandaOps projects.`,
-		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date),
+		Version: version.GetFullVersion(),
 	}
 
 	// Global flags
