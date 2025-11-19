@@ -129,6 +129,8 @@ func (o *Orchestrator) GetServicePorts(service string) []int {
 }
 
 // Up starts the complete stack.
+//
+//nolint:gocyclo // Complexity is from context cancellation checks between phases for proper Ctrl+C handling
 func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) error {
 	// Display startup banner
 	ui.Banner("Starting Lab Stack")
@@ -139,6 +141,11 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	// Fails fast with helpful error if prerequisites not satisfied
 	if err := o.validatePrerequisites(ctx); err != nil {
 		return fmt.Errorf("prerequisites not satisfied: %w\n\nRun 'xcli lab init' to satisfy prerequisites", err)
+	}
+
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("cancelled: %w", err)
 	}
 
 	// Test external ClickHouse connection early (before builds and infrastructure)
@@ -158,6 +165,11 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 		spinner.Success("External ClickHouse connection established")
 
 		o.log.Info("external ClickHouse connection verified")
+	}
+
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("cancelled: %w", err)
 	}
 
 	// Check git status for all repositories (non-blocking)
@@ -187,6 +199,11 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 		return fmt.Errorf("cannot start stack: %d processes running and %d port conflicts detected", len(runningProcesses), len(portConflicts))
 	}
 
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("cancelled: %w", err)
+	}
+
 	// Phase 0: Build xatu-cbt (ONCE, not in Phase 2)
 	// Note: xatu-cbt is built separately here because infrastructure needs it before Phase 2
 	// Reason: Infrastructure startup requires xatu-cbt binary to run migrations and services
@@ -213,6 +230,11 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 		}
 	}
 
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("cancelled: %w", err)
+	}
+
 	// Phase 1: Start infrastructure
 	ui.Header("Phase 2: Starting Infrastructure")
 	o.log.WithField("mode", o.mode.Name()).Info("starting infrastructure")
@@ -222,6 +244,11 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	}
 
 	o.log.WithField("mode", o.mode.Name()).Info("infrastructure ready")
+
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("cancelled: %w", err)
+	}
 
 	// Phase 2: Build all repositories (parallel, excluding xatu-cbt)
 	// Note: xatu-cbt already built in Phase 0
@@ -245,6 +272,11 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 		}
 	}
 
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("cancelled: %w", err)
+	}
+
 	// Phase 3: Setup networks (run migrations)
 	ui.Blank()
 	ui.Header("Phase 4: Network Setup")
@@ -261,6 +293,11 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 
 	spinner.Success("Networks configured")
 
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("cancelled: %w", err)
+	}
+
 	// Phase 4: Generate configs (needed for proto generation)
 	ui.Header("Phase 5: Generating Configurations")
 	o.log.Info("generating service configurations")
@@ -275,6 +312,11 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 
 	configSpinner.Success("Service configurations generated")
 
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("cancelled: %w", err)
+	}
+
 	// Build cbt-api (includes proto generation in its DAG)
 	if !skipBuild {
 		buildSpinner := ui.NewSpinner("Building cbt-api")
@@ -286,6 +328,11 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 		}
 
 		buildSpinner.Success("CBT API built successfully")
+	}
+
+	// Check for cancellation
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("cancelled: %w", err)
 	}
 
 	// Check for port conflicts before starting services
@@ -357,7 +404,7 @@ func (o *Orchestrator) Down(ctx context.Context) error {
 
 	o.log.Info("stopping services")
 
-	if err := o.proc.StopAll(); err != nil {
+	if err := o.proc.StopAll(ctx); err != nil {
 		o.log.WithError(err).Warn("failed to stop services")
 		spinner.Warning("Services stopped (with warnings)")
 	} else {
@@ -429,12 +476,12 @@ func (o *Orchestrator) Down(ctx context.Context) error {
 }
 
 // StopServices stops all running services without tearing down infrastructure.
-func (o *Orchestrator) StopServices() error {
+func (o *Orchestrator) StopServices(ctx context.Context) error {
 	spinner := ui.NewSpinner("Stopping all services")
 
 	o.log.Info("stopping all services")
 
-	if err := o.proc.StopAll(); err != nil {
+	if err := o.proc.StopAll(ctx); err != nil {
 		spinner.Fail("Failed to stop all services")
 
 		return fmt.Errorf("failed to stop services: %w", err)
@@ -502,7 +549,7 @@ func (o *Orchestrator) StartService(ctx context.Context, service string) error {
 // StopService stops a specific service by name.
 func (o *Orchestrator) StopService(ctx context.Context, service string) error {
 	// Try to stop the process via process manager
-	err := o.proc.Stop(service)
+	err := o.proc.Stop(ctx, service)
 
 	// Always clean up orphaned processes, even if Stop() failed
 	// (e.g., if the parent process died but children are still running)
@@ -870,7 +917,7 @@ func (o *Orchestrator) RestartAllServices(ctx context.Context, verbose bool) err
 		}
 
 		// Use existing process manager Stop method
-		if err := o.proc.Stop(serviceName); err != nil {
+		if err := o.proc.Stop(ctx, serviceName); err != nil {
 			// Log warning but continue - service might not be running
 			if verbose {
 				fmt.Printf("Warning: Failed to stop %s: %v\n", serviceName, err)

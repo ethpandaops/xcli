@@ -29,19 +29,19 @@ type HealthMonitor struct {
 
 // NewHealthMonitor creates a health monitor.
 func NewHealthMonitor(wrapper *OrchestratorWrapper) *HealthMonitor {
-	_, cancel := context.WithCancel(context.Background())
-
 	return &HealthMonitor{
-		services: make(map[string]HealthStatus),
+		services: make(map[string]HealthStatus, 10),
 		wrapper:  wrapper,
-		cancel:   cancel,
 		output:   make(chan map[string]HealthStatus, 10),
 	}
 }
 
 // Start begins health monitoring.
 func (hm *HealthMonitor) Start() {
-	go hm.monitor(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
+	hm.cancel = cancel
+
+	go hm.monitor(ctx)
 }
 
 // Output returns the health status channel.
