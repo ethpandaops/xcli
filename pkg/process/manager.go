@@ -133,7 +133,7 @@ func (m *Manager) Start(ctx context.Context, name string, cmd *exec.Cmd, healthC
 		// Health check failed - kill the process
 		m.log.WithError(err).Warn("health check failed, stopping process")
 
-		if stopErr := m.Stop(name); stopErr != nil {
+		if stopErr := m.Stop(ctx, name); stopErr != nil {
 			m.log.WithError(stopErr).Warn("failed to stop unhealthy process")
 		}
 
@@ -149,7 +149,7 @@ func (m *Manager) Start(ctx context.Context, name string, cmd *exec.Cmd, healthC
 }
 
 // Stop stops a process gracefully.
-func (m *Manager) Stop(name string) error {
+func (m *Manager) Stop(ctx context.Context, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -174,35 +174,52 @@ func (m *Manager) Stop(name string) error {
 		return fmt.Errorf("failed to send SIGTERM: %w", err)
 	}
 
-	// Wait for graceful shutdown
-	maxAttempts := int(gracefulShutdownTimeout / shutdownPollInterval)
-	for i := 0; i < maxAttempts; i++ {
-		time.Sleep(shutdownPollInterval)
+	// Wait for graceful shutdown with context cancellation support
+	ticker := time.NewTicker(shutdownPollInterval)
+	defer ticker.Stop()
 
-		if err := process.Signal(syscall.Signal(0)); err != nil {
-			// Process is gone
+	timeout := time.After(gracefulShutdownTimeout)
+
+	for {
+		select {
+		case <-ctx.Done():
+			// Context cancelled - force kill immediately
+			m.log.WithField("name", name).Warn("Context cancelled, sending SIGKILL")
+
+			if err := process.Kill(); err != nil {
+				m.log.WithError(err).Warn("failed to kill process")
+			}
+
+			delete(m.processes, name)
+			m.removePID(name)
+
+			return ctx.Err()
+		case <-timeout:
+			// Graceful shutdown timeout - force kill
+			m.log.WithField("name", name).Warn("Process did not stop gracefully, sending SIGKILL")
+
+			if err := process.Kill(); err != nil {
+				return fmt.Errorf("failed to kill process: %w", err)
+			}
+
 			delete(m.processes, name)
 			m.removePID(name)
 
 			return nil
+		case <-ticker.C:
+			if err := process.Signal(syscall.Signal(0)); err != nil {
+				// Process is gone
+				delete(m.processes, name)
+				m.removePID(name)
+
+				return nil
+			}
 		}
 	}
-
-	// Force kill if not stopped
-	m.log.WithField("name", name).Warn("Process did not stop gracefully, sending SIGKILL")
-
-	if err := process.Kill(); err != nil {
-		return fmt.Errorf("failed to kill process: %w", err)
-	}
-
-	delete(m.processes, name)
-	m.removePID(name)
-
-	return nil
 }
 
 // StopAll stops all managed processes, including orphaned processes from PID files.
-func (m *Manager) StopAll() error {
+func (m *Manager) StopAll(ctx context.Context) error {
 	m.log.Info("stopping all managed processes")
 
 	// First, reload PIDs from disk to catch any orphaned processes
@@ -240,12 +257,17 @@ func (m *Manager) StopAll() error {
 	var errs []error
 
 	for _, name := range names {
-		if err := m.Stop(name); err != nil {
+		if err := m.Stop(ctx, name); err != nil {
 			m.log.WithFields(logrus.Fields{
 				"name":  name,
 				"error": err,
 			}).Warn("failed to stop process")
 			errs = append(errs, fmt.Errorf("stop %s: %w", name, err))
+		}
+
+		// Check for context cancellation between processes
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
 	}
 
@@ -282,7 +304,7 @@ func (m *Manager) Restart(ctx context.Context, name string) error {
 	m.mu.RUnlock()
 
 	// Stop the process
-	if err := m.Stop(name); err != nil {
+	if err := m.Stop(ctx, name); err != nil {
 		return fmt.Errorf("failed to stop process: %w", err)
 	}
 

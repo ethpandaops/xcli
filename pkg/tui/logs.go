@@ -22,19 +22,15 @@ type LogLine struct {
 
 // LogStreamer streams logs from multiple services.
 type LogStreamer struct {
-	services map[string]*exec.Cmd
+	services map[string]context.CancelFunc
 	output   chan LogLine
-	cancel   context.CancelFunc
 }
 
 // NewLogStreamer creates a log streamer.
 func NewLogStreamer() *LogStreamer {
-	_, cancel := context.WithCancel(context.Background())
-
 	return &LogStreamer{
-		services: make(map[string]*exec.Cmd),
+		services: make(map[string]context.CancelFunc, 10),
 		output:   make(chan LogLine, 10000), // Large buffer for high-volume logs
-		cancel:   cancel,
 	}
 }
 
@@ -45,21 +41,28 @@ func (ls *LogStreamer) Start(serviceName, logFile string) error {
 		return nil // Already streaming
 	}
 
-	cmd := exec.CommandContext(context.Background(), "tail", "-f", "-n", "50", logFile)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	cmd := exec.CommandContext(ctx, "tail", "-f", "-n", "50", logFile)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		cancel()
+
 		return err
 	}
 
 	if err := cmd.Start(); err != nil {
+		cancel()
+
 		return err
 	}
 
-	ls.services[serviceName] = cmd
+	// Store cancel function for cleanup
+	ls.services[serviceName] = cancel
 
 	// Parse logs in background
-	go ls.streamLogs(context.Background(), serviceName, stdout)
+	go ls.streamLogs(ctx, serviceName, stdout)
 
 	return nil
 }
@@ -108,12 +111,9 @@ func (ls *LogStreamer) Output() <-chan LogLine {
 
 // Stop stops all log streaming.
 func (ls *LogStreamer) Stop() {
-	ls.cancel()
-
-	for _, cmd := range ls.services {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill() // Best effort
-		}
+	// Cancel all service contexts, which will kill the tail processes
+	for _, cancel := range ls.services {
+		cancel()
 	}
 
 	close(ls.output)

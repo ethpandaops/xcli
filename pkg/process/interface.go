@@ -13,10 +13,12 @@ type ProcessManager interface {
 	Start(ctx context.Context, name string, cmd *exec.Cmd, healthCheck HealthChecker) error
 
 	// Stop stops a running process gracefully (SIGTERM then SIGKILL).
-	Stop(name string) error
+	// The context allows cancellation of the graceful shutdown wait.
+	Stop(ctx context.Context, name string) error
 
 	// StopAll stops all managed processes.
-	StopAll() error
+	// The context allows cancellation of the shutdown sequence.
+	StopAll(ctx context.Context) error
 
 	// Restart restarts a process (stops then starts with same command).
 	Restart(ctx context.Context, name string) error

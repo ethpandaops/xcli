@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/ethpandaops/xcli/pkg/config"
@@ -79,8 +78,8 @@ Note: All rebuild commands automatically restart their respective services if ru
 			// Set verbose mode
 			orch.SetVerbose(verbose)
 
-			// Create builder
-			ctx := context.Background()
+			// Use the command's context for cancellation support
+			ctx := cmd.Context()
 
 			// Route to appropriate build
 			switch project {

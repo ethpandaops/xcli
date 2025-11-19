@@ -1,10 +1,9 @@
 package commands
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
@@ -66,29 +65,27 @@ Examples:
 			// Set verbose mode
 			orch.SetVerbose(verbose)
 
-			// Setup signal handling for graceful shutdown
-			sigChan := make(chan os.Signal, 1)
-			signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+			// Always rebuild (skipBuild=false, forceBuild=true)
+			err = orch.Up(cmd.Context(), false, true)
 
-			// Start signal handler in background
-			go func() {
-				sig := <-sigChan
-				log.WithField("signal", sig.String()).Info("received shutdown signal")
+			// Handle cancellation gracefully
+			if err != nil && errors.Is(err, context.Canceled) {
 				ui.Warning("Interrupt received, shutting down gracefully...")
-				ui.Info("(Press Ctrl+C again to force quit)")
 
-				// Stop all services
-				if err := orch.StopServices(); err != nil {
-					log.WithError(err).Error("failed to stop services gracefully")
-					os.Exit(1)
+				// Use a new context for cleanup since the original is cancelled
+				cleanupCtx := context.Background()
+
+				// Stop all services that may have been started
+				if stopErr := orch.StopServices(cleanupCtx); stopErr != nil {
+					log.WithError(stopErr).Error("failed to stop services gracefully")
+				} else {
+					ui.Success("All services stopped")
 				}
 
-				ui.Success("All services stopped")
-				os.Exit(0)
-			}()
+				return nil // Return nil so os.Exit(0) is used
+			}
 
-			// Always rebuild (skipBuild=false, forceBuild=true)
-			return orch.Up(cmd.Context(), false, true)
+			return err
 		},
 	}
 
