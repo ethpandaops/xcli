@@ -33,7 +33,7 @@ type BuildResult struct {
 	// Command is the full command that was executed.
 	Command string `json:"command"`
 	// WorkDir is the working directory where the command was executed.
-	WorkDir string `json:"work_dir"`
+	WorkDir string `json:"workDir"`
 	// Success indicates whether the build operation completed successfully.
 	Success bool `json:"success"`
 	// Duration is how long the build operation took.
@@ -41,17 +41,17 @@ type BuildResult struct {
 	// Error is the error that occurred, if any. Not serialized to JSON.
 	Error error `json:"-"`
 	// ErrorMsg is the string representation of the error for JSON serialization.
-	ErrorMsg string `json:"error_msg"`
+	ErrorMsg string `json:"errorMsg"`
 	// Stdout contains the standard output from the command.
 	Stdout string `json:"stdout"`
 	// Stderr contains the standard error output from the command.
 	Stderr string `json:"stderr"`
 	// ExitCode is the exit code returned by the command.
-	ExitCode int `json:"exit_code"`
+	ExitCode int `json:"exitCode"`
 	// StartTime is when the build operation started.
-	StartTime time.Time `json:"start_time"`
+	StartTime time.Time `json:"startTime"`
 	// EndTime is when the build operation completed.
-	EndTime time.Time `json:"end_time"`
+	EndTime time.Time `json:"endTime"`
 }
 
 // RebuildReport aggregates all build results for a single rebuild operation.
@@ -59,9 +59,9 @@ type RebuildReport struct {
 	// ID is a unique identifier for this rebuild report.
 	ID string `json:"id"`
 	// StartTime is when the rebuild operation started.
-	StartTime time.Time `json:"start_time"`
+	StartTime time.Time `json:"startTime"`
 	// EndTime is when the rebuild operation completed.
-	EndTime time.Time `json:"end_time"`
+	EndTime time.Time `json:"endTime"`
 	// Duration is the total time taken for the rebuild operation.
 	Duration time.Duration `json:"duration"`
 	// Results contains all individual build results.
@@ -69,9 +69,9 @@ type RebuildReport struct {
 	// Success indicates whether all build operations completed successfully.
 	Success bool `json:"success"`
 	// FailedCount is the number of build operations that failed.
-	FailedCount int `json:"failed_count"`
+	FailedCount int `json:"failedCount"`
 	// TotalCount is the total number of build operations executed.
-	TotalCount int `json:"total_count"`
+	TotalCount int `json:"totalCount"`
 }
 
 // NewRebuildReport creates a new report with a generated ID and initialized fields.

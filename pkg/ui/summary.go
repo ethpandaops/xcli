@@ -108,6 +108,7 @@ func DisplayBuildSummary(report *diagnostic.RebuildReport) {
 
 		// Calculate status length for padding
 		statusLen := 0
+
 		if status != "" {
 			if isSkipped {
 				statusLen = len("(skipped)")

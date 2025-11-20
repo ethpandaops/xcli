@@ -14,23 +14,23 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// ClaudeClient handles communication with Claude Code CLI
+// ClaudeClient handles communication with Claude Code CLI.
 type ClaudeClient struct {
 	log        logrus.FieldLogger
 	claudePath string
 	timeout    time.Duration
 }
 
-// AIDiagnosis contains Claude's analysis
+// AIDiagnosis contains Claude's analysis.
 type AIDiagnosis struct {
-	RootCause     string   `json:"root_cause"`
+	RootCause     string   `json:"rootCause"`
 	Explanation   string   `json:"explanation"`
-	AffectedFiles []string `json:"affected_files"`
+	AffectedFiles []string `json:"affectedFiles"`
 	Suggestions   []string `json:"suggestions"`
-	FixCommands   []string `json:"fix_commands,omitempty"`
+	FixCommands   []string `json:"fixCommands,omitempty"`
 }
 
-// NewClaudeClient creates a client, auto-detecting claude binary
+// NewClaudeClient creates a client, auto-detecting claude binary.
 func NewClaudeClient(log logrus.FieldLogger) (*ClaudeClient, error) {
 	claudePath, err := findClaudeBinary()
 	if err != nil {
@@ -46,7 +46,7 @@ func NewClaudeClient(log logrus.FieldLogger) (*ClaudeClient, error) {
 	return client, nil
 }
 
-// IsAvailable checks if Claude Code CLI is installed
+// IsAvailable checks if Claude Code CLI is installed.
 func (c *ClaudeClient) IsAvailable() bool {
 	if c.claudePath == "" {
 		return false
@@ -62,7 +62,7 @@ func (c *ClaudeClient) IsAvailable() bool {
 	return !info.IsDir() && info.Mode()&0111 != 0
 }
 
-// Diagnose sends error context to Claude for analysis
+// Diagnose sends error context to Claude for analysis.
 func (c *ClaudeClient) Diagnose(ctx context.Context, report *RebuildReport) (*AIDiagnosis, error) {
 	if !c.IsAvailable() {
 		return nil, fmt.Errorf("claude CLI is not available")
@@ -84,6 +84,7 @@ func (c *ClaudeClient) Diagnose(ctx context.Context, report *RebuildReport) (*AI
 	cmd.Stdin = strings.NewReader(prompt)
 
 	var stdout, stderr bytes.Buffer
+
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
@@ -114,7 +115,7 @@ func (c *ClaudeClient) Diagnose(ctx context.Context, report *RebuildReport) (*AI
 	return diagnosis, nil
 }
 
-// buildPrompt creates the diagnostic prompt for Claude
+// buildPrompt creates the diagnostic prompt for Claude.
 func (c *ClaudeClient) buildPrompt(report *RebuildReport) string {
 	var sb strings.Builder
 
@@ -133,6 +134,7 @@ func (c *ClaudeClient) buildPrompt(report *RebuildReport) string {
 	failed := report.Failed()
 	if len(failed) == 0 {
 		sb.WriteString("## Build Results\nNo failures found.\n")
+
 		return sb.String()
 	}
 
@@ -186,7 +188,7 @@ func (c *ClaudeClient) buildPrompt(report *RebuildReport) string {
 	return sb.String()
 }
 
-// parseResponse extracts structured diagnosis from Claude's response
+// parseResponse extracts structured diagnosis from Claude's response.
 func (c *ClaudeClient) parseResponse(response string) *AIDiagnosis {
 	diagnosis := &AIDiagnosis{
 		AffectedFiles: make([]string, 0),
@@ -227,7 +229,7 @@ func (c *ClaudeClient) parseResponse(response string) *AIDiagnosis {
 	return diagnosis
 }
 
-// extractSection extracts content between a section header and the next section
+// extractSection extracts content between a section header and the next section.
 func extractSection(text, sectionName string) string {
 	// Match section header (## Section Name or **Section Name**)
 	patterns := []string{
@@ -252,7 +254,7 @@ func extractSection(text, sectionName string) string {
 	return ""
 }
 
-// extractBulletPoints extracts items from a bullet list
+// extractBulletPoints extracts items from a bullet list.
 func extractBulletPoints(text string) []string {
 	items := make([]string, 0)
 
@@ -275,7 +277,7 @@ func extractBulletPoints(text string) []string {
 	return items
 }
 
-// extractListItems extracts items from numbered or bullet lists
+// extractListItems extracts items from numbered or bullet lists.
 func extractListItems(text string) []string {
 	items := make([]string, 0)
 
@@ -295,7 +297,7 @@ func extractListItems(text string) []string {
 	return items
 }
 
-// extractCommands extracts shell commands from text
+// extractCommands extracts shell commands from text.
 func extractCommands(text string) []string {
 	commands := make([]string, 0)
 
@@ -334,7 +336,7 @@ func extractCommands(text string) []string {
 	return commands
 }
 
-// findClaudeBinary locates the claude CLI binary
+// findClaudeBinary locates the claude CLI binary.
 func findClaudeBinary() (string, error) {
 	// First, try `which claude`
 	whichCmd := exec.Command("which", "claude")
@@ -371,7 +373,7 @@ func findClaudeBinary() (string, error) {
 	return "", fmt.Errorf("claude binary not found in PATH or common locations")
 }
 
-// sanitizeOutput removes sensitive information
+// sanitizeOutput removes sensitive information.
 func sanitizeOutput(output string) string {
 	if output == "" {
 		return output

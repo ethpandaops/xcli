@@ -35,8 +35,6 @@ func NewStore(log logrus.FieldLogger, baseDir string) *Store {
 }
 
 // Save persists a rebuild report to disk.
-// File format: {baseDir}/{timestamp}-{id}.json
-// Timestamp format: 20060102-150405
 func (s *Store) Save(report *RebuildReport) error {
 	// Create directory if it doesn't exist
 	if err := os.MkdirAll(s.baseDir, 0755); err != nil {
@@ -55,7 +53,7 @@ func (s *Store) Save(report *RebuildReport) error {
 	}
 
 	// Write to file
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	if err := os.WriteFile(filePath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write report file: %w", err)
 	}
 
@@ -213,6 +211,7 @@ func (s *Store) Cleanup(retention time.Duration) error {
 	}
 
 	cutoff := time.Now().Add(-retention)
+
 	var removed int
 
 	for _, entry := range entries {

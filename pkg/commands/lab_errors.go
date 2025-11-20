@@ -15,9 +15,11 @@ import (
 
 // NewLabErrorsCommand creates the lab errors command.
 func NewLabErrorsCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
-	var limit int
-	var service string
-	var verbose bool
+	var (
+		limit   int
+		service string
+		verbose bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "errors",
@@ -189,6 +191,7 @@ func displayBuildResultDetails(result diagnostic.BuildResult) {
 	// Show stderr (truncated if too long)
 	if result.Stderr != "" {
 		stderr := truncateOutput(result.Stderr, 30)
+
 		fmt.Printf("    Stderr:\n")
 
 		for _, line := range strings.Split(stderr, "\n") {
@@ -201,6 +204,7 @@ func displayBuildResultDetails(result diagnostic.BuildResult) {
 	// Show stdout if no stderr (truncated if too long)
 	if result.Stderr == "" && result.Stdout != "" {
 		stdout := truncateOutput(result.Stdout, 30)
+
 		fmt.Printf("    Stdout:\n")
 
 		for _, line := range strings.Split(stdout, "\n") {
