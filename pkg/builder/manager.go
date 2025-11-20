@@ -108,7 +108,9 @@ func (m *Manager) BuildAll(ctx context.Context, force bool) error {
 
 // BuildXatuCBT builds only the xatu-cbt binary (needed for infrastructure startup).
 func (m *Manager) BuildXatuCBT(ctx context.Context, force bool) error {
-	return m.buildXatuCBT(ctx, force)
+	result := m.BuildXatuCBTWithResult(ctx, force)
+
+	return result.Error
 }
 
 // BuildXatuCBTWithResult builds xatu-cbt binary and returns BuildResult.
@@ -143,35 +145,9 @@ func (m *Manager) XatuCBTBinaryExists() bool {
 
 // BuildCBT builds the cbt binary.
 func (m *Manager) BuildCBT(ctx context.Context, force bool) error {
-	binary := filepath.Join(m.cfg.Repos.CBT, "bin", "cbt")
+	result := m.BuildCBTWithResult(ctx, force)
 
-	if !force && m.binaryExists(binary) {
-		m.log.WithField("repo", "cbt").Info("binary exists, skipping build")
-
-		return nil
-	}
-
-	m.log.WithField("repo", "cbt").Info("building project")
-
-	// Build CBT frontend first (required for embedding in binary)
-	if err := m.buildCBTFrontend(ctx, force); err != nil {
-		return fmt.Errorf("failed to build CBT frontend: %w", err)
-	}
-
-	// CBT doesn't have a Makefile build target, build directly
-	binDir := filepath.Join(m.cfg.Repos.CBT, "bin")
-	if err := os.MkdirAll(binDir, 0755); err != nil {
-		return fmt.Errorf("failed to create bin directory: %w", err)
-	}
-
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", binary, ".")
-	cmd.Dir = m.cfg.Repos.CBT
-
-	if err := executil.RunCmd(cmd, m.verbose); err != nil {
-		return fmt.Errorf("go build failed: %w", err)
-	}
-
-	return nil
+	return result.Error
 }
 
 // BuildCBTWithResult builds the cbt binary and returns BuildResult.
@@ -234,29 +210,9 @@ func (m *Manager) BuildCBTWithResult(ctx context.Context, force bool) *diagnosti
 // BuildCBTAPI builds cbt-api with proto generation
 // Proto generation MUST happen first (explicit dependency in graph).
 func (m *Manager) BuildCBTAPI(ctx context.Context, force bool) error {
-	// Step 1: Generate protos
-	if err := m.GenerateProtos(ctx); err != nil {
-		return err
-	}
+	result := m.BuildCBTAPIWithResult(ctx, force)
 
-	// Step 2: Build cbt-api binary
-	binary := filepath.Join(m.cfg.Repos.CBTAPI, "bin", "server")
-
-	if !force && m.binaryExists(binary) {
-		m.log.WithField("repo", "cbt-api").Info("binary exists, skipping build")
-
-		return nil
-	}
-
-	m.log.WithField("repo", "cbt-api").Info("building project")
-
-	// Generate OpenAPI and other code (requires proto to be run first)
-	if err := m.runMake(ctx, m.cfg.Repos.CBTAPI, "generate"); err != nil {
-		return fmt.Errorf("make generate failed: %w", err)
-	}
-
-	// Build the binary
-	return m.runMake(ctx, m.cfg.Repos.CBTAPI, "build-binary")
+	return result.Error
 }
 
 // BuildCBTAPIWithResult builds cbt-api with proto generation and returns BuildResult.
@@ -298,17 +254,9 @@ func (m *Manager) BuildCBTAPIWithResult(ctx context.Context, force bool) *diagno
 
 // BuildLabBackend builds lab-backend binary.
 func (m *Manager) BuildLabBackend(ctx context.Context, force bool) error {
-	binary := filepath.Join(m.cfg.Repos.LabBackend, "bin", "lab-backend")
+	result := m.BuildLabBackendWithResult(ctx, force)
 
-	if !force && m.binaryExists(binary) {
-		m.log.WithField("repo", "lab-backend").Info("binary exists, skipping build")
-
-		return nil
-	}
-
-	m.log.WithField("repo", "lab-backend").Info("building project")
-
-	return m.runMake(ctx, m.cfg.Repos.LabBackend, "build")
+	return result.Error
 }
 
 // BuildLabBackendWithResult builds lab-backend binary and returns BuildResult.
@@ -336,30 +284,9 @@ func (m *Manager) BuildLabBackendWithResult(ctx context.Context, force bool) *di
 
 // BuildLabFrontend regenerates frontend API types from cbt-api OpenAPI spec.
 func (m *Manager) BuildLabFrontend(ctx context.Context) error {
-	m.log.WithField("repo", "lab").Info("regenerating API types from cbt-api")
+	result := m.BuildLabFrontendWithResult(ctx)
 
-	// Get the first enabled network to use for the OpenAPI endpoint
-	networks := m.cfg.EnabledNetworks()
-	if len(networks) == 0 {
-		return fmt.Errorf("no networks enabled - cannot determine cbt-api port")
-	}
-
-	// Use the first enabled network's cbt-api port
-	cbtAPIPort := m.cfg.GetCBTAPIPort(networks[0].Name)
-
-	// Construct OpenAPI URL using cbt-api port
-	openapiURL := fmt.Sprintf("http://localhost:%d/openapi.yaml", cbtAPIPort)
-
-	cmd := exec.CommandContext(ctx, "pnpm", "run", "generate:api")
-	cmd.Dir = m.cfg.Repos.Lab
-
-	cmd.Env = append(os.Environ(), fmt.Sprintf("OPENAPI_INPUT=%s", openapiURL))
-
-	if err := executil.RunCmd(cmd, m.verbose); err != nil {
-		return fmt.Errorf("pnpm run generate:api failed: %w", err)
-	}
-
-	return nil
+	return result.Error
 }
 
 // BuildLabFrontendWithResult regenerates frontend API types and returns BuildResult.
@@ -398,18 +325,9 @@ func (m *Manager) BuildLabFrontendWithResult(ctx context.Context) *diagnostic.Bu
 
 // GenerateXatuCBTProtos generates protobuf files for xatu-cbt.
 func (m *Manager) GenerateXatuCBTProtos(ctx context.Context) error {
-	m.log.WithField("repo", "xatu-cbt").Info("generating protos")
+	result := m.GenerateXatuCBTProtosWithResult(ctx)
 
-	// Clean generated proto files before regenerating to avoid stale files
-	if err := m.CleanXatuCBTProtos(); err != nil {
-		m.log.WithError(err).Warn("failed to clean xatu-cbt protos, continuing anyway")
-	}
-
-	if err := m.runMake(ctx, m.cfg.Repos.XatuCBT, "proto"); err != nil {
-		return fmt.Errorf("failed to generate xatu-cbt protos: %w", err)
-	}
-
-	return nil
+	return result.Error
 }
 
 // GenerateXatuCBTProtosWithResult generates protobuf files for xatu-cbt and returns BuildResult.
@@ -440,38 +358,9 @@ func (m *Manager) CleanXatuCBTProtos() error {
 
 // GenerateProtos generates protobuf files for cbt-api.
 func (m *Manager) GenerateProtos(ctx context.Context) error {
-	// Generate cbt-api protos (only for first network, they're network-agnostic)
-	// We'll use mainnet as the source for table schemas
-	network := m.cfg.EnabledNetworks()[0]
+	result := m.GenerateProtosWithResult(ctx)
 
-	m.log.WithFields(logrus.Fields{
-		"repo":    "cbt-api",
-		"network": network.Name,
-	}).Info("generating protos")
-
-	// Clean generated files before regenerating to avoid stale files
-	if err := m.CleanCBTAPIGenerated(); err != nil {
-		m.log.WithError(err).Warn("failed to clean cbt-api generated files, continuing anyway")
-	}
-
-	// Use the generated config file
-	configPath := filepath.Join(".xcli", "configs", fmt.Sprintf("cbt-api-%s.yaml", network.Name))
-
-	absConfigPath, err := filepath.Abs(configPath)
-	if err != nil {
-		return fmt.Errorf("failed to get absolute config path: %w", err)
-	}
-
-	cmd := exec.CommandContext(ctx, "make", "proto")
-	cmd.Dir = m.cfg.Repos.CBTAPI
-
-	cmd.Env = append(os.Environ(), fmt.Sprintf("CONFIG_FILE=%s", absConfigPath))
-
-	if err := executil.RunCmd(cmd, m.verbose); err != nil {
-		return fmt.Errorf("failed to generate cbt-api protos: %w", err)
-	}
-
-	return nil
+	return result.Error
 }
 
 // GenerateProtosWithResult generates protobuf files for cbt-api and returns BuildResult.
@@ -570,18 +459,6 @@ func (m *Manager) dirExists(path string) bool {
 	return info.IsDir()
 }
 
-// runMake runs make with a target in a directory.
-func (m *Manager) runMake(ctx context.Context, dir string, target string) error {
-	cmd := exec.CommandContext(ctx, "make", target)
-	cmd.Dir = dir
-
-	if err := executil.RunCmd(cmd, m.verbose); err != nil {
-		return fmt.Errorf("make %s failed: %w", target, err)
-	}
-
-	return nil
-}
-
 // runMakeWithResult runs make with a target and returns BuildResult.
 func (m *Manager) runMakeWithResult(
 	ctx context.Context,
@@ -594,21 +471,6 @@ func (m *Manager) runMakeWithResult(
 	cmd.Dir = dir
 
 	return executil.RunCmdWithResult(cmd, m.verbose, phase, service)
-}
-
-// buildXatuCBT builds the xatu-cbt binary (Phase 0 only, NOT in BuildAll).
-func (m *Manager) buildXatuCBT(ctx context.Context, force bool) error {
-	binary := filepath.Join(m.cfg.Repos.XatuCBT, "bin", "xatu-cbt")
-
-	if !force && m.binaryExists(binary) {
-		m.log.WithField("repo", "xatu-cbt").Info("binary exists, skipping build")
-
-		return nil
-	}
-
-	m.log.WithField("repo", "xatu-cbt").Info("building project")
-
-	return m.runMake(ctx, m.cfg.Repos.XatuCBT, "build")
 }
 
 // buildCBTFrontend builds the CBT frontend (React/Vite app).
