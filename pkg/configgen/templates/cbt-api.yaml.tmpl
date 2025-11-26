@@ -9,7 +9,7 @@ server:
   idle_timeout: 120s
 
 clickhouse:
-  dsn: "clickhouse://default:supersecret@localhost:9000"
+  dsn: "clickhouse://default:supersecret@localhost:9000?compress=gzip"
   database: "{{ .Network }}"
   use_final: true
   max_open_conns: 10
