@@ -458,7 +458,7 @@ func (m *Manager) runXatuMigrations(ctx context.Context) error {
 	// Using native port (from CLICKHOUSE_XATU_01_NATIVE_PORT) for golang-migrate (more reliable than HTTP)
 	hostPort := net.JoinHostPort(host, port)
 	connStr := fmt.Sprintf(
-		"clickhouse://%s?username=%s&password=%s&database=default&x-multi-statement=true&compress=gzip",
+		"clickhouse://%s?username=%s&password=%s&database=default&x-multi-statement=true&compress=true",
 		hostPort, username, password,
 	)
 
