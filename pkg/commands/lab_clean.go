@@ -156,10 +156,8 @@ func runLabClean(ctx context.Context, log logrus.FieldLogger, configPath string)
 	}
 
 	ui.Success("Lab workspace cleaned successfully!")
-	ui.Header("Next steps:")
-	fmt.Println("  xcli lab build         # Rebuild all projects")
+	ui.Header("Next step:")
 	fmt.Println("  xcli lab up            # Build and start the stack")
-	fmt.Println("  xcli lab up --rebuild  # Force rebuild and start")
 
 	return nil
 }
