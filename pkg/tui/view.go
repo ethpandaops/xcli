@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -59,6 +58,19 @@ func (m Model) View() string {
 		)
 	}
 
+	// Overlay log detail if visible
+	if m.logDetailMode {
+		detailContent := m.renderLogDetail()
+
+		return lipgloss.Place(
+			m.width,
+			m.height,
+			lipgloss.Center,
+			lipgloss.Center,
+			detailContent,
+		)
+	}
+
 	return mainView
 }
 
@@ -110,8 +122,8 @@ func (m Model) renderServicesPanel() string {
 	content := strings.Join(rows, "\n")
 	// Reduced height for top panels (was m.height/2-4, now much smaller)
 	panelHeight := len(m.services) + 4 // Header + separator + services + padding
-	if panelHeight > 12 {
-		panelHeight = 12 // Cap at 12 lines
+	if panelHeight > servicesPanelMaxHeight {
+		panelHeight = servicesPanelMaxHeight
 	}
 
 	// Services panel takes 2/3 of width
@@ -126,8 +138,8 @@ func (m Model) renderRightPanel() string {
 
 	// Calculate height to match services panel
 	panelHeight := len(m.services) + 4
-	if panelHeight > 12 {
-		panelHeight = 12
+	if panelHeight > servicesPanelMaxHeight {
+		panelHeight = servicesPanelMaxHeight
 	}
 
 	var rows []string
@@ -216,29 +228,6 @@ func (m Model) renderLogsPanel() string {
 
 	if m.selectedIndex < len(m.services) {
 		selectedService := m.services[m.selectedIndex].Name
-
-		header := fmt.Sprintf("LOGS: %s", selectedService)
-		if m.followMode {
-			header += " [LIVE]"
-		}
-
-		if m.filterActive {
-			header += fmt.Sprintf(" [FILTER: %s]", m.filterRegex)
-		}
-
-		rows = append(rows, header)
-		rows = append(rows, strings.Repeat("─", 100))
-
-		// Filter bar (if in filter mode)
-		if m.filterMode {
-			filterPrompt := "Filter (regex): " + m.filterInput + "█"
-			filterStyle := lipgloss.NewStyle().
-				Foreground(ColorCyan).
-				Bold(true)
-			rows = append(rows, filterStyle.Render(filterPrompt))
-			rows = append(rows, strings.Repeat("─", 100))
-		}
-
 		logs := m.logs[selectedService]
 
 		// Apply filter if active
@@ -246,11 +235,8 @@ func (m Model) renderLogsPanel() string {
 			logs = m.filterLogs(logs)
 		}
 
-		// Calculate available height: total height - title - top panels - help - status - padding
-		logPanelHeight := m.height - 20 // Reserve 20 lines for other UI elements
-		if logPanelHeight < 10 {
-			logPanelHeight = 10 // Minimum height
-		}
+		// Calculate available height using shared helper
+		logPanelHeight := m.getLogPanelHeight()
 
 		// In follow mode, always show the most recent logs
 		var start, end int
@@ -274,11 +260,47 @@ func (m Model) renderLogsPanel() string {
 			}
 		}
 
+		// Build header with status indicators
+		header := fmt.Sprintf("LOGS: %s", selectedService)
+
+		if m.followMode {
+			header += " [LIVE]"
+		} else {
+			// Show indicator when paused with more logs below
+			logsBelow := len(logs) - end
+			if logsBelow > 0 {
+				header += fmt.Sprintf(" [PAUSED ↓%d more]", logsBelow)
+			} else {
+				header += " [PAUSED]"
+			}
+		}
+
+		if m.filterActive {
+			if m.filterError != nil {
+				header += fmt.Sprintf(" [INVALID REGEX: %s]", m.filterRegex)
+			} else {
+				header += fmt.Sprintf(" [FILTER: %s]", m.filterRegex)
+			}
+		}
+
+		rows = append(rows, header)
+		rows = append(rows, strings.Repeat("─", 100))
+
+		// Filter bar (if in filter mode)
+		if m.filterMode {
+			filterPrompt := "Filter (regex): " + m.filterInput + "█"
+			filterStyle := lipgloss.NewStyle().
+				Foreground(ColorCyan).
+				Bold(true)
+			rows = append(rows, filterStyle.Render(filterPrompt))
+			rows = append(rows, strings.Repeat("─", 100))
+		}
+
 		if start < len(logs) && start >= 0 {
 			maxWidth := m.width - 8 // Leave padding for panel borders
 
 			for _, line := range logs[start:end] {
-				formatted := formatLogLine(line)
+				formatted := m.formatLogLineWithHighlight(line)
 				// Truncate line if too long to prevent wrapping
 				// Use visual length (without ANSI codes) for comparison
 				visualLen := len(stripansi.Strip(formatted))
@@ -308,24 +330,29 @@ func (m Model) renderLogsPanel() string {
 	}
 
 	content := strings.Join(rows, "\n")
-	// Calculate height dynamically
-	logPanelHeight := m.height - 20
-	if logPanelHeight < 10 {
-		logPanelHeight = 10
-	}
 
-	return StylePanel.Width(m.width - 4).Height(logPanelHeight).Render(content)
+	return StylePanel.Width(m.width - 4).Height(m.getLogPanelHeight()).Render(content)
 }
 
 func (m Model) renderHelp() string {
 	var help string
 
-	if m.filterMode {
+	if m.logDetailMode {
+		help = "[↑/↓] Navigate Logs  [Esc] Close Detail"
+	} else if m.filterMode {
 		help = "[Enter] Apply Filter  [Esc] Cancel  [Type to enter regex pattern]"
 	} else if m.filterActive {
-		help = "[↑/↓] Navigate  [Tab] Switch  [f] Filter  [Esc] Clear Filter  [u/d] Scroll  [q] Quit"
+		if m.followMode {
+			help = "[↑/↓] Navigate  [Tab] Switch  [f] Filter  [Esc] Clear  [u/d] Scroll  [q] Quit"
+		} else {
+			help = "[↑/↓] Navigate  [Tab] Switch  [f] Filter  [Esc] Clear  [u/d] Scroll  [g] Follow  [q] Quit"
+		}
 	} else {
-		help = "[↑/↓] Navigate  [Tab] Switch  [Enter] Select  [f] Filter  [r] Rebuild  [u/d] Scroll  [q] Quit"
+		if m.followMode {
+			help = "[↑/↓] Navigate  [Tab] Switch  [Enter] Select  [f] Filter  [r] Rebuild  [u/d] Scroll  [q] Quit"
+		} else {
+			help = "[↑/↓] Navigate  [Tab] Switch  [Enter] Select  [f] Filter  [r] Rebuild  [u/d] Scroll  [g] Follow  [q] Quit"
+		}
 	}
 
 	return StyleHelp.Render(help)
@@ -370,7 +397,8 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
 }
 
-func formatLogLine(line LogLine) string {
+// formatLogLineWithHighlight formats a log line, highlighting filter matches if active.
+func (m Model) formatLogLineWithHighlight(line LogLine) string {
 	// Color the level indicator
 	var levelIndicator string
 
@@ -385,28 +413,222 @@ func formatLogLine(line LogLine) string {
 		levelIndicator = lipgloss.NewStyle().Foreground(ColorBlue).Render("I")
 	}
 
-	// Show level indicator + full log line
-	return fmt.Sprintf("%s %s", levelIndicator, line.Message)
-}
+	message := line.Message
 
-// filterLogs filters log lines based on the active regex pattern.
-func (m Model) filterLogs(logs []LogLine) []LogLine {
-	if m.filterRegex == "" {
-		return logs
+	// Highlight filter matches if filter is active
+	if m.filterActive && m.filterCompiled != nil {
+		message = m.highlightMatches(message)
 	}
 
-	re, err := regexp.Compile(m.filterRegex)
-	if err != nil {
-		// If regex is invalid, return all logs
+	return fmt.Sprintf("%s %s", levelIndicator, message)
+}
+
+// highlightMatches highlights all regex matches in the text with a distinct style.
+func (m Model) highlightMatches(text string) string {
+	if m.filterCompiled == nil {
+		return text
+	}
+
+	highlightStyle := lipgloss.NewStyle().
+		Background(ColorYellow).
+		Foreground(lipgloss.Color("0")). // Black text
+		Bold(true)
+
+	// Find all match indices
+	matches := m.filterCompiled.FindAllStringIndex(text, -1)
+	if len(matches) == 0 {
+		return text
+	}
+
+	// Build result string with highlights
+	var result strings.Builder
+
+	lastEnd := 0
+
+	for _, match := range matches {
+		start, end := match[0], match[1]
+
+		// Add text before match
+		if start > lastEnd {
+			result.WriteString(text[lastEnd:start])
+		}
+
+		// Add highlighted match
+		result.WriteString(highlightStyle.Render(text[start:end]))
+		lastEnd = end
+	}
+
+	// Add remaining text after last match
+	if lastEnd < len(text) {
+		result.WriteString(text[lastEnd:])
+	}
+
+	return result.String()
+}
+
+// filterLogs filters log lines using the pre-compiled regex.
+func (m Model) filterLogs(logs []LogLine) []LogLine {
+	if m.filterCompiled == nil {
 		return logs
 	}
 
 	filtered := make([]LogLine, 0, len(logs))
 	for _, log := range logs {
-		if re.MatchString(log.Message) || re.MatchString(log.Raw) {
+		if m.filterCompiled.MatchString(log.Message) || m.filterCompiled.MatchString(log.Raw) {
 			filtered = append(filtered, log)
 		}
 	}
 
 	return filtered
+}
+
+// renderLogDetail renders the log detail overlay showing the full log line.
+func (m Model) renderLogDetail() string {
+	if m.selectedIndex >= len(m.services) {
+		return ""
+	}
+
+	selectedService := m.services[m.selectedIndex].Name
+	logs := m.logs[selectedService]
+
+	// Apply filter if active
+	if m.filterActive && m.filterCompiled != nil {
+		logs = m.filterLogs(logs)
+	}
+
+	// Calculate visible window using shared helper
+	logPanelHeight := m.getLogPanelHeight()
+
+	var start int
+
+	if m.followMode {
+		if len(logs) > logPanelHeight-2 {
+			start = len(logs) - (logPanelHeight - 2)
+		}
+	} else {
+		start = m.logScroll
+	}
+
+	// Get the selected log line
+	logIndex := start + m.selectedLogIndex
+	if logIndex >= len(logs) || logIndex < 0 {
+		return ""
+	}
+
+	selectedLog := logs[logIndex]
+
+	// Calculate widths based on terminal width
+	panelWidth := m.width - 4          // Account for margins
+	contentWidth := panelWidth - 6     // Account for border and padding
+	separatorWidth := contentWidth - 2 // Slightly smaller for visual padding
+
+	// Build the detail view
+	var rows []string
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorCyan)
+
+	rows = append(rows, titleStyle.Render("LOG DETAIL"))
+	rows = append(rows, strings.Repeat("─", separatorWidth))
+	rows = append(rows, "")
+
+	// Metadata
+	metaStyle := lipgloss.NewStyle().Foreground(ColorGray)
+	rows = append(rows, metaStyle.Render(fmt.Sprintf("Service:   %s", selectedLog.Service)))
+	rows = append(rows, metaStyle.Render(fmt.Sprintf("Timestamp: %s", selectedLog.Timestamp.Format("2006-01-02 15:04:05.000"))))
+	rows = append(rows, metaStyle.Render(fmt.Sprintf("Level:     %s", selectedLog.Level)))
+	rows = append(rows, "")
+	rows = append(rows, strings.Repeat("─", separatorWidth))
+	rows = append(rows, "")
+
+	// Full message with word wrap
+	rows = append(rows, titleStyle.Render("Message:"))
+	wrapped := wrapText(selectedLog.Message, contentWidth)
+
+	// Apply highlighting to each wrapped line if filter is active
+	if m.filterActive && m.filterCompiled != nil {
+		for i, line := range wrapped {
+			wrapped[i] = m.highlightMatches(line)
+		}
+	}
+
+	rows = append(rows, wrapped...)
+	rows = append(rows, "")
+
+	// Raw log if different from message
+	if selectedLog.Raw != "" && selectedLog.Raw != selectedLog.Message {
+		rows = append(rows, strings.Repeat("─", separatorWidth))
+		rows = append(rows, "")
+		rows = append(rows, titleStyle.Render("Raw:"))
+		wrappedRaw := wrapText(selectedLog.Raw, contentWidth)
+
+		// Apply highlighting to each wrapped line if filter is active
+		if m.filterActive && m.filterCompiled != nil {
+			for i, line := range wrappedRaw {
+				wrappedRaw[i] = m.highlightMatches(line)
+			}
+		}
+
+		rows = append(rows, wrappedRaw...)
+	}
+
+	rows = append(rows, "")
+	rows = append(rows, strings.Repeat("─", separatorWidth))
+
+	helpStyle := lipgloss.NewStyle().Foreground(ColorGray).Italic(true)
+	rows = append(rows, helpStyle.Render("[↑/↓] Navigate  [Esc] Close"))
+
+	content := strings.Join(rows, "\n")
+
+	// Create panel style - full width
+	panelStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorCyan).
+		Padding(1, 2).
+		Width(panelWidth)
+
+	return panelStyle.Render(content)
+}
+
+// wrapText wraps text to the specified width.
+func wrapText(text string, width int) []string {
+	if len(text) <= width {
+		return []string{text}
+	}
+
+	var (
+		lines       []string
+		currentLine string
+	)
+
+	words := strings.Fields(text)
+	for _, word := range words {
+		if len(currentLine)+len(word)+1 > width {
+			if currentLine != "" {
+				lines = append(lines, currentLine)
+				currentLine = word
+			} else {
+				// Word is longer than width, force break
+				for len(word) > width {
+					lines = append(lines, word[:width])
+					word = word[width:]
+				}
+
+				currentLine = word
+			}
+		} else {
+			if currentLine != "" {
+				currentLine += " " + word
+			} else {
+				currentLine = word
+			}
+		}
+	}
+
+	if currentLine != "" {
+		lines = append(lines, currentLine)
+	}
+
+	return lines
 }

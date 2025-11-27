@@ -9,7 +9,7 @@ import (
 )
 
 // Run starts the TUI dashboard.
-func Run(orch *orchestrator.Orchestrator) error {
+func Run(orch *orchestrator.Orchestrator, maxLogLines int) error {
 	// Check if running in TTY
 	if !isatty() {
 		return fmt.Errorf("TUI requires an interactive terminal\nUse 'xcli lab status' for non-interactive environments")
@@ -19,7 +19,7 @@ func Run(orch *orchestrator.Orchestrator) error {
 	wrapper := NewOrchestratorWrapper(orch)
 
 	// Initialize model
-	model := NewModel(wrapper)
+	model := NewModel(wrapper, maxLogLines)
 
 	// Start log streaming
 	logStreamer := NewLogStreamer()
@@ -38,7 +38,7 @@ func Run(orch *orchestrator.Orchestrator) error {
 	model.healthMonitor = healthMonitor
 
 	// Run TUI
-	p := tea.NewProgram(model, tea.WithAltScreen())
+	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	// Start goroutine to forward log messages to Bubbletea
 	// This reads from the shared channel that all services write to

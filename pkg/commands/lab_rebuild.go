@@ -337,7 +337,6 @@ func runFullRebuild(
 		EndTime:   configEnd,
 		Duration:  configEnd.Sub(configStart),
 	}
-
 	if configErr != nil {
 		configResult.Error = configErr
 		configResult.ErrorMsg = configErr.Error()
@@ -408,7 +407,6 @@ func runFullRebuild(
 		EndTime:   restartEnd,
 		Duration:  restartEnd.Sub(restartStart),
 	}
-
 	if restartErr != nil {
 		restartResult.Error = restartErr
 		restartResult.ErrorMsg = restartErr.Error()
