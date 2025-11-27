@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -221,10 +222,29 @@ func (m Model) renderLogsPanel() string {
 			header += " [LIVE]"
 		}
 
+		if m.filterActive {
+			header += fmt.Sprintf(" [FILTER: %s]", m.filterRegex)
+		}
+
 		rows = append(rows, header)
 		rows = append(rows, strings.Repeat("─", 100))
 
+		// Filter bar (if in filter mode)
+		if m.filterMode {
+			filterPrompt := "Filter (regex): " + m.filterInput + "█"
+			filterStyle := lipgloss.NewStyle().
+				Foreground(ColorCyan).
+				Bold(true)
+			rows = append(rows, filterStyle.Render(filterPrompt))
+			rows = append(rows, strings.Repeat("─", 100))
+		}
+
 		logs := m.logs[selectedService]
+
+		// Apply filter if active
+		if m.filterActive && m.filterRegex != "" {
+			logs = m.filterLogs(logs)
+		}
 
 		// Calculate available height: total height - title - top panels - help - status - padding
 		logPanelHeight := m.height - 20 // Reserve 20 lines for other UI elements
@@ -298,7 +318,15 @@ func (m Model) renderLogsPanel() string {
 }
 
 func (m Model) renderHelp() string {
-	help := "[↑/↓] Navigate  [Tab] Switch Panel  [Enter] Select  [r] Rebuild  [u/d] Scroll  [q] Quit"
+	var help string
+
+	if m.filterMode {
+		help = "[Enter] Apply Filter  [Esc] Cancel  [Type to enter regex pattern]"
+	} else if m.filterActive {
+		help = "[↑/↓] Navigate  [Tab] Switch  [f] Filter  [Esc] Clear Filter  [u/d] Scroll  [q] Quit"
+	} else {
+		help = "[↑/↓] Navigate  [Tab] Switch  [Enter] Select  [f] Filter  [r] Rebuild  [u/d] Scroll  [q] Quit"
+	}
 
 	return StyleHelp.Render(help)
 }
@@ -359,4 +387,26 @@ func formatLogLine(line LogLine) string {
 
 	// Show level indicator + full log line
 	return fmt.Sprintf("%s %s", levelIndicator, line.Message)
+}
+
+// filterLogs filters log lines based on the active regex pattern.
+func (m Model) filterLogs(logs []LogLine) []LogLine {
+	if m.filterRegex == "" {
+		return logs
+	}
+
+	re, err := regexp.Compile(m.filterRegex)
+	if err != nil {
+		// If regex is invalid, return all logs
+		return logs
+	}
+
+	filtered := make([]LogLine, 0, len(logs))
+	for _, log := range logs {
+		if re.MatchString(log.Message) || re.MatchString(log.Raw) {
+			filtered = append(filtered, log)
+		}
+	}
+
+	return filtered
 }

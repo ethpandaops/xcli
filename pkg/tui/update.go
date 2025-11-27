@@ -93,6 +93,11 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleMenuKeyPress(msg)
 	}
 
+	// Handle filter input mode
+	if m.filterMode {
+		return m.handleFilterKeyPress(msg)
+	}
+
 	switch msg.String() {
 	case "q", "ctrl+c":
 		m.cleanup()
@@ -193,6 +198,57 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Go to bottom and enable follow mode
 		m.followMode = true
 		m.logScroll = 0
+
+	case "f", "/":
+		// Enter filter mode
+		m.filterMode = true
+		m.filterInput = ""
+
+	case "esc":
+		// Clear filter if active
+		if m.filterActive {
+			m.filterActive = false
+			m.filterRegex = ""
+		}
+	}
+
+	return m, nil
+}
+
+func (m Model) handleFilterKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		// Exit filter mode without applying
+		m.filterMode = false
+		m.filterInput = ""
+
+	case tea.KeyEnter:
+		// Apply filter
+		m.filterMode = false
+		if m.filterInput != "" {
+			m.filterRegex = m.filterInput
+			m.filterActive = true
+		} else {
+			// Clear filter if input is empty
+			m.filterActive = false
+			m.filterRegex = ""
+		}
+
+		m.filterInput = ""
+
+	case tea.KeyBackspace:
+		// Remove last character
+		if len(m.filterInput) > 0 {
+			m.filterInput = m.filterInput[:len(m.filterInput)-1]
+		}
+
+	case tea.KeySpace:
+		// Add space
+		m.filterInput += " "
+
+	case tea.KeyRunes:
+		// Add typed characters
+		m.filterInput += string(msg.Runes)
 	}
 
 	return m, nil
