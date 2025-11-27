@@ -36,6 +36,7 @@ type LabConfig struct {
 	Ports          LabPortsConfig       `yaml:"ports"`
 	Dev            LabDevConfig         `yaml:"dev"`
 	CBT            CBTConfig            `yaml:"cbt"`
+	TUI            TUIConfig            `yaml:"tui"`
 }
 
 // LabReposConfig contains paths to lab repositories.
@@ -113,6 +114,14 @@ type CBTConfig struct {
 	DefaultBackfillDuration string `yaml:"defaultBackfillDuration"`
 }
 
+// TUIConfig contains TUI dashboard settings.
+type TUIConfig struct {
+	// MaxLogLines sets the maximum log lines to keep per service in the TUI.
+	// Set to -1 for unlimited (warning: may consume significant memory).
+	// Default: 1000000
+	MaxLogLines int `yaml:"maxLogLines"`
+}
+
 // Default returns a root configuration with sensible defaults.
 func Default() *Config {
 	return &Config{
@@ -164,6 +173,9 @@ func DefaultLab() *LabConfig {
 		},
 		CBT: CBTConfig{
 			DefaultBackfillDuration: "4h", // 4h default
+		},
+		TUI: TUIConfig{
+			MaxLogLines: 1_000_000, // 1 million default
 		},
 	}
 }
@@ -536,5 +548,10 @@ func (c *Config) setDefaults() {
 
 	if c.Lab.Infrastructure.RedisPort == 0 {
 		c.Lab.Infrastructure.RedisPort = 6380
+	}
+
+	// TUI defaults
+	if c.Lab.TUI.MaxLogLines == 0 {
+		c.Lab.TUI.MaxLogLines = 1_000_000
 	}
 }

@@ -49,7 +49,7 @@ For non-interactive use, use 'xcli lab status' instead.`,
 			}
 
 			// Run TUI
-			return tui.Run(orch)
+			return tui.Run(orch, labCfg.TUI.MaxLogLines)
 		},
 	}
 }

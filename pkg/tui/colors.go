@@ -8,6 +8,13 @@ const (
 
 	panelServices = "services"
 	panelActions  = "actions"
+
+	keyEsc = "esc"
+
+	// Layout constants.
+	logPanelReservedHeight = 20 // Lines reserved for title, services panel, help, status bar.
+	logPanelMinHeight      = 10 // Minimum height for log panel.
+	servicesPanelMaxHeight = 12 // Maximum height for services panel.
 )
 
 var (

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"regexp"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -8,6 +9,9 @@ import (
 
 // Model is the Bubbletea application state.
 type Model struct {
+	// Config
+	maxLogLines int // Maximum log lines per service (-1 for unlimited)
+
 	// Data
 	wrapper        *OrchestratorWrapper
 	services       []ServiceInfo
@@ -16,16 +20,20 @@ type Model struct {
 	health         map[string]HealthStatus
 
 	// UI State
-	selectedIndex int
-	activePanel   string // "services", "logs", "infra"
-	logScroll     int
-	followMode    bool // Auto-scroll to bottom as new logs arrive
+	selectedIndex    int
+	activePanel      string // "services", "logs", "infra"
+	logScroll        int
+	followMode       bool // Auto-scroll to bottom as new logs arrive
+	selectedLogIndex int  // Selected log line index (relative to visible logs)
+	logDetailMode    bool // Whether showing full log detail overlay
 
 	// Filter State
-	filterMode   bool   // Whether the filter input is active
-	filterInput  string // Current filter input text
-	filterActive bool   // Whether a filter is currently applied
-	filterRegex  string // The compiled filter regex pattern
+	filterMode     bool           // Whether the filter input is active
+	filterInput    string         // Current filter input text
+	filterActive   bool           // Whether a filter is currently applied
+	filterRegex    string         // The filter regex pattern string
+	filterCompiled *regexp.Regexp // Pre-compiled regex (nil if invalid)
+	filterError    error          // Error from regex compilation (nil if valid)
 
 	// Menu State
 	showMenu    bool         // Whether the context menu is visible
@@ -50,10 +58,11 @@ type Model struct {
 }
 
 // NewModel creates initial model.
-func NewModel(wrapper *OrchestratorWrapper) Model {
+func NewModel(wrapper *OrchestratorWrapper, maxLogLines int) Model {
 	eventBus := NewEventBus()
 
 	return Model{
+		maxLogLines:    maxLogLines,
 		wrapper:        wrapper,
 		services:       []ServiceInfo{},
 		infrastructure: []InfraInfo{},
