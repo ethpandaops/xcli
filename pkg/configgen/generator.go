@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
@@ -66,18 +67,33 @@ func (g *Generator) GenerateCBTConfig(network string, overridesPath string) (str
 	}
 
 	frontendPort := g.cfg.GetCBTFrontendPort(network)
+	externalModelMinTimestamp := time.Now().Add(-1 * time.Hour).Unix()
+
+	// Set sane default for mainnet
+	externalModelMinBlock := 0
+	if network == "mainnet" {
+		externalModelMinBlock = 23800000
+	}
+
+	var genesisTimestamp uint64
+	if timestamp, ok := constants.NetworkGenesisTimestamps[network]; ok {
+		genesisTimestamp = timestamp
+	}
 
 	data := map[string]interface{}{
 		"Network":                    network,
 		"MetricsPort":                metricsPort,
 		"RedisDB":                    redisDB,
 		"FrontendPort":               frontendPort,
+		"GenesisTimestamp":           genesisTimestamp,
 		"IsHybrid":                   g.cfg.Mode == constants.ModeHybrid,
 		"XatuMode":                   g.cfg.Infrastructure.ClickHouse.Xatu.Mode,
 		"ExternalClickHouseURL":      g.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL,
 		"ExternalClickHouseDatabase": externalDatabase,
 		"ExternalClickHouseUsername": g.cfg.Infrastructure.ClickHouse.Xatu.ExternalUsername,
 		"ExternalClickHousePassword": g.cfg.Infrastructure.ClickHouse.Xatu.ExternalPassword,
+		"ExternalModelMinBlock":      externalModelMinBlock,
+		"ExternalModelMinTimestamp":  externalModelMinTimestamp,
 		"OverridesPath":              overridesPath,
 		"HasOverrides":               overridesPath != "",
 	}

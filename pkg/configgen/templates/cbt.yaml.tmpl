@@ -16,6 +16,14 @@ clickhouse:
     scheduled:
       database: "{{ .Network }}"
       table: "admin_cbt_scheduled"
+interval_types:
+  slot:
+    - name: Slot
+      expression: "math.floor((value - {{ .GenesisTimestamp }}) / 12)"
+    - name: Datetime
+      format: datetime
+      expression: "value * 1000"
+    - name: Timestamp
 
 redis:
   url: "redis://localhost:6380/{{ .RedisDB }}"
@@ -35,6 +43,8 @@ models:
 {{- end }}
   env:
     NETWORK: "{{ .Network }}"
+    EXTERNAL_MODEL_MIN_TIMESTAMP: "{{ .ExternalModelMinTimestamp }}"
+    EXTERNAL_MODEL_MIN_BLOCK: "{{ .ExternalModelMinBlock }}"
 
 frontend:
   enabled: true
