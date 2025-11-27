@@ -21,6 +21,12 @@ type Model struct {
 	logScroll     int
 	followMode    bool // Auto-scroll to bottom as new logs arrive
 
+	// Filter State
+	filterMode   bool   // Whether the filter input is active
+	filterInput  string // Current filter input text
+	filterActive bool   // Whether a filter is currently applied
+	filterRegex  string // The compiled filter regex pattern
+
 	// Menu State
 	showMenu    bool         // Whether the context menu is visible
 	menuActions []MenuAction // Current menu actions
@@ -57,6 +63,10 @@ func NewModel(wrapper *OrchestratorWrapper) Model {
 		activePanel:    panelServices,
 		logScroll:      0,
 		followMode:     true, // Start in follow mode
+		filterMode:     false,
+		filterInput:    "",
+		filterActive:   false,
+		filterRegex:    "",
 		updateTicker:   time.NewTicker(2 * time.Second),
 		eventBus:       eventBus,
 	}
