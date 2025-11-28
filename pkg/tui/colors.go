@@ -15,6 +15,13 @@ const (
 	logPanelReservedHeight = 20 // Lines reserved for title, services panel, help, status bar.
 	logPanelMinHeight      = 10 // Minimum height for log panel.
 	servicesPanelMaxHeight = 12 // Maximum height for services panel.
+
+	// Log level filter options (cycle order: ALL -> ERROR -> WARN -> INFO -> DEBUG -> ALL).
+	LogLevelAll   = "ALL"
+	LogLevelError = "ERROR"
+	LogLevelWarn  = "WARN"
+	LogLevelInfo  = "INFO"
+	LogLevelDebug = "DEBUG"
 )
 
 var (
