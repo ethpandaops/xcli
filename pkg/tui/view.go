@@ -230,7 +230,10 @@ func (m Model) renderLogsPanel() string {
 		selectedService := m.services[m.selectedIndex].Name
 		logs := m.logs[selectedService]
 
-		// Apply filter if active
+		// Apply log level filter
+		logs = m.filterLogsByLevel(logs)
+
+		// Apply regex filter if active
 		if m.filterActive && m.filterRegex != "" {
 			logs = m.filterLogs(logs)
 		}
@@ -273,6 +276,11 @@ func (m Model) renderLogsPanel() string {
 			} else {
 				header += " [PAUSED]"
 			}
+		}
+
+		// Show log level filter if not ALL
+		if m.logLevelFilter != LogLevelAll {
+			header += fmt.Sprintf(" [LEVEL: %s+]", m.logLevelFilter)
 		}
 
 		if m.filterActive {
@@ -343,15 +351,15 @@ func (m Model) renderHelp() string {
 		help = "[Enter] Apply Filter  [Esc] Cancel  [Type to enter regex pattern]"
 	} else if m.filterActive {
 		if m.followMode {
-			help = "[↑/↓] Navigate  [Tab] Switch  [f] Filter  [Esc] Clear  [u/d] Scroll  [q] Quit"
+			help = "[↑/↓] Navigate  [Tab] Switch  [f] Filter  [l] Level  [Esc] Clear  [u/d] Scroll  [q] Quit"
 		} else {
-			help = "[↑/↓] Navigate  [Tab] Switch  [f] Filter  [Esc] Clear  [u/d] Scroll  [g] Follow  [q] Quit"
+			help = "[↑/↓] Navigate  [Tab] Switch  [f] Filter  [l] Level  [Esc] Clear  [u/d] Scroll  [g] Follow  [q] Quit"
 		}
 	} else {
 		if m.followMode {
-			help = "[↑/↓] Navigate  [Tab] Switch  [Enter] Select  [f] Filter  [r] Rebuild  [u/d] Scroll  [q] Quit"
+			help = "[↑/↓] Navigate  [Tab] Switch  [Enter] Select  [f] Filter  [l] Level  [r] Rebuild  [u/d] Scroll  [q] Quit"
 		} else {
-			help = "[↑/↓] Navigate  [Tab] Switch  [Enter] Select  [f] Filter  [r] Rebuild  [u/d] Scroll  [g] Follow  [q] Quit"
+			help = "[↑/↓] Navigate  [Tab] Switch  [Enter] Select  [f] Filter  [l] Level  [r] Rebuild  [u/d] Scroll  [g] Follow  [q] Quit"
 		}
 	}
 
@@ -482,6 +490,51 @@ func (m Model) filterLogs(logs []LogLine) []LogLine {
 	return filtered
 }
 
+// filterLogsByLevel filters log lines based on the current log level filter.
+// Each level includes itself and all higher severity levels.
+func (m Model) filterLogsByLevel(logs []LogLine) []LogLine {
+	if m.logLevelFilter == LogLevelAll {
+		return logs
+	}
+
+	filtered := make([]LogLine, 0, len(logs))
+
+	for _, log := range logs {
+		if m.matchesLogLevel(log.Level) {
+			filtered = append(filtered, log)
+		}
+	}
+
+	return filtered
+}
+
+// matchesLogLevel checks if a log level matches the current filter.
+// Each filter level includes itself and all higher severity levels.
+func (m Model) matchesLogLevel(level string) bool {
+	// Normalize level variations
+	normalizedLevel := level
+	switch level {
+	case "ERRO":
+		normalizedLevel = LogLevelError
+	case "WARNING":
+		normalizedLevel = LogLevelWarn
+	}
+
+	switch m.logLevelFilter {
+	case LogLevelError:
+		return normalizedLevel == LogLevelError
+	case LogLevelWarn:
+		return normalizedLevel == LogLevelError || normalizedLevel == LogLevelWarn
+	case LogLevelInfo:
+		return normalizedLevel == LogLevelError || normalizedLevel == LogLevelWarn || normalizedLevel == LogLevelInfo
+	case LogLevelDebug:
+		// DEBUG shows everything (same as ALL)
+		return true
+	default:
+		return true
+	}
+}
+
 // renderLogDetail renders the log detail overlay showing the full log line.
 func (m Model) renderLogDetail() string {
 	if m.selectedIndex >= len(m.services) {
@@ -491,7 +544,10 @@ func (m Model) renderLogDetail() string {
 	selectedService := m.services[m.selectedIndex].Name
 	logs := m.logs[selectedService]
 
-	// Apply filter if active
+	// Apply log level filter
+	logs = m.filterLogsByLevel(logs)
+
+	// Apply regex filter if active
 	if m.filterActive && m.filterCompiled != nil {
 		logs = m.filterLogs(logs)
 	}

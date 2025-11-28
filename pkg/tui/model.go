@@ -34,6 +34,7 @@ type Model struct {
 	filterRegex    string         // The filter regex pattern string
 	filterCompiled *regexp.Regexp // Pre-compiled regex (nil if invalid)
 	filterError    error          // Error from regex compilation (nil if valid)
+	logLevelFilter string         // Current log level filter (ALL, ERROR, WARN, INFO, DEBUG)
 
 	// Menu State
 	showMenu    bool         // Whether the context menu is visible
@@ -76,6 +77,7 @@ func NewModel(wrapper *OrchestratorWrapper, maxLogLines int) Model {
 		filterInput:    "",
 		filterActive:   false,
 		filterRegex:    "",
+		logLevelFilter: LogLevelAll,
 		updateTicker:   time.NewTicker(2 * time.Second),
 		eventBus:       eventBus,
 	}

@@ -212,6 +212,10 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.filterMode = true
 		m.filterInput = ""
 
+	case "l":
+		// Cycle log level filter: ALL -> ERROR -> WARN -> INFO -> DEBUG -> ALL
+		m.logLevelFilter = m.nextLogLevel()
+
 	case keyEsc:
 		// Clear filter if active
 		if m.filterActive {
@@ -579,7 +583,10 @@ func (m Model) getVisibleLogCount() int {
 	selectedService := m.services[m.selectedIndex].Name
 	logs := m.logs[selectedService]
 
-	// Apply filter if active
+	// Apply log level filter
+	logs = m.filterLogsByLevel(logs)
+
+	// Apply regex filter if active
 	if m.filterActive && m.filterCompiled != nil {
 		logs = m.filterLogs(logs)
 	}
@@ -603,7 +610,10 @@ func (m Model) getMaxLogScroll() int {
 	selectedService := m.services[m.selectedIndex].Name
 	logs := m.logs[selectedService]
 
-	// Apply filter if active
+	// Apply log level filter
+	logs = m.filterLogsByLevel(logs)
+
+	// Apply regex filter if active
 	if m.filterActive && m.filterCompiled != nil {
 		logs = m.filterLogs(logs)
 	}
@@ -633,5 +643,23 @@ func (m Model) cleanup() {
 
 	if m.eventBus != nil {
 		m.eventBus.Close()
+	}
+}
+
+// nextLogLevel returns the next log level in the cycle: ALL -> ERROR -> WARN -> INFO -> DEBUG -> ALL.
+func (m Model) nextLogLevel() string {
+	switch m.logLevelFilter {
+	case LogLevelAll:
+		return LogLevelError
+	case LogLevelError:
+		return LogLevelWarn
+	case LogLevelWarn:
+		return LogLevelInfo
+	case LogLevelInfo:
+		return LogLevelDebug
+	case LogLevelDebug:
+		return LogLevelAll
+	default:
+		return LogLevelAll
 	}
 }
