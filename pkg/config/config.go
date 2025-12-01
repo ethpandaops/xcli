@@ -35,7 +35,6 @@ type LabConfig struct {
 	Infrastructure InfrastructureConfig `yaml:"infrastructure"`
 	Ports          LabPortsConfig       `yaml:"ports"`
 	Dev            LabDevConfig         `yaml:"dev"`
-	CBT            CBTConfig            `yaml:"cbt"`
 	TUI            TUIConfig            `yaml:"tui"`
 }
 
@@ -106,14 +105,6 @@ type LabDevConfig struct {
 	HotReload          bool `yaml:"hotReload"`
 }
 
-// CBTConfig contains CBT-specific configuration.
-type CBTConfig struct {
-	// DefaultBackfillDuration sets how far back to allow backfilling
-	// Examples: "2w" (2 weeks), "4w" (4 weeks), "1mo" (1 month), "90d" (90 days)
-	// Default: "4h"
-	DefaultBackfillDuration string `yaml:"defaultBackfillDuration"`
-}
-
 // TUIConfig contains TUI dashboard settings.
 type TUIConfig struct {
 	// MaxLogLines sets the maximum log lines to keep per service in the TUI.
@@ -170,9 +161,6 @@ func DefaultLab() *LabConfig {
 		Dev: LabDevConfig{
 			LabRebuildOnChange: false,
 			HotReload:          true,
-		},
-		CBT: CBTConfig{
-			DefaultBackfillDuration: "4h", // 4h default
 		},
 		TUI: TUIConfig{
 			MaxLogLines: 1_000_000, // 1 million default
