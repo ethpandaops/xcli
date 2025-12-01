@@ -4,7 +4,7 @@ logging: info
 metricsAddr: ":{{ .MetricsPort }}"
 
 clickhouse:
-  url: "http://default:supersecret@localhost:8123"
+  url: "clickhouse://default:supersecret@localhost:9000?compress=true"
   cluster: "{cluster}"
   localSuffix: "_local"
   queryTimeout: 10m
