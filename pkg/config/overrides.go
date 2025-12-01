@@ -1,19 +1,16 @@
 package config
 
 import (
-	"fmt"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ethpandaops/xcli/pkg/constants"
-	"gopkg.in/yaml.v3"
 )
 
 // CBTOverridesConfig represents CBT model overrides configuration.
-// This file allows configuring CBT model behavior without modifying source models.
+// This is used internally by xcli to generate auto-defaults for CBT models.
 type CBTOverridesConfig struct {
 	// Global default limits applied to all incremental models (unless overridden per-model)
 	DefaultLimits *ModelLimits `yaml:"defaultLimits,omitempty"`
@@ -65,57 +62,6 @@ type ScheduleConfig struct {
 
 	// Backfill schedule (cron format) - for incremental models
 	Backfill string `yaml:"backfill,omitempty"`
-}
-
-// DefaultCBTOverrides returns an empty overrides configuration.
-func DefaultCBTOverrides() *CBTOverridesConfig {
-	return &CBTOverridesConfig{
-		Models: make(map[string]ModelOverride),
-	}
-}
-
-// LoadCBTOverrides reads and parses a CBT overrides file.
-func LoadCBTOverrides(path string) (*CBTOverridesConfig, error) {
-	// Check if file exists
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return DefaultCBTOverrides(), nil
-	}
-
-	// Read file
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read overrides file: %w", err)
-	}
-
-	// Parse YAML
-	var cfg CBTOverridesConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse overrides file: %w", err)
-	}
-
-	// Initialize models map if nil
-	if cfg.Models == nil {
-		cfg.Models = make(map[string]ModelOverride)
-	}
-
-	return &cfg, nil
-}
-
-// Save writes the overrides configuration to a file.
-func (c *CBTOverridesConfig) Save(path string) error {
-	// Marshal to YAML
-	data, err := yaml.Marshal(c)
-	if err != nil {
-		return fmt.Errorf("failed to marshal overrides: %w", err)
-	}
-
-	// Write file
-	//nolint:gosec // Overrides file permissions are intentionally 0644 for readability
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		return fmt.Errorf("failed to write overrides file: %w", err)
-	}
-
-	return nil
 }
 
 // ToCBTOverrides converts overrides to CBT's overrides format.
@@ -431,34 +377,4 @@ func (c *CBTOverridesConfig) ApplyLagOverrides(models map[string]int) {
 
 		c.Models[modelName] = modelOverride
 	}
-}
-
-// MergeOverrides merges user overrides on top of generated defaults.
-// User overrides take precedence.
-func MergeOverrides(defaults, user *CBTOverridesConfig) *CBTOverridesConfig {
-	if user == nil {
-		return defaults
-	}
-
-	merged := &CBTOverridesConfig{
-		DefaultLimits: defaults.DefaultLimits,
-		Models:        make(map[string]ModelOverride),
-	}
-
-	// User's default limits override generated defaults
-	if user.DefaultLimits != nil {
-		merged.DefaultLimits = user.DefaultLimits
-	}
-
-	// Start with default models
-	for name, override := range defaults.Models {
-		merged.Models[name] = override
-	}
-
-	// Apply user model overrides (takes precedence)
-	for name, override := range user.Models {
-		merged.Models[name] = override
-	}
-
-	return merged
 }

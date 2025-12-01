@@ -23,6 +23,7 @@ go.work
 # xcli specific
 .xcli/
 .xcli.yaml
+.cbt-overrides.yaml
 
 # OS
 .DS_Store

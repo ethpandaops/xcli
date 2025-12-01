@@ -1,69 +1,105 @@
-# CBT Model Overrides Configuration
+# CBT Configuration Overrides
 #
-# This file allows you to override CBT transformation model configurations
-# without modifying the source models in xatu-cbt.
+# This file is deep-merged on top of the xcli-generated CBT configuration.
+# You can override ANY CBT config settings, not just models.
 #
-# IMPORTANT: xcli automatically generates default overrides with a backfill limit
-# (default: 2 weeks, configurable in .xcli.yaml) to prevent backfilling from genesis
-# in hybrid mode. This file is OPTIONAL and only needed if you want to customize
-# specific models or change the default limit.
+# HOW IT WORKS:
+#   1. xcli generates a base CBT config with sensible defaults
+#   2. xcli adds auto-generated model overrides (backfill limits, schedules, etc.)
+#   3. Your overrides in this file are deep-merged on top (you win!)
 #
-# How it works:
-# 1. xcli calculates configured duration ago (e.g., "2w" = 2 weeks)
-#    - For known networks (mainnet, sepolia, hoodi): uses slot numbers
-#    - For custom networks: uses Unix timestamps (or add genesisTimestamp to .xcli.yaml)
-# 2. User overrides in this file take precedence over the generated defaults
-# 3. Final merged config is written to .xcli/configs/cbt-overrides-{network}.yaml
+# IMPORTANT: Your settings take ULTIMATE precedence. If you override something,
+# xcli's auto-generated defaults will NOT be applied for that setting.
 #
-# Docs: https://github.com/ethpandaops/cbt?tab=readme-ov-file#model-overrides
+# Docs: https://github.com/ethpandaops/cbt
+#
+# ============================================================================
+# WARNING: Be careful when overriding settings outside of models.env/overrides!
+#
+# The following are SAFE to override:
+#   - models.env.*        (environment variables for SQL templates)
+#   - models.overrides.*  (per-model configuration)
+#
+# The following are DANGEROUS and may break xcli functionality:
+#   - clickhouse.*        (database connections - xcli manages these)
+#   - redis.*             (cache connections - xcli manages these)
+#   - models.paths        (model discovery - xcli sets these)
+#   - metricsAddr         (port conflicts possible)
+#   - frontend.addr       (port conflicts possible)
+#
+# Only override dangerous settings if you know what you're doing!
+# ============================================================================
 
-# Optional: Override the default 2-week backfill limit
-# Leave commented to use auto-generated 2-week limit
-# defaultLimits:
-#   min: 10000000  # Custom position (slot number or Unix timestamp depending on model)
-#   max: 0         # No upper limit (0 = unlimited)
-
-# Per-model overrides - customize specific models
+# Model overrides - the safe and common use case
 models:
-  # Example: Override a specific model's limits
-  fct_block:
-    config:
-      limits:
-        min: 9500000  # Custom start position for this model
-      schedules:
-        forwardfill: "@every 1m"
-        backfill: "@every 5m"
+  # Environment variables available in SQL templates via {{ .env.KEY_NAME }}
+  env:
+    EXTERNAL_MODEL_MIN_TIMESTAMP: "0" # don't limit external models by timestamp
+    EXTERNAL_MODEL_MIN_BLOCK: "0" # don't limit external models by block
 
-  # Example: Disable an expensive or unwanted model
-  fct_address_storage_slot_total:
-    enabled: false
+  overrides:
+    # Example: Override a specific model's limits
+    fct_block:
+      config:
+        limits:
+          min: 9500000  # Custom start position for this model
+        schedules:
+          forwardfill: "@every 1m"
+          backfill: "@every 5m"
 
-  # Example: Override just the schedule
-  fct_attestation_first_seen_chunked_50ms:
-    config:
-      schedules:
-        forwardfill: "@every 10s"  # Less frequent in dev
-        backfill: "@every 2m"
+    # Example: Disable an expensive or unwanted model
+    fct_address_storage_slot_total:
+      enabled: false
 
-# Common configurations for different scenarios:
+    # Example: Override just the schedule for a model
+    fct_attestation_first_seen_chunked_50ms:
+      config:
+        schedules:
+          forwardfill: "@every 10s"
+          backfill: "@every 2m"
+
+# ============================================================================
+# ADVANCED: Full CBT config overrides (use with caution!)
+# ============================================================================
+#
+# You can override ANY CBT setting. Examples:
+#
+# # Change worker concurrency (safe)
+# worker:
+#   concurrency: 20
+#
+# # Change scheduler concurrency (safe)
+# scheduler:
+#   concurrency: 5
+#
+# # Override logging level (safe)
+# logging: debug
+#
+# # Override ClickHouse settings (DANGEROUS - may break connectivity)
+# clickhouse:
+#   queryTimeout: 30m
+#
+# ============================================================================
+# Common scenarios
+# ============================================================================
 #
 # Local development (fast iteration, limited data):
-#   defaultLimits:
-#     min: 10000000
-#     max: 10010000  # Only process 10,000 slots
-#
-# Hybrid mode (connect to prod, backfill recent data only):
-#   defaultLimits:
-#     min: 10000000  # Start from recent slot (e.g., ~few months ago)
-#     max: 0         # No upper limit
+#   models:
+#     overrides:
+#       fct_block:
+#         config:
+#           limits:
+#             min: 10000000
+#             max: 10010000  # Only process 10,000 slots
 #
 # Testing specific models:
 #   models:
-#     model_to_test:
-#       config:
-#         limits:
-#           min: 10000000
-#           max: 10001000
-#     # Disable all other expensive models
-#     other_model:
-#       enabled: false
+#     overrides:
+#       model_to_test:
+#         config:
+#           limits:
+#             min: 10000000
+#             max: 10001000
+#       # Disable all other expensive models
+#       other_model:
+#         enabled: false

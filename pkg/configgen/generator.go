@@ -12,6 +12,7 @@ import (
 	"text/template"
 	"time"
 
+	"dario.cat/mergo"
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/sirupsen/logrus"
@@ -30,22 +31,22 @@ const (
 
 // Generator generates service configuration files.
 type Generator struct {
-	log       logrus.FieldLogger
-	cfg       *config.LabConfig
-	overrides *config.CBTOverridesConfig
+	log logrus.FieldLogger
+	cfg *config.LabConfig
 }
 
 // NewGenerator creates a new Generator instance.
-func NewGenerator(log logrus.FieldLogger, cfg *config.LabConfig, overrides *config.CBTOverridesConfig) *Generator {
+func NewGenerator(log logrus.FieldLogger, cfg *config.LabConfig) *Generator {
 	return &Generator{
-		log:       log.WithField("component", "config-generator"),
-		cfg:       cfg,
-		overrides: overrides,
+		log: log.WithField("component", "config-generator"),
+		cfg: cfg,
 	}
 }
 
 // GenerateCBTConfig generates CBT configuration for a network.
-func (g *Generator) GenerateCBTConfig(network string, overridesPath string) (string, error) {
+// It generates a base config from template, then deep merges auto-generated
+// defaults and user overrides on top. User overrides take ultimate precedence.
+func (g *Generator) GenerateCBTConfig(network string, userOverridesPath string) (string, error) {
 	metricsPort := cbtMetricsPortBase
 	redisDB := 0
 
@@ -67,13 +68,6 @@ func (g *Generator) GenerateCBTConfig(network string, overridesPath string) (str
 	}
 
 	frontendPort := g.cfg.GetCBTFrontendPort(network)
-	externalModelMinTimestamp := time.Now().Add(-1 * time.Hour).Unix()
-
-	// Set sane default for mainnet
-	externalModelMinBlock := 0
-	if network == "mainnet" {
-		externalModelMinBlock = 23800000
-	}
 
 	var genesisTimestamp uint64
 	if timestamp, ok := constants.NetworkGenesisTimestamps[network]; ok {
@@ -86,16 +80,7 @@ func (g *Generator) GenerateCBTConfig(network string, overridesPath string) (str
 		"RedisDB":                    redisDB,
 		"FrontendPort":               frontendPort,
 		"GenesisTimestamp":           genesisTimestamp,
-		"IsHybrid":                   g.cfg.Mode == constants.ModeHybrid,
-		"XatuMode":                   g.cfg.Infrastructure.ClickHouse.Xatu.Mode,
-		"ExternalClickHouseURL":      g.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL,
 		"ExternalClickHouseDatabase": externalDatabase,
-		"ExternalClickHouseUsername": g.cfg.Infrastructure.ClickHouse.Xatu.ExternalUsername,
-		"ExternalClickHousePassword": g.cfg.Infrastructure.ClickHouse.Xatu.ExternalPassword,
-		"ExternalModelMinBlock":      externalModelMinBlock,
-		"ExternalModelMinTimestamp":  externalModelMinTimestamp,
-		"OverridesPath":              overridesPath,
-		"HasOverrides":               overridesPath != "",
 	}
 
 	tmpl, err := template.New("cbt-config").ParseFS(templatesFS, "templates/cbt.yaml.tmpl")
@@ -104,11 +89,112 @@ func (g *Generator) GenerateCBTConfig(network string, overridesPath string) (str
 	}
 
 	var buf bytes.Buffer
-	if err := tmpl.ExecuteTemplate(&buf, "cbt-config", data); err != nil {
+
+	err = tmpl.ExecuteTemplate(&buf, "cbt-config", data)
+	if err != nil {
 		return "", fmt.Errorf("failed to execute CBT config template: %w", err)
 	}
 
-	return buf.String(), nil
+	// Parse base config to map for merging
+	var baseConfig map[string]interface{}
+
+	err = yaml.Unmarshal(buf.Bytes(), &baseConfig)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse base config: %w", err)
+	}
+
+	// Generate auto-defaults (env, model overrides for backfill limits, schedules, lag)
+	autoDefaults, err := g.generateAutoDefaults(network)
+	if err != nil {
+		g.log.WithError(err).Warn("failed to generate auto-defaults, continuing without them")
+	} else {
+		// Deep merge auto-defaults into base config
+		err = mergo.Merge(&baseConfig, autoDefaults, mergo.WithOverride)
+		if err != nil {
+			return "", fmt.Errorf("failed to merge auto-defaults: %w", err)
+		}
+	}
+
+	// Load and merge user overrides if file exists
+	if userOverridesPath != "" {
+		userOverrides, loadErr := loadYAMLFile(userOverridesPath)
+		if loadErr != nil {
+			g.log.WithError(loadErr).Warn("failed to load user overrides, continuing without them")
+		} else if len(userOverrides) > 0 {
+			// Deep merge user overrides (user takes ultimate precedence)
+			err = mergo.Merge(&baseConfig, userOverrides, mergo.WithOverride)
+			if err != nil {
+				return "", fmt.Errorf("failed to merge user overrides: %w", err)
+			}
+
+			g.log.WithField("path", userOverridesPath).Debug("merged user CBT overrides")
+		}
+	}
+
+	// Marshal final merged config
+	finalYAML, err := yaml.Marshal(baseConfig)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal final config: %w", err)
+	}
+
+	return string(finalYAML), nil
+}
+
+// generateAutoDefaults creates xcli-generated defaults for models (env, overrides).
+func (g *Generator) generateAutoDefaults(network string) (map[string]interface{}, error) {
+	externalModelMinTimestamp := time.Now().Add(-1 * time.Hour).Unix()
+
+	// Set sane default for mainnet
+	externalModelMinBlock := 0
+	if network == "mainnet" {
+		externalModelMinBlock = 23800000
+	}
+
+	// Build models section with env and overrides
+	modelsSection := map[string]interface{}{
+		"env": map[string]interface{}{
+			"NETWORK":                      network,
+			"EXTERNAL_MODEL_MIN_TIMESTAMP": fmt.Sprintf("%d", externalModelMinTimestamp),
+			"EXTERNAL_MODEL_MIN_BLOCK":     fmt.Sprintf("%d", externalModelMinBlock),
+		},
+	}
+
+	// Generate model overrides (backfill limits, schedules, lag)
+	overridesConfig, err := g.GenerateCBTOverridesConfig(network)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate overrides config: %w", err)
+	}
+
+	if overridesConfig != nil {
+		cbtFormat := overridesConfig.ToCBTOverrides()
+		if overrides, ok := cbtFormat["overrides"]; ok {
+			modelsSection["overrides"] = overrides
+		}
+	}
+
+	return map[string]interface{}{
+		"models": modelsSection,
+	}, nil
+}
+
+// loadYAMLFile loads a YAML file as a generic map.
+// Returns an empty map if the file doesn't exist.
+func loadYAMLFile(path string) (map[string]interface{}, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return make(map[string]interface{}), nil
+		}
+
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	var result map[string]interface{}
+	if err := yaml.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML: %w", err)
+	}
+
+	return result, nil
 }
 
 // GenerateCBTAPIConfig generates cbt-api configuration for a network.
@@ -173,14 +259,10 @@ func (g *Generator) GenerateLabBackendConfig() (string, error) {
 	return buf.String(), nil
 }
 
-// GenerateCBTOverrides generates CBT model overrides configuration.
-// This creates an overrides.yaml file in CBT format by:
-// 1. Generating default overrides (configurable backfill limit from .xcli.yaml)
-// 2. Discovering all models from xatu-cbt
-// 3. Applying default limits to all discovered models
-// 4. Merging with user-provided overrides (if any)
-// 5. Converting to CBT's format.
-func (g *Generator) GenerateCBTOverrides(network string) (string, error) {
+// GenerateCBTOverridesConfig generates auto-generated CBT model overrides.
+// This returns only the xcli-generated defaults (backfill limits, schedules, lag).
+// User overrides are merged separately in GenerateCBTConfig.
+func (g *Generator) GenerateCBTOverridesConfig(network string) (*config.CBTOverridesConfig, error) {
 	// Find network config to get optional genesis timestamp
 	var genesisTimestamp uint64
 
@@ -223,30 +305,7 @@ func (g *Generator) GenerateCBTOverrides(network string) (string, error) {
 		defaultOverrides.ApplyLagOverrides(externalModels)
 	}
 
-	// Merge with user overrides (user takes precedence)
-	finalOverrides := config.MergeOverrides(defaultOverrides, g.overrides)
-
-	// Convert to CBT format
-	cbtOverrides := finalOverrides.ToCBTOverrides()
-	if len(cbtOverrides) == 0 {
-		// No overrides to apply - output empty structure with comment
-		g.log.Warn("no model overrides generated - check that xatu-cbt models are accessible")
-
-		return "# No model overrides configured\nmodels: {}\n", nil
-	}
-
-	// Add models wrapper for CBT format
-	result := map[string]interface{}{
-		"models": cbtOverrides,
-	}
-
-	// Marshal to YAML
-	data, err := yaml.Marshal(result)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal CBT overrides: %w", err)
-	}
-
-	return string(data), nil
+	return defaultOverrides, nil
 }
 
 // discoverTransformationModels scans the xatu-cbt models directory and returns all transformation model names.
