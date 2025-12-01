@@ -38,13 +38,6 @@ models:
     defaultDatabase: "{{ .Network }}"
     paths:
       - "../xatu-cbt/models/transformations"
-{{- if .HasOverrides }}
-  overridesFile: "{{ .OverridesPath }}"  # Model overrides from .lab-overrides.yaml
-{{- end }}
-  env:
-    NETWORK: "{{ .Network }}"
-    EXTERNAL_MODEL_MIN_TIMESTAMP: "{{ .ExternalModelMinTimestamp }}"
-    EXTERNAL_MODEL_MIN_BLOCK: "{{ .ExternalModelMinBlock }}"
 
 frontend:
   enabled: true

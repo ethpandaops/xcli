@@ -42,10 +42,9 @@ const (
 
 // Config file templates.
 const (
-	ConfigFileCBT         = "cbt-%s.yaml"
-	ConfigFileCBTAPI      = "cbt-api-%s.yaml"
-	ConfigFileLabBackend  = "lab-backend.yaml"
-	ConfigFileCBTOverride = "cbt-overrides-%s.yaml"
+	ConfigFileCBT        = "cbt-%s.yaml"
+	ConfigFileCBTAPI     = "cbt-api-%s.yaml"
+	ConfigFileLabBackend = "lab-backend.yaml"
 )
 
 // Configuration files.

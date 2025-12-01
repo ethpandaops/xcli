@@ -8,6 +8,7 @@ Local development orchestration tool for ethPandaOps projects.
 - **Go** 1.23+ (for building Go services)
 - **pnpm** (for lab frontend)
 - All required repositories checked out side-by-side:
+
   ```
   ethpandaops/
   ├── cbt/
@@ -36,9 +37,10 @@ xcli lab status   # Check status
 ```
 
 Services:
-- Lab Frontend: http://localhost:5173
-- Lab Backend: http://localhost:8080
-- cbt-api: http://localhost:8091 (mainnet)
+
+- Lab Frontend: <http://localhost:5173>
+- Lab Backend: <http://localhost:8080>
+- cbt-api: <http://localhost:8091> (mainnet)
 
 ## Interactive Dashboard
 
@@ -49,6 +51,7 @@ xcli lab tui
 ```
 
 Features:
+
 - Real-time service status with health indicators
 - Live log streaming from all services
 - Interactive controls (start/stop/restart with single key)
@@ -56,6 +59,7 @@ Features:
 - Vim-style keyboard navigation
 
 Keyboard shortcuts:
+
 - `↑/↓` or `j/k`: Navigate services
 - `s`: Start service
 - `t`: Stop service
@@ -164,6 +168,7 @@ xcli lab clean
 ### Getting Help
 
 All commands have detailed help text:
+
 ```bash
 xcli lab --help              # List all lab commands
 xcli lab build --help        # Detailed build command help
@@ -192,6 +197,7 @@ infrastructure:
 ```
 
 **Modes:**
+
 - **local**: Complete local development environment
   - All services (ClickHouse, Redis) run locally in Docker
   - No external dependencies required
@@ -205,3 +211,18 @@ infrastructure:
 See [`.xcli.example.yaml`](.xcli.example.yaml) for all options.
 
 Run `xcli lab mode --help` for detailed mode descriptions.
+
+### CBT Overrides
+
+Create `.cbt-overrides.yaml` to customize CBT configuration. This file is deep-merged on top of xcli-generated defaults, so you can override any CBT setting.
+
+```yaml
+models:
+  env:
+    EXTERNAL_MODEL_MIN_BLOCK: "0"
+  overrides:
+    fct_block:
+      enabled: false
+```
+
+See [`.cbt-overrides.example.yaml`](.cbt-overrides.example.yaml) for more examples.

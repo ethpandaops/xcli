@@ -1,8 +1,6 @@
 package config
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -191,65 +189,6 @@ func TestGenerateDefaultOverrides(t *testing.T) {
 	})
 }
 
-func TestMergeOverrides(t *testing.T) {
-	t.Run("uses defaults when user is nil", func(t *testing.T) {
-		defaults := &CBTOverridesConfig{
-			DefaultLimits: &ModelLimits{Min: 1000, Max: 0},
-			Models:        map[string]ModelOverride{},
-		}
-
-		merged := MergeOverrides(defaults, nil)
-
-		assert.Equal(t, defaults.DefaultLimits.Min, merged.DefaultLimits.Min)
-	})
-
-	t.Run("user default limits override generated", func(t *testing.T) {
-		defaults := &CBTOverridesConfig{
-			DefaultLimits: &ModelLimits{Min: 1000, Max: 0},
-			Models:        map[string]ModelOverride{},
-		}
-
-		user := &CBTOverridesConfig{
-			DefaultLimits: &ModelLimits{Min: 5000, Max: 10000},
-			Models:        map[string]ModelOverride{},
-		}
-
-		merged := MergeOverrides(defaults, user)
-
-		assert.Equal(t, user.DefaultLimits.Min, merged.DefaultLimits.Min)
-		assert.Equal(t, user.DefaultLimits.Max, merged.DefaultLimits.Max)
-	})
-
-	t.Run("user model overrides take precedence", func(t *testing.T) {
-		enabled := true
-		disabled := false
-
-		defaults := &CBTOverridesConfig{
-			DefaultLimits: &ModelLimits{Min: 1000},
-			Models: map[string]ModelOverride{
-				"model1": {Enabled: &enabled},
-				"model2": {Enabled: &enabled},
-			},
-		}
-
-		user := &CBTOverridesConfig{
-			Models: map[string]ModelOverride{
-				"model1": {Enabled: &disabled}, // Override to disable
-				"model3": {Enabled: &enabled},  // New model
-			},
-		}
-
-		merged := MergeOverrides(defaults, user)
-
-		// model1 should be disabled (user override)
-		assert.Equal(t, &disabled, merged.Models["model1"].Enabled)
-		// model2 should still be enabled (from defaults)
-		assert.Equal(t, &enabled, merged.Models["model2"].Enabled)
-		// model3 should be enabled (from user)
-		assert.Equal(t, &enabled, merged.Models["model3"].Enabled)
-	})
-}
-
 func TestToCBTOverrides(t *testing.T) {
 	t.Run("converts to CBT format with limits", func(t *testing.T) {
 		enabled := true
@@ -340,90 +279,5 @@ func TestToCBTOverrides(t *testing.T) {
 
 		assert.Equal(t, "@every 1m", schedules["forwardfill"])
 		assert.Equal(t, "@every 5m", schedules["backfill"])
-	})
-}
-
-func TestLoadCBTOverrides(t *testing.T) {
-	t.Run("returns empty config when file doesn't exist", func(t *testing.T) {
-		config, err := LoadCBTOverrides("/nonexistent/path.yaml")
-
-		require.NoError(t, err)
-		require.NotNil(t, config)
-		assert.NotNil(t, config.Models)
-		assert.Nil(t, config.DefaultLimits)
-	})
-
-	t.Run("loads valid overrides file", func(t *testing.T) {
-		// Create temp file
-		tmpDir := t.TempDir()
-		tmpFile := filepath.Join(tmpDir, "test-overrides.yaml")
-
-		content := `defaultLimits:
-  min: 9500000
-  max: 0
-
-models:
-  test_model:
-    enabled: false
-  another_model:
-    config:
-      limits:
-        min: 8000000
-`
-
-		err := os.WriteFile(tmpFile, []byte(content), 0644)
-		require.NoError(t, err)
-
-		config, err := LoadCBTOverrides(tmpFile)
-
-		require.NoError(t, err)
-		require.NotNil(t, config)
-		require.NotNil(t, config.DefaultLimits)
-		assert.Equal(t, uint64(9500000), config.DefaultLimits.Min)
-
-		testModel, ok := config.Models["test_model"]
-		require.True(t, ok)
-		require.NotNil(t, testModel.Enabled)
-		assert.False(t, *testModel.Enabled)
-
-		anotherModel, ok := config.Models["another_model"]
-		require.True(t, ok)
-		require.NotNil(t, anotherModel.Config)
-		require.NotNil(t, anotherModel.Config.Limits)
-		assert.Equal(t, uint64(8000000), anotherModel.Config.Limits.Min)
-	})
-}
-
-func TestSaveCBTOverrides(t *testing.T) {
-	t.Run("saves overrides to file", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		tmpFile := filepath.Join(tmpDir, "test-save.yaml")
-
-		enabled := false
-		config := &CBTOverridesConfig{
-			DefaultLimits: &ModelLimits{Min: 1000000},
-			Models: map[string]ModelOverride{
-				"test_model": {
-					Enabled: &enabled,
-					Config: &ModelConfig{
-						Limits: &ModelLimits{Min: 2000000},
-					},
-				},
-			},
-		}
-
-		err := config.Save(tmpFile)
-		require.NoError(t, err)
-
-		// Verify file exists and can be loaded back
-		loaded, err := LoadCBTOverrides(tmpFile)
-		require.NoError(t, err)
-		require.NotNil(t, loaded.DefaultLimits)
-		assert.Equal(t, config.DefaultLimits.Min, loaded.DefaultLimits.Min)
-
-		testModel, ok := loaded.Models["test_model"]
-		require.True(t, ok)
-		require.NotNil(t, testModel.Enabled)
-		assert.False(t, *testModel.Enabled)
 	})
 }
