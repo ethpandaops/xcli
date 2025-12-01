@@ -7,8 +7,6 @@ import (
 	"embed"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 	"text/template"
 	"time"
 
@@ -150,26 +148,13 @@ func (g *Generator) generateAutoDefaults(network string) (map[string]interface{}
 		externalModelMinBlock = 23800000
 	}
 
-	// Build models section with env and overrides
+	// Build models section with env
 	modelsSection := map[string]interface{}{
 		"env": map[string]interface{}{
 			"NETWORK":                      network,
 			"EXTERNAL_MODEL_MIN_TIMESTAMP": fmt.Sprintf("%d", externalModelMinTimestamp),
 			"EXTERNAL_MODEL_MIN_BLOCK":     fmt.Sprintf("%d", externalModelMinBlock),
 		},
-	}
-
-	// Generate model overrides (backfill limits, schedules, lag)
-	overridesConfig, err := g.GenerateCBTOverridesConfig(network)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate overrides config: %w", err)
-	}
-
-	if overridesConfig != nil {
-		cbtFormat := overridesConfig.ToCBTOverrides()
-		if overrides, ok := cbtFormat["overrides"]; ok {
-			modelsSection["overrides"] = overrides
-		}
 	}
 
 	return map[string]interface{}{
@@ -257,218 +242,4 @@ func (g *Generator) GenerateLabBackendConfig() (string, error) {
 	}
 
 	return buf.String(), nil
-}
-
-// GenerateCBTOverridesConfig generates auto-generated CBT model overrides.
-// This returns only the xcli-generated defaults (backfill limits, schedules, lag).
-// User overrides are merged separately in GenerateCBTConfig.
-func (g *Generator) GenerateCBTOverridesConfig(network string) (*config.CBTOverridesConfig, error) {
-	// Find network config to get optional genesis timestamp
-	var genesisTimestamp uint64
-
-	for _, net := range g.cfg.EnabledNetworks() {
-		if net.Name == network {
-			genesisTimestamp = net.GenesisTimestamp
-
-			break
-		}
-	}
-
-	// Generate default overrides with configured backfill duration
-	backfillDuration := g.cfg.CBT.DefaultBackfillDuration
-	defaultOverrides := config.GenerateDefaultOverrides(network, backfillDuration, genesisTimestamp)
-
-	// Discover all transformation models from xatu-cbt repo
-	modelNames, err := g.discoverTransformationModels()
-	if err != nil {
-		g.log.WithError(err).Warn("failed to discover models, continuing without model-specific defaults")
-	} else if len(modelNames) > 0 {
-		// Apply default limits to all discovered models
-		defaultOverrides.ApplyDefaultLimitsToAllModels(modelNames)
-	}
-
-	// Discover scheduled transformation models and set faster schedules for development
-	scheduledModels, err := g.discoverScheduledTransformationModels()
-	if err != nil {
-		g.log.WithError(err).Warn("failed to discover scheduled models")
-	} else if len(scheduledModels) > 0 {
-		// Apply faster schedules for development (@every 5s instead of 24h)
-		defaultOverrides.ApplyScheduleOverrides(scheduledModels, "@every 5s")
-	}
-
-	// Discover external models and apply lag settings to prevent full table scans
-	externalModels, err := g.discoverExternalModels()
-	if err != nil {
-		g.log.WithError(err).Warn("failed to discover external models")
-	} else if len(externalModels) > 0 {
-		// Apply lag settings for external models
-		defaultOverrides.ApplyLagOverrides(externalModels)
-	}
-
-	return defaultOverrides, nil
-}
-
-// discoverTransformationModels scans the xatu-cbt models directory and returns all transformation model names.
-// Models are identified by .sql files in the models/transformations directory.
-func (g *Generator) discoverTransformationModels() ([]string, error) {
-	xatuCbtPath := g.cfg.Repos.XatuCBT
-	if xatuCbtPath == "" {
-		return nil, fmt.Errorf("xatu-cbt repo path not configured")
-	}
-
-	// Path to transformations models
-	modelsPath := filepath.Join(xatuCbtPath, "models", "transformations")
-
-	// Check if directory exists
-	if _, err := os.Stat(modelsPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("models directory not found: %s", modelsPath)
-	}
-
-	var modelNames []string
-
-	// Walk the transformations directory
-	err := filepath.WalkDir(modelsPath, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Skip directories
-		if d.IsDir() {
-			return nil
-		}
-
-		// Only process .sql files
-		if !strings.HasSuffix(d.Name(), ".sql") {
-			return nil
-		}
-
-		// Extract model name (filename without .sql extension)
-		modelName := strings.TrimSuffix(d.Name(), ".sql")
-		modelNames = append(modelNames, modelName)
-
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to scan models directory: %w", err)
-	}
-
-	g.log.WithField("count", len(modelNames)).Debug("discovered transformation models")
-
-	return modelNames, nil
-}
-
-// discoverScheduledTransformationModels scans transformation models and returns only scheduled ones.
-// Scheduled models use "type: scheduled" instead of "type: incremental" in their frontmatter.
-func (g *Generator) discoverScheduledTransformationModels() ([]string, error) {
-	xatuCbtPath := g.cfg.Repos.XatuCBT
-	if xatuCbtPath == "" {
-		return nil, fmt.Errorf("xatu-cbt repo path not configured")
-	}
-
-	// Path to transformations models
-	modelsPath := filepath.Join(xatuCbtPath, "models", "transformations")
-
-	// Check if directory exists
-	if _, err := os.Stat(modelsPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("models directory not found: %s", modelsPath)
-	}
-
-	var scheduledModels []string
-
-	// Walk the transformations directory
-	err := filepath.WalkDir(modelsPath, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Skip directories
-		if d.IsDir() {
-			return nil
-		}
-
-		// Only process .sql files
-		if !strings.HasSuffix(d.Name(), ".sql") {
-			return nil
-		}
-
-		// Read file to check if it's a scheduled model
-		content, readErr := os.ReadFile(path)
-		if readErr != nil {
-			g.log.WithError(readErr).Warnf("failed to read model file: %s", path)
-
-			return nil // Continue processing other files
-		}
-
-		// Check if the frontmatter contains "type: scheduled"
-		if strings.Contains(string(content), "type: scheduled") {
-			modelName := strings.TrimSuffix(d.Name(), ".sql")
-			scheduledModels = append(scheduledModels, modelName)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to scan models directory: %w", err)
-	}
-
-	g.log.WithField("count", len(scheduledModels)).Debug("discovered scheduled transformation models")
-
-	return scheduledModels, nil
-}
-
-// discoverExternalModels scans external models directory and returns model names with suggested lag settings.
-// Returns a map of model_name -> lag_value.
-func (g *Generator) discoverExternalModels() (map[string]int, error) {
-	xatuCbtPath := g.cfg.Repos.XatuCBT
-	if xatuCbtPath == "" {
-		return nil, fmt.Errorf("xatu-cbt repo path not configured")
-	}
-
-	// Path to external models
-	modelsPath := filepath.Join(xatuCbtPath, "models", "external")
-
-	// Check if directory exists
-	if _, err := os.Stat(modelsPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("external models directory not found: %s", modelsPath)
-	}
-
-	externalModels := make(map[string]int)
-
-	// Walk the external models directory
-	err := filepath.WalkDir(modelsPath, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Skip directories
-		if d.IsDir() {
-			return nil
-		}
-
-		// Only process .sql files
-		if !strings.HasSuffix(d.Name(), ".sql") {
-			return nil
-		}
-
-		// Extract model name (filename without .sql extension)
-		modelName := strings.TrimSuffix(d.Name(), ".sql")
-
-		// Determine lag based on model type
-		// canonical_* models use lag=0, others use lag=12
-		lag := 12
-		if strings.HasPrefix(modelName, "canonical_") {
-			lag = 0
-		}
-
-		externalModels[modelName] = lag
-
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to scan external models directory: %w", err)
-	}
-
-	g.log.WithField("count", len(externalModels)).Debug("discovered external models")
-
-	return externalModels, nil
 }

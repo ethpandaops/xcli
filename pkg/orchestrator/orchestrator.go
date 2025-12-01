@@ -713,13 +713,7 @@ func (o *Orchestrator) GenerateConfigs() error {
 
 	// Generate configs for each network
 	for _, network := range o.cfg.EnabledNetworks() {
-		slotPos, timestampPos := config.CalculateTwoWeeksAgoPosition(network.Name, network.GenesisTimestamp)
-		o.log.WithFields(logrus.Fields{
-			"network":    network.Name,
-			"slot_limit": slotPos,
-			"ts_limit":   timestampPos,
-			"duration":   o.cfg.CBT.DefaultBackfillDuration,
-		}).Info("generating cbt config")
+		o.log.WithField("network", network.Name).Info("generating cbt config")
 
 		// CBT config
 		cbtFilename := fmt.Sprintf(constants.ConfigFileCBT, network.Name)
