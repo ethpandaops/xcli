@@ -47,7 +47,8 @@ api:
   exclude:
     - "*_local"
   # Field whitelist for uint64→string conversion
-  uint64_to_string_fields:
+  bigint_to_string_fields:
+    - peer_id_unique_key
     - consensus_payload_value
     - execution_payload_value
     - block_number

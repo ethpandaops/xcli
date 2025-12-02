@@ -38,6 +38,16 @@ models:
     EXTERNAL_MODEL_MIN_BLOCK: "0" # don't limit external models by block
 
   overrides:
+    fct_data_column_availability_daily:
+      config:
+        limits:
+          min: 13120498
+        schedule: '@every 5s'
+    fct_data_column_availability_hourly:
+      config:
+        limits:
+          min: 13120498
+        schedule: '@every 5s'
     # Example: Override a specific model's limits
     fct_block:
       config:
