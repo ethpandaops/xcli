@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/diagnostic"
 	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
@@ -29,13 +30,26 @@ Examples:
   xcli lab diagnose --ai      # Use Claude Code for AI analysis
   xcli lab diagnose --id xxx  # Diagnose specific report by ID`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Load config to get the correct state directory
+			_, cfgPath, err := config.LoadLabConfig(configPath)
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			// Compute stateDir from config path (same logic as orchestrator)
+			absConfigPath, err := filepath.Abs(cfgPath)
+			if err != nil {
+				return fmt.Errorf("failed to get absolute config path: %w", err)
+			}
+
+			configDir := filepath.Dir(absConfigPath)
+			stateDir := filepath.Join(configDir, ".xcli")
+
 			// Create store for diagnostic reports
-			store := diagnostic.NewStore(log, filepath.Join(".xcli", "errors"))
+			store := diagnostic.NewStore(log, filepath.Join(stateDir, "errors"))
 
 			// Load report (latest or by ID)
 			var report *diagnostic.RebuildReport
-
-			var err error
 
 			if reportID != "" {
 				report, err = store.Load(reportID)

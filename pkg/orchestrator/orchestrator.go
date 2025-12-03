@@ -71,7 +71,7 @@ func NewOrchestrator(log logrus.FieldLogger, cfg *config.LabConfig, configPath s
 		mode:     m,
 		infra:    infrastructure.NewManager(log, cfg, m),
 		proc:     process.NewManager(log, stateDir),
-		builder:  builder.NewManager(log, cfg),
+		builder:  builder.NewManager(log, cfg, stateDir),
 		stateDir: stateDir,
 		verbose:  false,
 	}, nil
