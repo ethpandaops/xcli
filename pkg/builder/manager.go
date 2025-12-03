@@ -20,17 +20,20 @@ import (
 
 // Manager handles building all repositories.
 type Manager struct {
-	log     logrus.FieldLogger
-	cfg     *config.LabConfig
-	verbose bool
+	log      logrus.FieldLogger
+	cfg      *config.LabConfig
+	stateDir string
+	verbose  bool
 }
 
 // NewManager creates a new build manager.
-func NewManager(log logrus.FieldLogger, cfg *config.LabConfig) *Manager {
+// stateDir is the absolute path to the .xcli state directory (where configs are stored).
+func NewManager(log logrus.FieldLogger, cfg *config.LabConfig, stateDir string) *Manager {
 	return &Manager{
-		log:     log.WithField("component", "builder"),
-		cfg:     cfg,
-		verbose: false,
+		log:      log.WithField("component", "builder"),
+		cfg:      cfg,
+		stateDir: stateDir,
+		verbose:  false,
 	}
 }
 
@@ -379,28 +382,14 @@ func (m *Manager) GenerateProtosWithResult(ctx context.Context) *diagnostic.Buil
 		m.log.WithError(err).Warn("failed to clean cbt-api generated files, continuing anyway")
 	}
 
-	// Use the generated config file
-	configPath := filepath.Join(".xcli", "configs", fmt.Sprintf("cbt-api-%s.yaml", network.Name))
-
-	absConfigPath, err := filepath.Abs(configPath)
-	if err != nil {
-		now := time.Now()
-
-		return &diagnostic.BuildResult{
-			Phase:     diagnostic.PhaseProtoGen,
-			Service:   "cbt-api",
-			Success:   false,
-			Error:     fmt.Errorf("failed to get absolute config path: %w", err),
-			ErrorMsg:  fmt.Sprintf("failed to get absolute config path: %v", err),
-			StartTime: now,
-			EndTime:   now,
-		}
-	}
+	// Use the generated config file from the state directory
+	// stateDir is already an absolute path, so the config path will also be absolute
+	configPath := filepath.Join(m.stateDir, "configs", fmt.Sprintf("cbt-api-%s.yaml", network.Name))
 
 	cmd := exec.CommandContext(ctx, "make", "proto")
 	cmd.Dir = m.cfg.Repos.CBTAPI
 
-	cmd.Env = append(os.Environ(), fmt.Sprintf("CONFIG_FILE=%s", absConfigPath))
+	cmd.Env = append(os.Environ(), fmt.Sprintf("CONFIG_FILE=%s", configPath))
 
 	return executil.RunCmdWithResult(cmd, m.verbose, diagnostic.PhaseProtoGen, "cbt-api")
 }

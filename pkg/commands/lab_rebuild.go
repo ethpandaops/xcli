@@ -73,6 +73,15 @@ Note: All rebuild commands automatically restart their respective services if ru
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
+			// Compute stateDir from config path (same logic as orchestrator)
+			absConfigPath, err := filepath.Abs(cfgPath)
+			if err != nil {
+				return fmt.Errorf("failed to get absolute config path: %w", err)
+			}
+
+			configDir := filepath.Dir(absConfigPath)
+			stateDir := filepath.Join(configDir, ".xcli")
+
 			// Create orchestrator
 			orch, err := orchestrator.NewOrchestrator(log, labCfg, cfgPath)
 			if err != nil {
@@ -88,7 +97,7 @@ Note: All rebuild commands automatically restart their respective services if ru
 			// Route to appropriate build
 			switch project {
 			case "xatu-cbt", "all":
-				return runFullRebuild(ctx, log, orch, verbose)
+				return runFullRebuild(ctx, log, orch, verbose, stateDir)
 
 			case "cbt":
 				spinner := ui.NewSpinner("Rebuilding CBT")
@@ -205,10 +214,11 @@ func runFullRebuild(
 	log logrus.FieldLogger,
 	orch *orchestrator.Orchestrator,
 	verbose bool,
+	stateDir string,
 ) error {
 	// Create diagnostic report and store
 	report := diagnostic.NewRebuildReport()
-	store := diagnostic.NewStore(log, filepath.Join(".xcli", "errors"))
+	store := diagnostic.NewStore(log, filepath.Join(stateDir, "errors"))
 
 	ui.Header("Starting full rebuild and restart workflow")
 	fmt.Println("This will:")

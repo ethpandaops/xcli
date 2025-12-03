@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/ethpandaops/xcli/pkg/builder"
 	"github.com/ethpandaops/xcli/pkg/config"
@@ -44,17 +45,26 @@ Key difference from 'rebuild':
 Examples:
   xcli lab build         # Build all projects`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			labCfg, _, err := config.LoadLabConfig(configPath)
+			labCfg, cfgPath, err := config.LoadLabConfig(configPath)
 			if err != nil {
 				return err
 			}
 
 			// Only validate repo paths for build command - infrastructure config not needed
-			if err := labCfg.ValidateRepos(); err != nil {
-				return fmt.Errorf("invalid lab configuration: %w", err)
+			if validateErr := labCfg.ValidateRepos(); validateErr != nil {
+				return fmt.Errorf("invalid lab configuration: %w", validateErr)
 			}
 
-			buildMgr := builder.NewManager(log, labCfg)
+			// Compute stateDir from config path (same logic as orchestrator)
+			absConfigPath, err := filepath.Abs(cfgPath)
+			if err != nil {
+				return fmt.Errorf("failed to get absolute config path: %w", err)
+			}
+
+			configDir := filepath.Dir(absConfigPath)
+			stateDir := filepath.Join(configDir, ".xcli")
+
+			buildMgr := builder.NewManager(log, labCfg, stateDir)
 
 			ui.Header("Building all lab repositories")
 			ui.Blank()
