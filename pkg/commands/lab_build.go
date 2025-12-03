@@ -51,8 +51,8 @@ Examples:
 			}
 
 			// Only validate repo paths for build command - infrastructure config not needed
-			if err := labCfg.ValidateRepos(); err != nil {
-				return fmt.Errorf("invalid lab configuration: %w", err)
+			if validateErr := labCfg.ValidateRepos(); validateErr != nil {
+				return fmt.Errorf("invalid lab configuration: %w", validateErr)
 			}
 
 			// Compute stateDir from config path (same logic as orchestrator)
