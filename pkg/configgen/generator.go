@@ -154,6 +154,7 @@ func (g *Generator) generateAutoDefaults(network string) (map[string]interface{}
 			"NETWORK":                      network,
 			"EXTERNAL_MODEL_MIN_TIMESTAMP": fmt.Sprintf("%d", externalModelMinTimestamp),
 			"EXTERNAL_MODEL_MIN_BLOCK":     fmt.Sprintf("%d", externalModelMinBlock),
+			"MODELS_SCRIPTS_PATH":          "../xatu-cbt/models/scripts",
 		},
 	}
 
