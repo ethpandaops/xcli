@@ -33,9 +33,19 @@
 # Model overrides - the safe and common use case
 models:
   # Environment variables available in SQL templates via {{ .env.KEY_NAME }}
+  #
+  # NOTE: When you override models.env, you REPLACE the entire env section.
+  # xcli auto-generates these defaults which you'll lose if you override env:
+  #   - NETWORK: <network name>
+  #   - EXTERNAL_MODEL_MIN_TIMESTAMP: <1 hour ago>
+  #   - EXTERNAL_MODEL_MIN_BLOCK: <network-specific>
+  #   - MODELS_SCRIPTS_PATH: "../xatu-cbt/models/scripts"
+  #
+  # If you override env, include MODELS_SCRIPTS_PATH to preserve script functionality.
   env:
     EXTERNAL_MODEL_MIN_TIMESTAMP: "0" # don't limit external models by timestamp
     EXTERNAL_MODEL_MIN_BLOCK: "0" # don't limit external models by block
+    MODELS_SCRIPTS_PATH: "../xatu-cbt/models/scripts" # define where to find any script-based models
 
   overrides:
     # Example: Override a specific model's limits
