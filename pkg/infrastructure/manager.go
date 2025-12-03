@@ -295,6 +295,13 @@ func (m *Manager) Status() map[string]bool {
 	return status
 }
 
+// clickHouseClusterHostPrefix is the hostname prefix for ClickHouse clusters.
+// When this prefix is detected, additional DNS checks are performed for individual shards.
+const clickHouseClusterHostPrefix = "chendpoint-xatu-clickhouse"
+
+// clickHouseClusterShards are the shard suffixes for ClickHouse clusters.
+var clickHouseClusterShards = []string{"0-0", "0-1", "1-0", "1-1", "2-0", "2-1"}
+
 // TestExternalConnection tests connectivity to external ClickHouse using docker.
 func (m *Manager) TestExternalConnection(ctx context.Context) error {
 	// Parse the external URL to extract host, port, and credentials
@@ -307,6 +314,11 @@ func (m *Manager) TestExternalConnection(ctx context.Context) error {
 
 	// Extract host and port
 	host := parsedURL.Hostname()
+
+	// Check DNS for cluster shards if using a known ClickHouse cluster endpoint
+	if err := m.checkClusterShardDNS(ctx, host); err != nil {
+		return err
+	}
 
 	port := parsedURL.Port()
 	if port == "" {
@@ -393,6 +405,61 @@ func (m *Manager) TestExternalConnection(ctx context.Context) error {
 	if lastLine != "1" {
 		return fmt.Errorf("unexpected response from ClickHouse (expected '1', got '%s'): %s", lastLine, result)
 	}
+
+	return nil
+}
+
+// checkClusterShardDNS performs DNS lookups for individual shard endpoints
+// when the configured host matches a ClickHouse cluster (e.g., chendpoint-xatu-clickhouse).
+// This helps diagnose connectivity issues to specific shards in the cluster.
+func (m *Manager) checkClusterShardDNS(ctx context.Context, host string) error {
+	// Extract the first component of the hostname
+	dotIdx := strings.Index(host, ".")
+	if dotIdx == -1 {
+		return nil
+	}
+
+	hostPrefix := host[:dotIdx]
+	if hostPrefix != clickHouseClusterHostPrefix {
+		return nil
+	}
+
+	m.log.Info("ClickHouse cluster detected, checking DNS for individual shards")
+
+	domainSuffix := host[dotIdx:]
+
+	var dnsErrors []string
+
+	for _, shard := range clickHouseClusterShards {
+		shardHost := fmt.Sprintf("%s-%s%s", clickHouseClusterHostPrefix, shard, domainSuffix)
+
+		_, err := net.LookupHost(shardHost)
+		if err != nil {
+			ui.Error(fmt.Sprintf("DNS lookup failed for shard %s: %s", shard, shardHost))
+
+			m.log.WithFields(logrus.Fields{
+				"shard": shard,
+				"host":  shardHost,
+				"error": err.Error(),
+			}).Warn("DNS lookup failed for shard")
+
+			dnsErrors = append(dnsErrors, fmt.Sprintf("%s: %v", shardHost, err))
+		} else {
+			ui.Success(fmt.Sprintf("DNS OK for shard %s: %s", shard, shardHost))
+
+			m.log.WithFields(logrus.Fields{
+				"shard": shard,
+				"host":  shardHost,
+			}).Debug("DNS lookup successful for shard")
+		}
+	}
+
+	if len(dnsErrors) > 0 {
+		return fmt.Errorf("DNS lookup failed for %d/%d ClickHouse shards:\n  %s",
+			len(dnsErrors), len(clickHouseClusterShards), strings.Join(dnsErrors, "\n  "))
+	}
+
+	m.log.Info("all ClickHouse shard DNS lookups successful")
 
 	return nil
 }

@@ -144,7 +144,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 
 		o.log.WithField("url", o.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL).Info("testing external ClickHouse connection")
 
-		spinner := ui.NewSpinner("Testing external ClickHouse dsn")
+		spinner := ui.NewSpinner("Testing external ClickHouse DSN")
 
 		if err := o.infra.TestExternalConnection(ctx); err != nil {
 			return fmt.Errorf("failed to connect to external ClickHouse: %w", err)
