@@ -248,6 +248,12 @@ func (m Model) handleLogDetailKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.selectedLogIndex < visibleLogs-1 {
 			m.selectedLogIndex++
 		}
+
+	case "c", "y":
+		// Copy selected log to clipboard (stripped of ANSI codes)
+		if log := m.getSelectedLog(); log != nil {
+			_ = copyToClipboard(log.Message)
+		}
 	}
 
 	return m, nil
@@ -644,6 +650,45 @@ func (m Model) cleanup() {
 	if m.eventBus != nil {
 		m.eventBus.Close()
 	}
+}
+
+// getSelectedLog returns the currently selected log line, or nil if no valid selection.
+func (m Model) getSelectedLog() *LogLine {
+	if m.selectedIndex >= len(m.services) {
+		return nil
+	}
+
+	selectedService := m.services[m.selectedIndex].Name
+	logs := m.logs[selectedService]
+
+	// Apply log level filter
+	logs = m.filterLogsByLevel(logs)
+
+	// Apply regex filter if active
+	if m.filterActive && m.filterCompiled != nil {
+		logs = m.filterLogs(logs)
+	}
+
+	// Calculate visible window
+	logPanelHeight := m.getLogPanelHeight()
+
+	var start int
+
+	if m.followMode {
+		if len(logs) > logPanelHeight-2 {
+			start = len(logs) - (logPanelHeight - 2)
+		}
+	} else {
+		start = m.logScroll
+	}
+
+	// Get the selected log line
+	logIndex := start + m.selectedLogIndex
+	if logIndex >= len(logs) || logIndex < 0 {
+		return nil
+	}
+
+	return &logs[logIndex]
 }
 
 // nextLogLevel returns the next log level in the cycle: ALL -> ERROR -> WARN -> INFO -> DEBUG -> ALL.
