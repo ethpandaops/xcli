@@ -76,6 +76,34 @@ var NetworkGenesisTimestamps = map[string]uint64{
 	"holesky": 1695902400, // Sep 28, 2023 (legacy, use hoodi)
 }
 
+// Releasable projects.
+const (
+	ProjectCBT        = "cbt"
+	ProjectXatuCBT    = "xatu-cbt"
+	ProjectCBTAPI     = "cbt-api"
+	ProjectLabBackend = "lab-backend"
+)
+
+// GitHub workflow files for dispatch triggers.
+const (
+	WorkflowXatuCBTDocker = "docker.yml"
+)
+
+// ReleasableProjects lists all projects that can be released via xcli.
+var ReleasableProjects = []string{
+	ProjectCBT,
+	ProjectCBTAPI,
+	ProjectLabBackend,
+	ProjectXatuCBT,
+}
+
+// SemverProjects lists projects that use semver releases (tag-triggered).
+var SemverProjects = []string{
+	ProjectCBT,
+	ProjectCBTAPI,
+	ProjectLabBackend,
+}
+
 // PID file template.
 const (
 	PIDFileTemplate = "%s.pid"
