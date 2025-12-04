@@ -633,7 +633,7 @@ func (m Model) renderLogDetail() string {
 	rows = append(rows, strings.Repeat("─", separatorWidth))
 
 	helpStyle := lipgloss.NewStyle().Foreground(ColorGray).Italic(true)
-	rows = append(rows, helpStyle.Render("[↑/↓] Navigate  [Esc] Close"))
+	rows = append(rows, helpStyle.Render("[↑/↓] Navigate  [c/y] Copy  [Esc] Close"))
 
 	content := strings.Join(rows, "\n")
 
