@@ -15,9 +15,9 @@ import (
 
 // ghRelease represents the JSON response from gh release list.
 type ghRelease struct {
-	TagName     string `json:"tagName"`
-	IsPrerelase bool   `json:"isPrerelease"`
-	IsDraft     bool   `json:"isDraft"`
+	TagName      string `json:"tagName"`
+	IsPrerelease bool   `json:"isPrerelease"`
+	IsDraft      bool   `json:"isDraft"`
 }
 
 // ghRunInfo represents the JSON response from gh run list.
@@ -98,7 +98,7 @@ func (s *service) getProjectInfo(ctx context.Context, project string) (*ProjectI
 		info.CurrentVersion = "no releases"
 
 		for _, rel := range releases {
-			if !rel.IsPrerelase && !rel.IsDraft {
+			if !rel.IsPrerelease && !rel.IsDraft {
 				info.CurrentVersion = rel.TagName
 				info.Description = fmt.Sprintf("current: %s", rel.TagName)
 
