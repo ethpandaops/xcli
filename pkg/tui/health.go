@@ -121,11 +121,11 @@ func (hm *HealthMonitor) checkService(svc ServiceInfo) HealthStatus {
 
 	if err != nil {
 		prev := hm.services[svc.Name]
-		status.Status = "unhealthy"
+		status.Status = healthUnhealthy
 		status.LastError = err.Error()
 		status.ConsecutiveFailures = prev.ConsecutiveFailures + 1
 	} else {
-		status.Status = "healthy"
+		status.Status = healthHealthy
 		status.ConsecutiveFailures = 0
 	}
 
