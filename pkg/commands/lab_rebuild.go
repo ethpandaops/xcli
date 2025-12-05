@@ -56,11 +56,18 @@ Supported projects:
   lab-frontend - Regenerate API types + restart lab-frontend
                  Use when: cbt-api OpenAPI spec changed
 
+  prometheus   - Regenerate Prometheus config + restart container
+                 Use when: You change scrape targets or config
+
+  grafana      - Regenerate Grafana provisioning + restart container
+                 Use when: You add/modify custom dashboards in .xcli/custom-dashboards/
+
 Examples:
   xcli lab rebuild all               # Full rebuild and restart (alias for xatu-cbt)
   xcli lab rebuild xatu-cbt          # Full model update (same as 'all')
   xcli lab rebuild cbt               # Quick CBT engine iteration
   xcli lab rebuild lab-backend -v    # Rebuild with verbose output
+  xcli lab rebuild grafana           # Reload custom dashboards
 
 Note: All rebuild commands automatically restart their respective services if running.`,
 		Args: cobra.ExactArgs(1),
@@ -195,8 +202,39 @@ Note: All rebuild commands automatically restart their respective services if ru
 					spinner.Success("lab-frontend restarted successfully")
 				}
 
+			case "prometheus":
+				if !labCfg.Infrastructure.Observability.Enabled {
+					return fmt.Errorf("observability is not enabled in config")
+				}
+
+				spinner := ui.NewSpinner("Regenerating Prometheus config")
+
+				if err := orch.RebuildObservability(ctx, "prometheus"); err != nil {
+					spinner.Fail("Failed to rebuild Prometheus")
+
+					return fmt.Errorf("failed to rebuild prometheus: %w", err)
+				}
+
+				spinner.Success("Prometheus config regenerated and container restarted")
+
+			case "grafana":
+				if !labCfg.Infrastructure.Observability.Enabled {
+					return fmt.Errorf("observability is not enabled in config")
+				}
+
+				spinner := ui.NewSpinner("Regenerating Grafana provisioning and dashboards")
+
+				if err := orch.RebuildObservability(ctx, "grafana"); err != nil {
+					spinner.Fail("Failed to rebuild Grafana")
+
+					return fmt.Errorf("failed to rebuild grafana: %w", err)
+				}
+
+				spinner.Success("Grafana provisioning regenerated and container restarted")
+				ui.Info("Custom dashboards loaded from .xcli/custom-dashboards/")
+
 			default:
-				return fmt.Errorf("unknown project: %s\n\nSupported projects: xatu-cbt, cbt, cbt-api, lab-backend, lab-frontend, all", project)
+				return fmt.Errorf("unknown project: %s\n\nSupported projects: xatu-cbt, cbt, cbt-api, lab-backend, lab-frontend, prometheus, grafana, all", project)
 			}
 
 			return nil

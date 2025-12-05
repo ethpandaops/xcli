@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ethpandaops/xcli/pkg/constants"
+	"github.com/ethpandaops/xcli/pkg/infrastructure"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
 )
 
@@ -44,12 +45,39 @@ func (w *OrchestratorWrapper) GetServices() []ServiceInfo {
 	validServices := w.orch.GetValidServices()
 	processes := w.orch.ProcessManager().List()
 
+	// Get observability status if enabled
+	var obsStatus map[string]infrastructure.ContainerStatus
+
+	obsStatus, _ = w.orch.InfrastructureManager().GetObservabilityStatus(context.Background())
+
 	services := make([]ServiceInfo, 0, len(validServices))
 
 	for _, name := range validServices {
+		// Handle observability services (Docker containers) separately
+		if name == constants.ServicePrometheus || name == constants.ServiceGrafana {
+			info := ServiceInfo{
+				Name:   name,
+				Status: statusStopped,
+				URL:    w.orch.GetServiceURL(name),
+				Ports:  w.orch.GetServicePorts(name),
+				Health: "unknown",
+			}
+
+			if status, ok := obsStatus[name]; ok {
+				if status.Running {
+					info.Status = statusRunning
+					info.Health = healthHealthy
+				}
+			}
+
+			services = append(services, info)
+
+			continue
+		}
+
 		info := ServiceInfo{
 			Name:   name,
-			Status: "stopped",
+			Status: statusStopped,
 			URL:    w.orch.GetServiceURL(name),
 			Ports:  w.orch.GetServicePorts(name),
 			Health: "unknown",
@@ -58,7 +86,7 @@ func (w *OrchestratorWrapper) GetServices() []ServiceInfo {
 		// Find running process
 		for _, proc := range processes {
 			if proc.Name == name {
-				info.Status = "running"
+				info.Status = statusRunning
 				info.PID = proc.PID
 				info.Uptime = time.Since(proc.Started)
 				info.LogFile = proc.LogFile

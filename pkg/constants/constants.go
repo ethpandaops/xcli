@@ -33,11 +33,12 @@ const (
 
 // Directory names.
 const (
-	DirBin           = "bin"
-	DirConfigs       = "configs"
-	DirCustomConfigs = "custom-configs"
-	DirLogs          = "logs"
-	DirPIDs          = "pids"
+	DirBin              = "bin"
+	DirConfigs          = "configs"
+	DirCustomConfigs    = "custom-configs"
+	DirCustomDashboards = "custom-dashboards"
+	DirLogs             = "logs"
+	DirPIDs             = "pids"
 )
 
 // Config file templates.
@@ -103,6 +104,29 @@ var SemverProjects = []string{
 	ProjectCBTAPI,
 	ProjectLabBackend,
 }
+
+// Observability stack.
+const (
+	// Service names.
+	ServicePrometheus = "prometheus"
+	ServiceGrafana    = "grafana"
+
+	// Docker images.
+	PrometheusImage = "prom/prometheus:v3.0.1"
+	GrafanaImage    = "grafana/grafana:11.3.1"
+
+	// Default ports.
+	DefaultPrometheusPort = 9090
+	DefaultGrafanaPort    = 3000
+
+	// Container names.
+	ContainerPrometheus = "xcli-prometheus"
+	ContainerGrafana    = "xcli-grafana"
+
+	// Volume names.
+	VolumePrometheus = "xcli-prometheus-data"
+	VolumeGrafana    = "xcli-grafana-data"
+)
 
 // PID file template.
 const (

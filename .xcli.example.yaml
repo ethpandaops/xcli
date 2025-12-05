@@ -69,6 +69,18 @@ infrastructure:
     persist: true  # Use named volumes (data survives down/up cycles)
                   # Set to false for clean slate every restart
 
+  # Observability stack (Prometheus + Grafana)
+  # When enabled, starts Prometheus to scrape all lab service metrics
+  # and Grafana with pre-configured dashboards for monitoring
+  #
+  # Custom dashboards: Place .json files in .xcli/custom-dashboards/
+  # They will be automatically loaded alongside the built-in lab dashboard.
+  # Export dashboards from Grafana UI and drop them in to persist across restarts.
+  observability:
+    enabled: false           # Set to true to enable observability stack
+    prometheusPort: 9090     # Prometheus web UI and API port
+    grafanaPort: 3000        # Grafana web UI port (anonymous admin access)
+
 # Port configuration
 ports:
   labBackend: 8080

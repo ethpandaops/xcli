@@ -45,6 +45,19 @@ func (m *HybridMode) NeedsExternalClickHouse() bool {
 	return true
 }
 
+// GetObservabilityPorts returns ports for observability services (Prometheus, Grafana).
+// Returns nil if observability is disabled.
+func (m *HybridMode) GetObservabilityPorts() []int {
+	if !m.config.Lab.Infrastructure.Observability.Enabled {
+		return nil
+	}
+
+	return []int{
+		m.config.Lab.Infrastructure.Observability.PrometheusPort,
+		m.config.Lab.Infrastructure.Observability.GrafanaPort,
+	}
+}
+
 // ValidateConfig validates that hybrid mode has the required external ClickHouse configuration.
 // Returns an error if the external ClickHouse mode or URL is not properly configured.
 func (m *HybridMode) ValidateConfig(cfg *config.Config) error {

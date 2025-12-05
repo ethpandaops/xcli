@@ -57,12 +57,13 @@ type NetworkConfig struct {
 
 // InfrastructureConfig contains infrastructure settings.
 type InfrastructureConfig struct {
-	ClickHouse         ClickHouseConfig `yaml:"clickhouse"`
-	Redis              RedisConfig      `yaml:"redis"`
-	Volumes            VolumesConfig    `yaml:"volumes"`
-	ClickHouseXatuPort int              `yaml:"clickhouseXatuPort"`
-	ClickHouseCBTPort  int              `yaml:"clickhouseCbtPort"`
-	RedisPort          int              `yaml:"redisPort"`
+	ClickHouse         ClickHouseConfig    `yaml:"clickhouse"`
+	Redis              RedisConfig         `yaml:"redis"`
+	Volumes            VolumesConfig       `yaml:"volumes"`
+	Observability      ObservabilityConfig `yaml:"observability"`
+	ClickHouseXatuPort int                 `yaml:"clickhouseXatuPort"`
+	ClickHouseCBTPort  int                 `yaml:"clickhouseCbtPort"`
+	RedisPort          int                 `yaml:"redisPort"`
 }
 
 // ClickHouseConfig contains ClickHouse cluster configuration.
@@ -88,6 +89,13 @@ type RedisConfig struct {
 // VolumesConfig contains volume settings.
 type VolumesConfig struct {
 	Persist bool `yaml:"persist"`
+}
+
+// ObservabilityConfig contains observability stack settings (Prometheus + Grafana).
+type ObservabilityConfig struct {
+	Enabled        bool `yaml:"enabled"`
+	PrometheusPort int  `yaml:"prometheusPort,omitempty"`
+	GrafanaPort    int  `yaml:"grafanaPort,omitempty"`
 }
 
 // LabPortsConfig contains lab stack port assignments.
@@ -145,8 +153,13 @@ func DefaultLab() *LabConfig {
 				},
 				CBT: ClickHouseClusterConfig{Mode: constants.InfraModeLocal},
 			},
-			Redis:              RedisConfig{Port: 6380},
-			Volumes:            VolumesConfig{Persist: true},
+			Redis:   RedisConfig{Port: 6380},
+			Volumes: VolumesConfig{Persist: true},
+			Observability: ObservabilityConfig{
+				Enabled:        false,
+				PrometheusPort: constants.DefaultPrometheusPort,
+				GrafanaPort:    constants.DefaultGrafanaPort,
+			},
 			ClickHouseXatuPort: 8125,
 			ClickHouseCBTPort:  8123,
 			RedisPort:          6380,
@@ -541,5 +554,14 @@ func (c *Config) setDefaults() {
 	// TUI defaults
 	if c.Lab.TUI.MaxLogLines == 0 {
 		c.Lab.TUI.MaxLogLines = 1_000_000
+	}
+
+	// Observability defaults
+	if c.Lab.Infrastructure.Observability.PrometheusPort == 0 {
+		c.Lab.Infrastructure.Observability.PrometheusPort = constants.DefaultPrometheusPort
+	}
+
+	if c.Lab.Infrastructure.Observability.GrafanaPort == 0 {
+		c.Lab.Infrastructure.Observability.GrafanaPort = constants.DefaultGrafanaPort
 	}
 }

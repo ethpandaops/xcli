@@ -44,6 +44,19 @@ func (m *LocalMode) NeedsExternalClickHouse() bool {
 	return false
 }
 
+// GetObservabilityPorts returns ports for observability services (Prometheus, Grafana).
+// Returns nil if observability is disabled.
+func (m *LocalMode) GetObservabilityPorts() []int {
+	if !m.config.Lab.Infrastructure.Observability.Enabled {
+		return nil
+	}
+
+	return []int{
+		m.config.Lab.Infrastructure.Observability.PrometheusPort,
+		m.config.Lab.Infrastructure.Observability.GrafanaPort,
+	}
+}
+
 // ValidateConfig validates the configuration for local mode.
 // Local mode has no special validation requirements.
 func (m *LocalMode) ValidateConfig(cfg *config.Config) error {
