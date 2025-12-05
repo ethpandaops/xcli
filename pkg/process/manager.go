@@ -155,7 +155,8 @@ func (m *Manager) Stop(ctx context.Context, name string) error {
 
 	p, exists := m.processes[name]
 	if !exists {
-		return fmt.Errorf("process %s is not running", name)
+		// Process is already stopped - goal achieved, return success
+		return nil
 	}
 
 	m.log.WithFields(logrus.Fields{
