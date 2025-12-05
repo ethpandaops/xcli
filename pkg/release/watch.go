@@ -17,6 +17,7 @@ type runStatus struct {
 	CreatedAt  time.Time `json:"createdAt"`
 	UpdatedAt  time.Time `json:"updatedAt"`
 	HTMLURL    string    `json:"url"`
+	HeadSha    string    `json:"headSha"` // Git commit SHA
 }
 
 // WatchRun polls a workflow run until completion or timeout.
@@ -112,6 +113,7 @@ func (s *service) finalizeWatchResult(
 	result.Conclusion = status.Conclusion
 	result.Duration = time.Since(startTime)
 	result.WorkflowURL = status.HTMLURL
+	result.HeadSha = status.HeadSha
 
 	// Get artifacts info
 	artifacts, err := s.getArtifacts(ctx, repo, result.RunID)
@@ -133,7 +135,7 @@ func (s *service) getRunStatus(ctx context.Context, repo, runID string) (*runSta
 	output, err := s.runGH(ctx, "run", "view",
 		runID,
 		"--repo", repo,
-		"--json", "status,conclusion,createdAt,updatedAt,url")
+		"--json", "status,conclusion,createdAt,updatedAt,url,headSha")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get run status: %w", err)
 	}

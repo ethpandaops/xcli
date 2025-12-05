@@ -23,6 +23,7 @@ type ReportEntry struct {
 	URL       string        // Workflow run URL
 	DependsOn []string      // Dependencies (for display)
 	Skipped   bool          // True if skipped due to dependency failure
+	HeadSha   string        // Git commit SHA (for workflow dispatch projects)
 }
 
 // NewReleaseReport creates a new release report.
@@ -81,6 +82,7 @@ func (r *ReleaseReport) UpdateWithWatchResult(project string, watchResult *Watch
 	for i := range r.entries {
 		if r.entries[i].Project == project {
 			r.entries[i].Duration = watchResult.Duration
+			r.entries[i].HeadSha = watchResult.HeadSha
 
 			if watchResult.Conclusion == StatusSuccess {
 				r.entries[i].Status = StatusSuccess

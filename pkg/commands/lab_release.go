@@ -599,14 +599,25 @@ func displayReleaseSummary(report *release.ReleaseReport) {
 	for _, entry := range report.Entries() {
 		var symbol, status, version string
 
+		// Determine the version to display
+		displayVersion := entry.Version
+		if displayVersion == "-" && entry.HeadSha != "" {
+			// For workflow dispatch projects, show the commit SHA
+			if len(entry.HeadSha) > 7 {
+				displayVersion = entry.HeadSha[:7]
+			} else {
+				displayVersion = entry.HeadSha
+			}
+		}
+
 		switch entry.Status {
 		case release.StatusSuccess:
 			symbol = pterm.Green("✓")
 			status = pterm.Green("success")
-			version = pterm.Green(entry.Version)
+			version = pterm.Green(displayVersion)
 		case release.StatusFailed, release.StatusTimedOut:
 			symbol = pterm.Red("✗")
-			version = pterm.Gray(entry.Version)
+			version = pterm.Gray(displayVersion)
 
 			if entry.Error != "" {
 				status = pterm.Red(entry.Error)
@@ -615,15 +626,15 @@ func displayReleaseSummary(report *release.ReleaseReport) {
 			}
 		case release.StatusSkipped:
 			symbol = pterm.Yellow("⊘")
-			version = pterm.Gray(entry.Version)
+			version = pterm.Gray(displayVersion)
 			status = pterm.Yellow(entry.Error)
 		case release.StatusReleased:
 			symbol = pterm.Cyan("→")
-			version = pterm.Cyan(entry.Version)
+			version = pterm.Cyan(displayVersion)
 			status = pterm.Cyan("triggered")
 		default:
 			symbol = pterm.Gray("○")
-			version = pterm.Gray(entry.Version)
+			version = pterm.Gray(displayVersion)
 			status = pterm.Gray(entry.Status)
 		}
 
@@ -647,8 +658,11 @@ func displayReleaseSummary(report *release.ReleaseReport) {
 	successEntries := make([]release.ReportEntry, 0)
 
 	for _, entry := range report.Entries() {
-		if (entry.Status == release.StatusSuccess || entry.Status == release.StatusReleased) && entry.Version != "" && entry.Version != "-" {
-			successEntries = append(successEntries, entry)
+		if entry.Status == release.StatusSuccess || entry.Status == release.StatusReleased {
+			// Include if has a version OR a HeadSha (for workflow dispatch projects)
+			if (entry.Version != "" && entry.Version != "-") || entry.HeadSha != "" {
+				successEntries = append(successEntries, entry)
+			}
 		}
 	}
 
@@ -657,7 +671,13 @@ func displayReleaseSummary(report *release.ReleaseReport) {
 		ui.Info("Released versions:")
 
 		for _, entry := range successEntries {
-			fmt.Printf("  %s: %s\n", pterm.Bold.Sprint(entry.Project), pterm.Cyan(entry.Version))
+			// For workflow dispatch projects, show the full commit SHA
+			displayVersion := entry.Version
+			if (displayVersion == "" || displayVersion == "-") && entry.HeadSha != "" {
+				displayVersion = entry.HeadSha
+			}
+
+			fmt.Printf("  %s: %s\n", pterm.Bold.Sprint(entry.Project), pterm.Cyan(displayVersion))
 
 			if entry.URL != "" {
 				fmt.Printf("    %s\n", pterm.Gray(entry.URL))

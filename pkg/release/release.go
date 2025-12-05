@@ -37,6 +37,7 @@ type WatchResult struct {
 	Duration    time.Duration // How long the build took
 	WorkflowURL string        // URL to the workflow run
 	Artifacts   []string      // List of artifact descriptions
+	HeadSha     string        // Git commit SHA that was built
 	Error       error         // Error if watch itself failed
 }
 
