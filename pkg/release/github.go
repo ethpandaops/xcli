@@ -13,6 +13,9 @@ import (
 	"github.com/ethpandaops/xcli/pkg/constants"
 )
 
+// VersionNotAvailable is used when version info cannot be fetched.
+const VersionNotAvailable = "N/A"
+
 // ghRelease represents the JSON response from gh release list.
 type ghRelease struct {
 	TagName      string `json:"tagName"`
@@ -111,11 +114,57 @@ func (s *service) getProjectInfo(ctx context.Context, project string) (*ProjectI
 		}
 	} else {
 		// xatu-cbt - no semver, just workflow dispatch
-		info.CurrentVersion = "N/A"
-		info.Description = "triggers docker build on master"
+		// Try to get the latest successful workflow run info
+		info.CurrentVersion, info.Description = s.getLatestWorkflowInfo(ctx, repo)
 	}
 
 	return info, nil
+}
+
+// workflowRun represents a GitHub Actions workflow run.
+type workflowRun struct {
+	HeadSha    string `json:"headSha"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+	CreatedAt  string `json:"createdAt"`
+}
+
+// getLatestWorkflowInfo fetches the latest successful docker.yml workflow run.
+// Returns (version, description) for display.
+func (s *service) getLatestWorkflowInfo(ctx context.Context, repo string) (string, string) {
+	// Try to get the latest successful workflow run for docker.yml
+	output, err := s.runGH(ctx, "run", "list",
+		"--repo", repo,
+		"--workflow", "docker.yml",
+		"--status", "success",
+		"--limit", "1",
+		"--json", "headSha,status,conclusion,createdAt")
+	if err != nil {
+		s.log.WithError(err).Debug("failed to get workflow runs")
+
+		return VersionNotAvailable, "workflow dispatch"
+	}
+
+	var runs []workflowRun
+
+	if err := json.Unmarshal([]byte(output), &runs); err != nil {
+		s.log.WithError(err).Debug("failed to parse workflow runs")
+
+		return VersionNotAvailable, "workflow dispatch"
+	}
+
+	if len(runs) == 0 {
+		return VersionNotAvailable, "no successful builds"
+	}
+
+	run := runs[0]
+	shortSha := run.HeadSha
+
+	if len(shortSha) > 12 {
+		shortSha = shortSha[:12]
+	}
+
+	return shortSha, fmt.Sprintf("last build: %s", run.CreatedAt[:10])
 }
 
 // ReleaseSemver creates a new semver release by creating a GitHub release.

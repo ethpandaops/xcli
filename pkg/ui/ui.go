@@ -33,6 +33,12 @@ func Header(message string) {
 	fmt.Printf("%s\n", HeaderStyle.Sprint(message))
 }
 
+// Section prints a prominent section header with separator line.
+func Section(message string) {
+	separator := pterm.Gray("─────────────────────────────────────────────────")
+	fmt.Printf("\n%s\n%s\n", separator, HeaderStyle.Sprint(message))
+}
+
 // Banner prints a prominent banner.
 func Banner(message string) {
 	fmt.Printf("\n%s\n", pterm.DefaultHeader.WithFullWidth().Sprint(message))

@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 )
 
 // runStatus represents the JSON response from gh run view.
@@ -14,6 +17,7 @@ type runStatus struct {
 	CreatedAt  time.Time `json:"createdAt"`
 	UpdatedAt  time.Time `json:"updatedAt"`
 	HTMLURL    string    `json:"url"`
+	HeadSha    string    `json:"headSha"` // Git commit SHA
 }
 
 // WatchRun polls a workflow run until completion or timeout.
@@ -68,7 +72,7 @@ func (s *service) WatchRun(
 		case <-ticker.C:
 			// Check timeout
 			if time.Now().After(deadline) {
-				result.Status = "timed_out"
+				result.Status = StatusTimedOut
 				result.Duration = time.Since(startTime)
 				result.Error = fmt.Errorf("timed out after %v waiting for workflow to complete", opts.Timeout)
 
@@ -109,6 +113,7 @@ func (s *service) finalizeWatchResult(
 	result.Conclusion = status.Conclusion
 	result.Duration = time.Since(startTime)
 	result.WorkflowURL = status.HTMLURL
+	result.HeadSha = status.HeadSha
 
 	// Get artifacts info
 	artifacts, err := s.getArtifacts(ctx, repo, result.RunID)
@@ -118,7 +123,7 @@ func (s *service) finalizeWatchResult(
 		result.Artifacts = artifacts
 	}
 
-	if result.Conclusion != "success" {
+	if result.Conclusion != StatusSuccess {
 		result.Error = fmt.Errorf("workflow completed with conclusion: %s", result.Conclusion)
 	}
 
@@ -130,7 +135,7 @@ func (s *service) getRunStatus(ctx context.Context, repo, runID string) (*runSta
 	output, err := s.runGH(ctx, "run", "view",
 		runID,
 		"--repo", repo,
-		"--json", "status,conclusion,createdAt,updatedAt,url")
+		"--json", "status,conclusion,createdAt,updatedAt,url,headSha")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get run status: %w", err)
 	}
@@ -152,4 +157,114 @@ func (s *service) getArtifacts(ctx context.Context, repo, runID string) ([]strin
 	}
 
 	return artifacts, nil
+}
+
+// MultiWatchResult aggregates watch results for multiple workflow runs.
+type MultiWatchResult struct {
+	Results   map[string]*WatchResult // Keyed by project name
+	StartTime time.Time
+	EndTime   time.Time
+}
+
+// Duration returns total watch duration.
+func (m *MultiWatchResult) Duration() time.Duration {
+	return m.EndTime.Sub(m.StartTime)
+}
+
+// AllSucceeded returns true if all watched builds succeeded.
+func (m *MultiWatchResult) AllSucceeded() bool {
+	for _, r := range m.Results {
+		if r.Conclusion != StatusSuccess {
+			return false
+		}
+	}
+
+	return len(m.Results) > 0
+}
+
+// Get returns the watch result for a specific project.
+func (m *MultiWatchResult) Get(project string) *WatchResult {
+	if m.Results == nil {
+		return nil
+	}
+
+	return m.Results[project]
+}
+
+// WatchItem represents a single item to watch.
+type WatchItem struct {
+	Project string // Project name for identification
+	Repo    string // Full repo (e.g., "ethpandaops/cbt")
+	RunID   string // GitHub Actions run ID
+}
+
+// WatchMultiple watches multiple workflow runs concurrently.
+// Returns results as each completes, respects context cancellation.
+// Uses a single timeout for the entire operation.
+func (s *service) WatchMultiple(
+	ctx context.Context,
+	items []WatchItem,
+	opts WatchOptions,
+	onUpdate func(project string, status string),
+) (*MultiWatchResult, error) {
+	if len(items) == 0 {
+		return &MultiWatchResult{
+			Results:   make(map[string]*WatchResult),
+			StartTime: time.Now(),
+			EndTime:   time.Now(),
+		}, nil
+	}
+
+	result := &MultiWatchResult{
+		Results:   make(map[string]*WatchResult, len(items)),
+		StartTime: time.Now(),
+	}
+
+	// Set default timeout if not specified
+	if opts.Timeout == 0 {
+		opts.Timeout = 30 * time.Minute
+	}
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(ctx, opts.Timeout)
+	defer cancel()
+
+	// Use errgroup for concurrent watching
+	var mu sync.Mutex
+
+	g, gctx := errgroup.WithContext(ctx)
+
+	for _, item := range items {
+		g.Go(func() error {
+			watchResult, err := s.WatchRun(gctx, item.Repo, item.RunID, opts)
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			if err != nil {
+				result.Results[item.Project] = &WatchResult{
+					RunID:  item.RunID,
+					Status: "error",
+					Error:  err,
+				}
+
+				if onUpdate != nil {
+					onUpdate(item.Project, "error")
+				}
+			} else {
+				result.Results[item.Project] = watchResult
+
+				if onUpdate != nil {
+					onUpdate(item.Project, watchResult.Conclusion)
+				}
+			}
+
+			return nil // Don't propagate errors - we want all watches to complete
+		})
+	}
+
+	_ = g.Wait()
+	result.EndTime = time.Now()
+
+	return result, nil
 }
