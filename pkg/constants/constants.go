@@ -82,6 +82,7 @@ const (
 	ProjectXatuCBT    = "xatu-cbt"
 	ProjectCBTAPI     = "cbt-api"
 	ProjectLabBackend = "lab-backend"
+	ProjectLab        = "lab"
 )
 
 // GitHub workflow files for dispatch triggers.
@@ -93,6 +94,7 @@ const (
 var ReleasableProjects = []string{
 	ProjectCBT,
 	ProjectCBTAPI,
+	ProjectLab,
 	ProjectLabBackend,
 	ProjectXatuCBT,
 }
@@ -101,7 +103,71 @@ var ReleasableProjects = []string{
 var SemverProjects = []string{
 	ProjectCBT,
 	ProjectCBTAPI,
+	ProjectLab,
 	ProjectLabBackend,
+}
+
+// ProjectDependencies defines which projects depend on other projects.
+// Key is the dependent project, value is slice of projects it depends on.
+var ProjectDependencies = map[string][]string{
+	ProjectXatuCBT:    {ProjectCBT}, // xatu-cbt imports cbt
+	ProjectLabBackend: {ProjectLab}, // lab-backend bundles lab frontend
+}
+
+// GetDependencies returns the projects that the given project depends on.
+func GetDependencies(project string) []string {
+	if deps, ok := ProjectDependencies[project]; ok {
+		return deps
+	}
+
+	return nil
+}
+
+// GetDependents returns the projects that depend on the given project.
+func GetDependents(project string) []string {
+	dependents := make([]string, 0)
+
+	for dependent, deps := range ProjectDependencies {
+		for _, dep := range deps {
+			if dep == project {
+				dependents = append(dependents, dependent)
+
+				break
+			}
+		}
+	}
+
+	return dependents
+}
+
+// HasDependency returns true if 'dependent' depends on 'dependency'.
+func HasDependency(dependent, dependency string) bool {
+	deps := GetDependencies(dependent)
+	for _, d := range deps {
+		if d == dependency {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ProjectRepoNames maps project names to their repository directory names.
+// Used to look up local repo paths from LabReposConfig.
+var ProjectRepoNames = map[string]string{
+	ProjectCBT:        "cbt",
+	ProjectXatuCBT:    "xatuCbt",
+	ProjectCBTAPI:     "cbtApi",
+	ProjectLabBackend: "labBackend",
+}
+
+// GetRepoConfigKey returns the config key for a project's repo path.
+func GetRepoConfigKey(project string) string {
+	if key, ok := ProjectRepoNames[project]; ok {
+		return key
+	}
+
+	return ""
 }
 
 // PID file template.

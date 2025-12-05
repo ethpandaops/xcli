@@ -15,13 +15,17 @@ import (
 
 // RepoStatus represents the status of a git repository.
 type RepoStatus struct {
-	Path          string
-	Name          string
-	IsUpToDate    bool
-	BehindBy      int
-	AheadBy       int
-	CurrentBranch string
-	Error         error
+	Path             string
+	Name             string
+	IsUpToDate       bool
+	BehindBy         int
+	AheadBy          int
+	CurrentBranch    string
+	HasUncommitted   bool   // True if there are uncommitted changes
+	UncommittedCount int    // Number of uncommitted files
+	CommitsSinceTag  int    // Commits since last tag (release)
+	LatestTag        string // Most recent tag
+	Error            error
 }
 
 // Checker checks git repository status.
@@ -52,6 +56,30 @@ func (c *Checker) CheckRepository(ctx context.Context, repoPath string, repoName
 		status.Error = fmt.Errorf("repository not found")
 
 		return status
+	}
+
+	// Check for uncommitted changes
+	uncommitted, err := c.getUncommittedCount(ctx, repoPath)
+	if err != nil {
+		c.log.WithError(err).WithField("repo", repoName).Debug("failed to check uncommitted changes")
+	} else {
+		status.UncommittedCount = uncommitted
+		status.HasUncommitted = uncommitted > 0
+	}
+
+	// Get latest tag and commits since
+	latestTag, err := c.getLatestTag(ctx, repoPath)
+	if err != nil {
+		c.log.WithError(err).WithField("repo", repoName).Debug("failed to get latest tag (repo may have no tags)")
+	} else {
+		status.LatestTag = latestTag
+
+		commitsSince, tagErr := c.getCommitsSinceTag(ctx, repoPath, latestTag)
+		if tagErr != nil {
+			c.log.WithError(tagErr).WithField("repo", repoName).Debug("failed to count commits since tag")
+		} else {
+			status.CommitsSinceTag = commitsSince
+		}
 	}
 
 	// Get current branch
@@ -187,4 +215,58 @@ func (c *Checker) getCommitDifference(ctx context.Context, repoPath string, loca
 	}
 
 	return behind, ahead, nil
+}
+
+// getUncommittedCount returns the number of uncommitted files (staged + unstaged + untracked).
+func (c *Checker) getUncommittedCount(ctx context.Context, repoPath string) (int, error) {
+	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
+	cmd.Dir = repoPath
+
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+
+	if len(output) == 0 {
+		return 0, nil
+	}
+
+	// Count non-empty lines
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+
+	return len(lines), nil
+}
+
+// getLatestTag returns the most recent tag in the repository.
+func (c *Checker) getLatestTag(ctx context.Context, repoPath string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "describe", "--tags", "--abbrev=0")
+	cmd.Dir = repoPath
+
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(string(output)), nil
+}
+
+// getCommitsSinceTag returns the number of commits since the given tag.
+func (c *Checker) getCommitsSinceTag(ctx context.Context, repoPath string, tag string) (int, error) {
+	//nolint:gosec // tag is from git output, not user input
+	cmd := exec.CommandContext(ctx, "git", "rev-list", "--count", fmt.Sprintf("%s..HEAD", tag))
+	cmd.Dir = repoPath
+
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+
+	var count int
+
+	_, err = fmt.Sscanf(strings.TrimSpace(string(output)), "%d", &count)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
 }

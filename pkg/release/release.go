@@ -49,6 +49,16 @@ const (
 	BumpMajor BumpType = "major"
 )
 
+// Status constants for workflow runs and releases.
+const (
+	StatusSuccess  = "success"
+	StatusFailed   = "failed"
+	StatusTimedOut = "timed_out"
+	StatusSkipped  = "skipped"
+	StatusPending  = "pending"
+	StatusReleased = "released"
+)
+
 // WatchOptions configures the watch behavior.
 type WatchOptions struct {
 	Timeout      time.Duration // Max time to wait (default: 30m)
@@ -80,6 +90,10 @@ type Service interface {
 	// WatchRun polls a workflow run until completion or timeout
 	// Returns WatchResult with final status, duration, and artifacts
 	WatchRun(ctx context.Context, repo string, runID string, opts WatchOptions) (*WatchResult, error)
+
+	// WatchMultiple watches multiple workflow runs concurrently
+	// Returns results as each completes, respects context cancellation
+	WatchMultiple(ctx context.Context, items []WatchItem, opts WatchOptions, onUpdate func(project string, status string)) (*MultiWatchResult, error)
 }
 
 // NewService creates a new release service.
@@ -91,4 +105,61 @@ func NewService(log logrus.FieldLogger) Service {
 
 type service struct {
 	log logrus.FieldLogger
+}
+
+// ProjectReleaseConfig holds release configuration for a single project.
+type ProjectReleaseConfig struct {
+	Project    string       // Project name (e.g., "cbt")
+	BumpType   BumpType     // For semver projects (ignored for workflow dispatch)
+	NewVersion string       // Calculated new version (for display)
+	Info       *ProjectInfo // Project info (version, semver status)
+}
+
+// MultiReleaseResult aggregates results from releasing multiple projects.
+type MultiReleaseResult struct {
+	Results   []ReleaseResult // Individual release results
+	StartTime time.Time       // When the multi-release started
+	EndTime   time.Time       // When the multi-release finished
+}
+
+// Succeeded returns the count of successful releases.
+func (m *MultiReleaseResult) Succeeded() int {
+	count := 0
+
+	for _, r := range m.Results {
+		if r.Success {
+			count++
+		}
+	}
+
+	return count
+}
+
+// Failed returns the count of failed releases.
+func (m *MultiReleaseResult) Failed() int {
+	count := 0
+
+	for _, r := range m.Results {
+		if !r.Success {
+			count++
+		}
+	}
+
+	return count
+}
+
+// Duration returns the total duration of the multi-release.
+func (m *MultiReleaseResult) Duration() time.Duration {
+	return m.EndTime.Sub(m.StartTime)
+}
+
+// AllSucceeded returns true if all releases succeeded.
+func (m *MultiReleaseResult) AllSucceeded() bool {
+	for _, r := range m.Results {
+		if !r.Success {
+			return false
+		}
+	}
+
+	return len(m.Results) > 0
 }
