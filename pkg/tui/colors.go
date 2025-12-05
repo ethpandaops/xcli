@@ -6,6 +6,9 @@ const (
 	statusRunning = "running"
 	statusStopped = "stopped"
 
+	healthHealthy   = "healthy"
+	healthUnhealthy = "unhealthy"
+
 	panelServices = "services"
 	panelActions  = "actions"
 

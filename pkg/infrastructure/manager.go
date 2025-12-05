@@ -17,6 +17,7 @@ import (
 
 	_ "github.com/ClickHouse/clickhouse-go/v2" // clickhouse database driver
 	"github.com/ethpandaops/xcli/pkg/config"
+	"github.com/ethpandaops/xcli/pkg/configgen"
 	"github.com/ethpandaops/xcli/pkg/constants"
 	executil "github.com/ethpandaops/xcli/pkg/exec"
 	"github.com/ethpandaops/xcli/pkg/mode"
@@ -35,16 +36,18 @@ const (
 
 // Manager handles infrastructure via xatu-cbt.
 type Manager struct {
-	log         logrus.FieldLogger
-	cfg         *config.LabConfig
-	mode        mode.Mode
-	xatuCBTPath string
-	verbose     bool
+	log           logrus.FieldLogger
+	cfg           *config.LabConfig
+	mode          mode.Mode
+	xatuCBTPath   string
+	verbose       bool
+	observability *ObservabilityManager
+	xcliDir       string
 }
 
 // NewManager creates a new infrastructure manager.
 // Mode parameter provides mode-specific behavior (services, ports, etc.)
-func NewManager(log logrus.FieldLogger, cfg *config.LabConfig, m mode.Mode) *Manager {
+func NewManager(log logrus.FieldLogger, cfg *config.LabConfig, m mode.Mode, xcliDir string) *Manager {
 	xatuCBTPath := cfg.Repos.XatuCBT + "/bin/xatu-cbt"
 
 	return &Manager{
@@ -53,6 +56,7 @@ func NewManager(log logrus.FieldLogger, cfg *config.LabConfig, m mode.Mode) *Man
 		mode:        m,
 		xatuCBTPath: xatuCBTPath,
 		verbose:     false,
+		xcliDir:     xcliDir,
 	}
 }
 
@@ -129,12 +133,26 @@ func (m *Manager) Start(ctx context.Context) error {
 		m.log.Info("xatu migrations completed successfully")
 	}
 
+	// Start observability stack if enabled
+	if m.cfg.Infrastructure.Observability.Enabled {
+		if err := m.startObservability(ctx); err != nil {
+			return fmt.Errorf("failed to start observability stack: %w", err)
+		}
+	}
+
 	return nil
 }
 
 // Stop stops infrastructure via xatu-cbt.
 func (m *Manager) Stop(ctx context.Context) error {
 	m.log.WithField("mode", m.mode.Name()).Info("stopping infrastructure")
+
+	// Stop observability stack first if enabled
+	if m.cfg.Infrastructure.Observability.Enabled {
+		if err := m.stopObservability(ctx); err != nil {
+			m.log.WithError(err).Warn("failed to stop observability stack")
+		}
+	}
 
 	//nolint:gosec // xatuCBTPath is from config and validated during discovery
 	cmd := exec.CommandContext(ctx, m.xatuCBTPath, "infra", "stop")
@@ -583,4 +601,91 @@ func (m *Manager) runXatuMigrations(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// startObservability initializes and starts the observability stack.
+// It generates the required config files before starting containers.
+func (m *Manager) startObservability(ctx context.Context) error {
+	// Generate observability configs before starting containers
+	// This is done here because infrastructure starts before the main config generation phase
+	configsDir := filepath.Join(m.xcliDir, "configs")
+	if err := os.MkdirAll(configsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create configs directory: %w", err)
+	}
+
+	generator := configgen.NewGenerator(m.log, m.cfg)
+
+	m.log.Debug("generating observability configs")
+
+	if _, err := generator.GeneratePrometheusConfig(configsDir); err != nil {
+		return fmt.Errorf("failed to generate Prometheus config: %w", err)
+	}
+
+	if err := generator.GenerateGrafanaProvisioning(configsDir, m.xcliDir); err != nil {
+		return fmt.Errorf("failed to generate Grafana provisioning: %w", err)
+	}
+
+	// Create and start the observability manager
+	if m.observability == nil {
+		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
+		if err != nil {
+			return fmt.Errorf("failed to create observability manager: %w", err)
+		}
+
+		m.observability = obsMgr
+	}
+
+	return m.observability.Start(ctx)
+}
+
+// stopObservability stops the observability stack.
+func (m *Manager) stopObservability(ctx context.Context) error {
+	if m.observability == nil {
+		// Create manager just for stopping (in case containers exist from previous run)
+		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
+		if err != nil {
+			return fmt.Errorf("failed to create observability manager: %w", err)
+		}
+
+		m.observability = obsMgr
+	}
+
+	return m.observability.Stop(ctx)
+}
+
+// GetObservabilityStatus returns the status of observability containers.
+// Returns an empty map if observability is disabled.
+func (m *Manager) GetObservabilityStatus(ctx context.Context) (map[string]ContainerStatus, error) {
+	if !m.cfg.Infrastructure.Observability.Enabled {
+		return make(map[string]ContainerStatus), nil
+	}
+
+	if m.observability == nil {
+		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create observability manager: %w", err)
+		}
+
+		m.observability = obsMgr
+	}
+
+	return m.observability.Status(ctx)
+}
+
+// RestartObservabilityService restarts a specific observability service.
+func (m *Manager) RestartObservabilityService(ctx context.Context, service string) error {
+	if !m.cfg.Infrastructure.Observability.Enabled {
+		return fmt.Errorf("observability is not enabled")
+	}
+
+	if m.observability == nil {
+		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
+		if err != nil {
+			return fmt.Errorf("failed to create observability manager: %w", err)
+		}
+
+		m.observability = obsMgr
+	}
+
+	return m.observability.RestartService(ctx, service)
 }

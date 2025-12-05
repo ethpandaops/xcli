@@ -102,9 +102,9 @@ func (m Model) renderServicesPanel() string {
 		// Health column
 		healthStr := health
 		switch health {
-		case "healthy":
+		case healthHealthy:
 			healthStr = StyleRunning.Render("✓ " + health)
-		case "unhealthy":
+		case healthUnhealthy:
 			healthStr = StyleError.Render("✗ " + health)
 		}
 

@@ -69,7 +69,7 @@ func NewOrchestrator(log logrus.FieldLogger, cfg *config.LabConfig, configPath s
 		log:      log.WithField("component", "orchestrator"),
 		cfg:      cfg,
 		mode:     m,
-		infra:    infrastructure.NewManager(log, cfg, m),
+		infra:    infrastructure.NewManager(log, cfg, m, stateDir),
 		proc:     process.NewManager(log, stateDir),
 		builder:  builder.NewManager(log, cfg, stateDir),
 		stateDir: stateDir,
@@ -376,6 +376,20 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 		})
 	}
 
+	// Add observability services if enabled
+	if o.cfg.Infrastructure.Observability.Enabled {
+		services = append(services, ui.Service{
+			Name:   "Prometheus",
+			URL:    fmt.Sprintf("http://localhost:%d", o.cfg.Infrastructure.Observability.PrometheusPort),
+			Status: "running",
+		})
+		services = append(services, ui.Service{
+			Name:   "Grafana",
+			URL:    fmt.Sprintf("http://localhost:%d", o.cfg.Infrastructure.Observability.GrafanaPort),
+			Status: "running",
+		})
+	}
+
 	ui.Header("Services")
 	ui.ServiceTable(services)
 	ui.Blank()
@@ -487,6 +501,11 @@ func (o *Orchestrator) Restart(ctx context.Context, service string) error {
 		return fmt.Errorf("unknown service: %s", service)
 	}
 
+	// Handle observability services specially (they're Docker containers, not processes)
+	if service == constants.ServicePrometheus || service == constants.ServiceGrafana {
+		return o.infra.RestartObservabilityService(ctx, service)
+	}
+
 	// Stop the service
 	if err := o.StopService(ctx, service); err != nil {
 		return fmt.Errorf("failed to stop service: %w", err)
@@ -500,6 +519,40 @@ func (o *Orchestrator) Restart(ctx context.Context, service string) error {
 	}
 
 	return nil
+}
+
+// RebuildObservability regenerates config and restarts an observability service.
+func (o *Orchestrator) RebuildObservability(ctx context.Context, service string) error {
+	if !o.cfg.Infrastructure.Observability.Enabled {
+		return fmt.Errorf("observability is not enabled")
+	}
+
+	// Regenerate configs
+	configsDir := filepath.Join(o.stateDir, "configs")
+
+	generator := configgen.NewGenerator(o.log, o.cfg)
+
+	switch service {
+	case constants.ServicePrometheus:
+		o.log.Info("regenerating Prometheus config")
+
+		if _, err := generator.GeneratePrometheusConfig(configsDir); err != nil {
+			return fmt.Errorf("failed to generate Prometheus config: %w", err)
+		}
+
+	case constants.ServiceGrafana:
+		o.log.Info("regenerating Grafana provisioning")
+
+		if err := generator.GenerateGrafanaProvisioning(configsDir, o.stateDir); err != nil {
+			return fmt.Errorf("failed to generate Grafana provisioning: %w", err)
+		}
+
+	default:
+		return fmt.Errorf("unknown observability service: %s", service)
+	}
+
+	// Restart the service
+	return o.infra.RestartObservabilityService(ctx, service)
 }
 
 // StartService starts a specific service by name.
@@ -554,6 +607,13 @@ func (o *Orchestrator) IsValidService(service string) bool {
 		return true
 	}
 
+	// Check observability services if enabled
+	if o.cfg.Infrastructure.Observability.Enabled {
+		if service == constants.ServicePrometheus || service == constants.ServiceGrafana {
+			return true
+		}
+	}
+
 	// Check CBT services for enabled networks
 	for _, network := range o.cfg.EnabledNetworks() {
 		if service == constants.ServiceNameCBT(network.Name) ||
@@ -576,6 +636,12 @@ func (o *Orchestrator) GetValidServices() []string {
 	for _, network := range o.cfg.EnabledNetworks() {
 		services = append(services, constants.ServiceNameCBT(network.Name))
 		services = append(services, constants.ServiceNameCBTAPI(network.Name))
+	}
+
+	// Add observability services if enabled
+	if o.cfg.Infrastructure.Observability.Enabled {
+		services = append(services, constants.ServicePrometheus)
+		services = append(services, constants.ServiceGrafana)
 	}
 
 	return services
@@ -647,6 +713,36 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 	}
 
 	ui.ServiceTable(infraServices)
+
+	// Show observability status if enabled
+	if o.cfg.Infrastructure.Observability.Enabled {
+		ui.Blank()
+		ui.Header("Observability")
+
+		obsStatus, obsErr := o.infra.GetObservabilityStatus(ctx)
+		if obsErr != nil {
+			fmt.Printf("  Error getting observability status: %v\n", obsErr)
+		} else if len(obsStatus) > 0 {
+			obsServices := []ui.Service{}
+
+			for name, status := range obsStatus {
+				state := "down"
+				if status.Running {
+					state = "running"
+				}
+
+				url := fmt.Sprintf("http://localhost:%d", status.Port)
+
+				obsServices = append(obsServices, ui.Service{
+					Name:   name,
+					URL:    url,
+					Status: state,
+				})
+			}
+
+			ui.ServiceTable(obsServices)
+		}
+	}
 
 	// Show services
 	ui.Blank()
@@ -780,6 +876,19 @@ func (o *Orchestrator) GenerateConfigs() error {
 		//nolint:gosec // Config file permissions are intentionally 0644 for readability
 		if err := os.WriteFile(backendPath, []byte(backendConfig), 0644); err != nil {
 			return fmt.Errorf("failed to write lab-backend config: %w", err)
+		}
+	}
+
+	// Generate observability configs if enabled
+	if o.cfg.Infrastructure.Observability.Enabled {
+		o.log.Info("generating observability configs")
+
+		if _, err := generator.GeneratePrometheusConfig(configsDir); err != nil {
+			return fmt.Errorf("failed to generate Prometheus config: %w", err)
+		}
+
+		if err := generator.GenerateGrafanaProvisioning(configsDir, o.stateDir); err != nil {
+			return fmt.Errorf("failed to generate Grafana provisioning: %w", err)
 		}
 	}
 

@@ -23,6 +23,10 @@ type Mode interface {
 	// Hybrid: [8124 (cbt), 6380 (redis), <external-clickhouse-port>]
 	GetHealthCheckPorts() []int
 
+	// GetObservabilityPorts returns ports for observability services (Prometheus, Grafana)
+	// Returns nil if observability is disabled
+	GetObservabilityPorts() []int
+
 	// NeedsExternalClickHouse returns true if hybrid mode
 	NeedsExternalClickHouse() bool
 
