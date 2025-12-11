@@ -226,3 +226,36 @@ models:
 ```
 
 See [`.cbt-overrides.example.yaml`](.cbt-overrides.example.yaml) for more examples.
+
+## xatu-cbt Test Data
+
+Generate seed data parquet files for xatu-cbt tests:
+
+```bash
+# Interactive mode
+xcli lab xatu-cbt generate-seed-data
+
+# Scripted mode
+xcli lab xatu-cbt generate-seed-data \
+  --model consensus_engine_api_new_payload \
+  --network mainnet \
+  --spec fusaka \
+  --range-column slot \
+  --from 1000000 \
+  --to 1001000 \
+  --filter "status = VALID" \
+  --upload
+```
+
+Requires hybrid mode (`xcli lab mode hybrid`) for external ClickHouse access.
+
+### S3 Upload
+
+Set R2/S3 credentials for upload:
+
+```bash
+export AWS_ACCESS_KEY_ID="your-access-key"
+export AWS_SECRET_ACCESS_KEY="your-secret-key"
+```
+
+Defaults to ethpandaops R2 bucket. Override with `S3_ENDPOINT` and `S3_BUCKET` env vars.
