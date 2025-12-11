@@ -216,7 +216,7 @@ func runGenerateTransformationTest(
 
 	rangeSpinner := ui.NewSpinner("Querying external ClickHouse")
 
-	ranges, err := gen.QueryModelRanges(ctx, externalModels, network, rangeInfos)
+	ranges, err := gen.QueryModelRanges(ctx, externalModels, network, rangeInfos, rangeColumn)
 	if err != nil {
 		rangeSpinner.Fail("Failed to query ranges")
 

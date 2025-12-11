@@ -177,12 +177,17 @@ func parseTimeValue(val any) (time.Time, string, error) {
 }
 
 // QueryModelRanges queries ranges for multiple models.
-func (g *Generator) QueryModelRanges(ctx context.Context, models []string, network string, rangeInfos map[string]*RangeColumnInfo) ([]*ModelRange, error) {
+// If overrideColumn is non-empty, it will be used for all models instead of detected columns.
+func (g *Generator) QueryModelRanges(ctx context.Context, models []string, network string, rangeInfos map[string]*RangeColumnInfo, overrideColumn string) ([]*ModelRange, error) {
 	ranges := make([]*ModelRange, 0, len(models))
 
 	for _, model := range models {
 		rangeCol := DefaultRangeColumn
-		if info, ok := rangeInfos[model]; ok {
+
+		// Use override if provided, otherwise use detected column
+		if overrideColumn != "" {
+			rangeCol = overrideColumn
+		} else if info, ok := rangeInfos[model]; ok {
 			rangeCol = info.RangeColumn
 		}
 
