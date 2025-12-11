@@ -270,6 +270,11 @@ func runGenerateSeedData(
 
 	spinner.Success(fmt.Sprintf("Written to: %s (%s)", result.OutputPath, formatFileSize(result.FileSize)))
 
+	// Display sanitized columns if any
+	if len(result.SanitizedColumns) > 0 {
+		ui.Info(fmt.Sprintf("Sanitized IP columns: %v", result.SanitizedColumns))
+	}
+
 	// Upload to S3 if requested
 	var publicURL string
 

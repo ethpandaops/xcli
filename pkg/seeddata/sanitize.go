@@ -180,32 +180,31 @@ func BuildSanitizedColumnExpr(col ColumnInfo, salt string) string {
 	)
 }
 
+// SanitizedColumnResult contains the result of building a sanitized column list.
+type SanitizedColumnResult struct {
+	ColumnExpr       string   // Comma-separated column expressions for SELECT
+	SanitizedColumns []string // Names of columns that were sanitized (for display)
+}
+
 // BuildSanitizedColumnList builds a complete SELECT column list with IP sanitization.
-// Returns a comma-separated string of column expressions.
-// Logs which columns are detected for sanitization.
-func (g *Generator) BuildSanitizedColumnList(ctx context.Context, model, salt string) (string, error) {
+// Returns the column expressions and a list of which columns were sanitized.
+func (g *Generator) BuildSanitizedColumnList(ctx context.Context, model, salt string) (*SanitizedColumnResult, error) {
 	columns, err := g.DescribeTable(ctx, model)
 	if err != nil {
-		return "", fmt.Errorf("failed to describe table %s: %w", model, err)
+		return nil, fmt.Errorf("failed to describe table %s: %w", model, err)
 	}
 
 	if len(columns) == 0 {
-		return "", fmt.Errorf("table %s has no columns", model)
+		return nil, fmt.Errorf("table %s has no columns", model)
 	}
 
-	// Find IP columns for logging
-	ipColumns := make([]string, 0)
+	// Find IP columns for reporting
+	sanitizedCols := make([]string, 0)
 
 	for _, col := range columns {
 		if IsIPColumn(col.Type) {
-			ipColumns = append(ipColumns, fmt.Sprintf("%s (%s)", col.Name, col.Type))
+			sanitizedCols = append(sanitizedCols, fmt.Sprintf("%s (%s)", col.Name, col.Type))
 		}
-	}
-
-	if len(ipColumns) > 0 {
-		g.log.WithField("model", model).WithField("columns", ipColumns).Info("sanitizing IP columns")
-	} else {
-		g.log.WithField("model", model).Debug("no IP columns found to sanitize")
 	}
 
 	// Build column expressions
@@ -216,7 +215,10 @@ func (g *Generator) BuildSanitizedColumnList(ctx context.Context, model, salt st
 		exprs = append(exprs, expr)
 	}
 
-	return strings.Join(exprs, ", "), nil
+	return &SanitizedColumnResult{
+		ColumnExpr:       strings.Join(exprs, ", "),
+		SanitizedColumns: sanitizedCols,
+	}, nil
 }
 
 // CountIPColumns counts the number of IP columns in a table schema.

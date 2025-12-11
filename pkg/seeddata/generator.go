@@ -63,9 +63,10 @@ type Filter struct {
 
 // GenerateResult contains the result of seed data generation.
 type GenerateResult struct {
-	OutputPath string // Path to generated parquet file
-	RowCount   int64  // Number of rows extracted (estimated from file size)
-	FileSize   int64  // File size in bytes
+	OutputPath       string   // Path to generated parquet file
+	RowCount         int64    // Number of rows extracted (estimated from file size)
+	FileSize         int64    // File size in bytes
+	SanitizedColumns []string // IP columns that were sanitized (for display to user)
 }
 
 // Generate extracts data from external ClickHouse and writes to a parquet file.
@@ -93,13 +94,16 @@ func (g *Generator) Generate(ctx context.Context, opts GenerateOptions) (*Genera
 	}
 
 	// Build sanitized column list if IP sanitization is enabled
+	var sanitizedColumns []string
+
 	if opts.SanitizeIPs && opts.Salt != "" {
-		columns, err := g.BuildSanitizedColumnList(ctx, opts.Model, opts.Salt)
+		result, err := g.BuildSanitizedColumnList(ctx, opts.Model, opts.Salt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build sanitized column list: %w", err)
 		}
 
-		opts.sanitizedColumns = columns
+		opts.sanitizedColumns = result.ColumnExpr
+		sanitizedColumns = result.SanitizedColumns
 	}
 
 	// Build the SQL query
@@ -118,9 +122,9 @@ func (g *Generator) Generate(ctx context.Context, opts GenerateOptions) (*Genera
 	}
 
 	return &GenerateResult{
-		OutputPath: opts.OutputPath,
-		FileSize:   fileSize,
-		// Row count estimation could be added later if needed
+		OutputPath:       opts.OutputPath,
+		FileSize:         fileSize,
+		SanitizedColumns: sanitizedColumns,
 	}, nil
 }
 

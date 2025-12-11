@@ -344,6 +344,11 @@ func runGenerateTransformationTest(
 
 		genSpinner.Success(fmt.Sprintf("%s (%s)", extModel, formatFileSize(result.FileSize)))
 
+		// Display sanitized columns if any
+		if len(result.SanitizedColumns) > 0 {
+			ui.Info(fmt.Sprintf("  Sanitized IP columns: %v", result.SanitizedColumns))
+		}
+
 		// Upload if requested
 		if upload && uploader != nil {
 			uploadSpinner := ui.NewSpinner(fmt.Sprintf("Uploading %s", extModel))
