@@ -46,6 +46,12 @@ type GenerateOptions struct {
 	Filters     []Filter // Additional filters
 	Limit       int      // Max rows (0 = unlimited)
 	OutputPath  string   // Output file path
+	SanitizeIPs bool     // Enable IP address sanitization
+	Salt        string   // Salt for IP sanitization (shared across batch for consistency)
+
+	// sanitizedColumns is an internal field set by Generate() when SanitizeIPs is true.
+	// It contains the pre-computed column list with IP sanitization expressions.
+	sanitizedColumns string
 }
 
 // Filter represents an additional WHERE clause filter.
@@ -57,9 +63,10 @@ type Filter struct {
 
 // GenerateResult contains the result of seed data generation.
 type GenerateResult struct {
-	OutputPath string // Path to generated parquet file
-	RowCount   int64  // Number of rows extracted (estimated from file size)
-	FileSize   int64  // File size in bytes
+	OutputPath       string   // Path to generated parquet file
+	RowCount         int64    // Number of rows extracted (estimated from file size)
+	FileSize         int64    // File size in bytes
+	SanitizedColumns []string // IP columns that were sanitized (for display to user)
 }
 
 // Generate extracts data from external ClickHouse and writes to a parquet file.
@@ -86,6 +93,19 @@ func (g *Generator) Generate(ctx context.Context, opts GenerateOptions) (*Genera
 		}
 	}
 
+	// Build sanitized column list if IP sanitization is enabled
+	var sanitizedColumns []string
+
+	if opts.SanitizeIPs && opts.Salt != "" {
+		result, err := g.BuildSanitizedColumnList(ctx, opts.Model, opts.Salt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build sanitized column list: %w", err)
+		}
+
+		opts.sanitizedColumns = result.ColumnExpr
+		sanitizedColumns = result.SanitizedColumns
+	}
+
 	// Build the SQL query
 	query := g.buildQuery(opts)
 
@@ -102,9 +122,9 @@ func (g *Generator) Generate(ctx context.Context, opts GenerateOptions) (*Genera
 	}
 
 	return &GenerateResult{
-		OutputPath: opts.OutputPath,
-		FileSize:   fileSize,
-		// Row count estimation could be added later if needed
+		OutputPath:       opts.OutputPath,
+		FileSize:         fileSize,
+		SanitizedColumns: sanitizedColumns,
 	}, nil
 }
 
@@ -112,7 +132,15 @@ func (g *Generator) Generate(ctx context.Context, opts GenerateOptions) (*Genera
 func (g *Generator) buildQuery(opts GenerateOptions) string {
 	var sb strings.Builder
 
-	sb.WriteString("SELECT * FROM default.")
+	// Use sanitized column list if available, otherwise SELECT *
+	if opts.sanitizedColumns != "" {
+		sb.WriteString("SELECT ")
+		sb.WriteString(opts.sanitizedColumns)
+		sb.WriteString(" FROM default.")
+	} else {
+		sb.WriteString("SELECT * FROM default.")
+	}
+
 	sb.WriteString(opts.Model)
 	sb.WriteString("\nWHERE meta_network_name = '")
 	sb.WriteString(opts.Network)

@@ -17,16 +17,17 @@ import (
 // NewLabXatuCBTGenerateTransformationTestCommand creates the command.
 func NewLabXatuCBTGenerateTransformationTestCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	var (
-		model        string
-		network      string
-		spec         string
-		rangeColumn  string
-		from         string
-		to           string
-		limit        int
-		upload       bool
-		aiAssertions bool
-		skipExisting bool
+		model         string
+		network       string
+		spec          string
+		rangeColumn   string
+		from          string
+		to            string
+		limit         int
+		upload        bool
+		aiAssertions  bool
+		skipExisting  bool
+		noSanitizeIPs bool
 	)
 
 	cmd := &cobra.Command{
@@ -66,7 +67,7 @@ S3 Upload Configuration (defaults to Cloudflare R2):
   S3_BUCKET              Override bucket (default: ethpandaops-platform-production-public)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runGenerateTransformationTest(cmd.Context(), log, configPath,
-				model, network, spec, rangeColumn, from, to, limit, upload, aiAssertions, skipExisting)
+				model, network, spec, rangeColumn, from, to, limit, upload, aiAssertions, skipExisting, !noSanitizeIPs)
 		},
 	}
 
@@ -80,6 +81,7 @@ S3 Upload Configuration (defaults to Cloudflare R2):
 	cmd.Flags().BoolVar(&upload, "upload", false, "Upload parquets to S3 after generation")
 	cmd.Flags().BoolVar(&aiAssertions, "ai-assertions", false, "Use Claude to generate assertions")
 	cmd.Flags().BoolVar(&skipExisting, "skip-existing", false, "Skip generating seed data for existing S3 files")
+	cmd.Flags().BoolVar(&noSanitizeIPs, "no-sanitize-ips", false, "Disable IP address sanitization (IPs are sanitized by default)")
 
 	return cmd
 }
@@ -91,7 +93,7 @@ func runGenerateTransformationTest(
 	configPath string,
 	model, network, spec, rangeColumn, from, to string,
 	limit int,
-	upload, aiAssertions, skipExisting bool,
+	upload, aiAssertions, skipExisting, sanitizeIPs bool,
 ) error {
 	// Load configuration
 	labCfg, _, err := config.LoadLabConfig(configPath)
@@ -286,6 +288,18 @@ func runGenerateTransformationTest(
 		s3Spinner.Success("S3 access verified")
 	}
 
+	// Generate salt for IP sanitization if enabled
+	var salt string
+
+	if sanitizeIPs {
+		var saltErr error
+
+		salt, saltErr = seeddata.GenerateSalt()
+		if saltErr != nil {
+			return fmt.Errorf("failed to generate salt for IP sanitization: %w", saltErr)
+		}
+	}
+
 	// Generate seed data for all external models
 	ui.Blank()
 	ui.Header("Generating seed data")
@@ -319,6 +333,8 @@ func runGenerateTransformationTest(
 			To:          to,
 			Limit:       limit,
 			OutputPath:  outputPath,
+			SanitizeIPs: sanitizeIPs,
+			Salt:        salt,
 		})
 		if genErr != nil {
 			genSpinner.Fail(fmt.Sprintf("Failed to generate %s", extModel))
@@ -327,6 +343,11 @@ func runGenerateTransformationTest(
 		}
 
 		genSpinner.Success(fmt.Sprintf("%s (%s)", extModel, formatFileSize(result.FileSize)))
+
+		// Display sanitized columns if any
+		if len(result.SanitizedColumns) > 0 {
+			ui.Info(fmt.Sprintf("  Sanitized IP columns: %v", result.SanitizedColumns))
+		}
 
 		// Upload if requested
 		if upload && uploader != nil {
