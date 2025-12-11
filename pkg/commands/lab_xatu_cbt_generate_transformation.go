@@ -346,6 +346,7 @@ func runGenerateTransformationTest(
 			}
 
 			uploadSpinner.Success(fmt.Sprintf("Uploaded %s", extModel))
+			ui.Info(fmt.Sprintf("  → %s", uploadResult.PublicURL))
 
 			urls[extModel] = uploadResult.PublicURL
 

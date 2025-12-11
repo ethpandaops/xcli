@@ -22,51 +22,61 @@ type ModelRange struct {
 }
 
 // QueryModelRange queries external ClickHouse for a model's available data range.
+// Uses ORDER BY ... LIMIT 1 instead of MIN/MAX for better performance on large tables.
 func (g *Generator) QueryModelRange(ctx context.Context, model, network, rangeColumn string) (*ModelRange, error) {
-	// Build range query
-	query := fmt.Sprintf(`
-		SELECT
-			MIN(%s) as min_val,
-			MAX(%s) as max_val
+	// Query for minimum value (oldest data)
+	minQuery := fmt.Sprintf(`
+		SELECT %s as val
 		FROM default.%s
 		WHERE meta_network_name = '%s'
+		ORDER BY %s ASC
+		LIMIT 1
 		FORMAT JSON
-	`, rangeColumn, rangeColumn, model, network)
+	`, rangeColumn, model, network, rangeColumn)
 
-	g.log.WithField("query", query).Debug("querying model range")
+	g.log.WithField("query", minQuery).Debug("querying model min range")
 
-	// Execute query
-	result, err := g.executeRangeQuery(ctx, query)
+	minResult, err := g.executeSingleValueQuery(ctx, minQuery)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query range for %s: %w", model, err)
+		return nil, fmt.Errorf("failed to query min range for %s: %w", model, err)
+	}
+
+	// Query for maximum value (newest data)
+	maxQuery := fmt.Sprintf(`
+		SELECT %s as val
+		FROM default.%s
+		WHERE meta_network_name = '%s'
+		ORDER BY %s DESC
+		LIMIT 1
+		FORMAT JSON
+	`, rangeColumn, model, network, rangeColumn)
+
+	g.log.WithField("query", maxQuery).Debug("querying model max range")
+
+	maxResult, err := g.executeSingleValueQuery(ctx, maxQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query max range for %s: %w", model, err)
 	}
 
 	return &ModelRange{
 		Model:       model,
 		Network:     network,
 		RangeColumn: rangeColumn,
-		Min:         result.Min,
-		Max:         result.Max,
-		MinRaw:      result.MinRaw,
-		MaxRaw:      result.MaxRaw,
+		Min:         minResult.Time,
+		Max:         maxResult.Time,
+		MinRaw:      minResult.Raw,
+		MaxRaw:      maxResult.Raw,
 	}, nil
 }
 
-// rangeQueryResult holds parsed range query results.
-type rangeQueryResult struct {
-	Min    time.Time
-	Max    time.Time
-	MinRaw string
-	MaxRaw string
+// singleValueResult holds a single time value result.
+type singleValueResult struct {
+	Time time.Time
+	Raw  string
 }
 
-// clickHouseJSONResponse represents ClickHouse JSON format response.
-type clickHouseJSONResponse struct {
-	Data []map[string]any `json:"data"`
-}
-
-// executeRangeQuery executes a range query and parses the result.
-func (g *Generator) executeRangeQuery(ctx context.Context, query string) (*rangeQueryResult, error) {
+// executeSingleValueQuery executes a query that returns a single time value.
+func (g *Generator) executeSingleValueQuery(ctx context.Context, query string) (*singleValueResult, error) {
 	chURL, err := g.buildClickHouseHTTPURL()
 	if err != nil {
 		return nil, fmt.Errorf("failed to build ClickHouse URL: %w", err)
@@ -80,7 +90,7 @@ func (g *Generator) executeRangeQuery(ctx context.Context, query string) (*range
 	req.Header.Set("Content-Type", "text/plain")
 
 	client := &http.Client{
-		Timeout: 2 * time.Minute,
+		Timeout: 30 * time.Second, // Shorter timeout for indexed queries
 	}
 
 	resp, err := client.Do(req)
@@ -107,37 +117,30 @@ func (g *Generator) executeRangeQuery(ctx context.Context, query string) (*range
 	}
 
 	if len(jsonResp.Data) == 0 {
-		return nil, fmt.Errorf("no data returned from range query")
+		return nil, fmt.Errorf("no data returned from query")
 	}
 
 	row := jsonResp.Data[0]
 
-	minVal, ok := row["min_val"]
+	val, ok := row["val"]
 	if !ok {
-		return nil, fmt.Errorf("min_val not found in response")
+		return nil, fmt.Errorf("val not found in response")
 	}
 
-	maxVal, ok := row["max_val"]
-	if !ok {
-		return nil, fmt.Errorf("max_val not found in response")
+	t, raw, parseErr := parseTimeValue(val)
+	if parseErr != nil {
+		return nil, fmt.Errorf("failed to parse time value: %w", parseErr)
 	}
 
-	minTime, minRaw, err := parseTimeValue(minVal)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse min_val: %w", err)
-	}
-
-	maxTime, maxRaw, err := parseTimeValue(maxVal)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse max_val: %w", err)
-	}
-
-	return &rangeQueryResult{
-		Min:    minTime,
-		Max:    maxTime,
-		MinRaw: minRaw,
-		MaxRaw: maxRaw,
+	return &singleValueResult{
+		Time: t,
+		Raw:  raw,
 	}, nil
+}
+
+// clickHouseJSONResponse represents ClickHouse JSON format response.
+type clickHouseJSONResponse struct {
+	Data []map[string]any `json:"data"`
 }
 
 // parseTimeValue parses a time value from ClickHouse JSON response.
