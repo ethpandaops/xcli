@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
@@ -12,6 +13,42 @@ import (
 	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+)
+
+// rangePreset defines a time range preset for seed data generation.
+type rangePreset struct {
+	Label    string        // Display text (e.g., "Last 5 minutes")
+	Value    string        // Internal identifier (e.g., "5m")
+	Duration time.Duration // Duration to subtract from effective max
+}
+
+// rangePresets defines the available range presets for seed data generation.
+// Presets are ordered from shortest to longest duration.
+var rangePresets = []rangePreset{
+	// Minutes
+	{Label: "Last 1 minute", Value: "1m", Duration: 1 * time.Minute},
+	{Label: "Last 5 minutes", Value: "5m", Duration: 5 * time.Minute},
+	{Label: "Last 15 minutes", Value: "15m", Duration: 15 * time.Minute},
+	{Label: "Last 30 minutes", Value: "30m", Duration: 30 * time.Minute},
+	// Hours
+	{Label: "Last 1 hour", Value: "1h", Duration: 1 * time.Hour},
+	{Label: "Last 6 hours", Value: "6h", Duration: 6 * time.Hour},
+	{Label: "Last 12 hours", Value: "12h", Duration: 12 * time.Hour},
+	// Days/Weeks/Months
+	{Label: "Last 1 day", Value: "1d", Duration: 24 * time.Hour},
+	{Label: "Last 1 week", Value: "1w", Duration: 7 * 24 * time.Hour},
+	{Label: "Last 1 month", Value: "1mo", Duration: 30 * 24 * time.Hour},
+	{Label: "Last 3 months", Value: "3mo", Duration: 90 * 24 * time.Hour},
+	{Label: "Last 6 months", Value: "6mo", Duration: 180 * 24 * time.Hour},
+	// Custom
+	{Label: "Custom range", Value: "custom", Duration: 0},
+}
+
+const (
+	// defaultRangePreset is the default range preset value.
+	defaultRangePreset = "5m"
+	// ingestionLagBuffer accounts for data ingestion delay when calculating effective max time.
+	ingestionLagBuffer = 1 * time.Minute
 )
 
 // NewLabXatuCBTGenerateTransformationTestCommand creates the command.
@@ -249,6 +286,9 @@ func runGenerateTransformationTest(
 			return promptErr
 		}
 	}
+
+	ui.Blank()
+	ui.Info(fmt.Sprintf("Querying range: %s to %s", from, to))
 
 	// Prompt for limit
 	if limit == defaultRowLimit {
@@ -500,12 +540,70 @@ func promptForRangeColumn(defaultColumn string) (string, error) {
 }
 
 func promptForRangeWithinIntersection(intersection *seeddata.ModelRange) (string, string, error) {
+	// Account for ingestion lag when calculating effective max time
+	effectiveMax := intersection.Max.Add(-ingestionLagBuffer)
+	availableDuration := effectiveMax.Sub(intersection.Min)
+
+	// Check if we have any usable range
+	if availableDuration <= 0 {
+		return "", "", fmt.Errorf(
+			"intersection range too short after accounting for ingestion lag (need > %s)",
+			ingestionLagBuffer,
+		)
+	}
+
+	ui.Info(fmt.Sprintf("Effective end (accounting for lag): %s",
+		effectiveMax.Format("2006-01-02 15:04:05")))
+
+	// Build select options from presets
+	options := make([]ui.SelectOption, 0, len(rangePresets))
+
+	for _, preset := range rangePresets {
+		opt := ui.SelectOption{
+			Label: preset.Label,
+			Value: preset.Value,
+		}
+
+		// Mark presets that exceed available range (but still allow selection)
+		if preset.Duration > 0 && preset.Duration > availableDuration {
+			opt.Description = "(exceeds available range)"
+		}
+
+		options = append(options, opt)
+	}
+
+	// Show selection with default preset
+	selected, err := ui.SelectWithDefault("Select time range", options, defaultRangePreset)
+	if err != nil {
+		return "", "", err
+	}
+
+	// Handle custom range selection
+	if selected == "custom" {
+		return promptForCustomRange(intersection)
+	}
+
+	// Find the selected preset and calculate the range
+	for _, preset := range rangePresets {
+		if preset.Value == selected {
+			fromTime := effectiveMax.Add(-preset.Duration)
+			toTime := effectiveMax
+
+			return fromTime.Format("2006-01-02 15:04:05"), toTime.Format("2006-01-02 15:04:05"), nil
+		}
+	}
+
+	return "", "", fmt.Errorf("unknown preset: %s", selected)
+}
+
+// promptForCustomRange handles manual From/To input for custom range selection.
+func promptForCustomRange(intersection *seeddata.ModelRange) (string, string, error) {
+	defaultFrom := intersection.Min.Format("2006-01-02 15:04:05")
+	defaultTo := intersection.Max.Format("2006-01-02 15:04:05")
+
 	ui.Info(fmt.Sprintf("Enter range within intersection (%s to %s)",
 		intersection.Min.Format("2006-01-02 15:04:05"),
 		intersection.Max.Format("2006-01-02 15:04:05")))
-
-	defaultFrom := intersection.Min.Format("2006-01-02 15:04:05")
-	defaultTo := intersection.Max.Format("2006-01-02 15:04:05")
 
 	// Don't pre-fill input - pterm concatenates instead of replacing
 	// Show default in prompt, user can press enter to accept
