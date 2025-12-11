@@ -19,6 +19,8 @@ type BatchGenerateOptions struct {
 	Filters             []Filter // Additional filters (applied to all models)
 	Limit               int      // Max rows per model (0 = unlimited)
 	OutputDir           string   // Output directory for parquet files
+	SanitizeIPs         bool     // Enable IP address sanitization
+	Salt                string   // Salt for IP sanitization (shared across all models)
 }
 
 // BatchGenerateResult contains the result of batch seed data generation.
@@ -66,6 +68,8 @@ func (g *Generator) BatchGenerate(ctx context.Context, opts BatchGenerateOptions
 			Filters:     opts.Filters,
 			Limit:       opts.Limit,
 			OutputPath:  outputPath,
+			SanitizeIPs: opts.SanitizeIPs,
+			Salt:        opts.Salt,
 		}
 
 		genResult, err := g.Generate(ctx, genOpts)

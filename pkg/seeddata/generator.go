@@ -46,6 +46,12 @@ type GenerateOptions struct {
 	Filters     []Filter // Additional filters
 	Limit       int      // Max rows (0 = unlimited)
 	OutputPath  string   // Output file path
+	SanitizeIPs bool     // Enable IP address sanitization
+	Salt        string   // Salt for IP sanitization (shared across batch for consistency)
+
+	// sanitizedColumns is an internal field set by Generate() when SanitizeIPs is true.
+	// It contains the pre-computed column list with IP sanitization expressions.
+	sanitizedColumns string
 }
 
 // Filter represents an additional WHERE clause filter.
@@ -86,6 +92,16 @@ func (g *Generator) Generate(ctx context.Context, opts GenerateOptions) (*Genera
 		}
 	}
 
+	// Build sanitized column list if IP sanitization is enabled
+	if opts.SanitizeIPs && opts.Salt != "" {
+		columns, err := g.BuildSanitizedColumnList(ctx, opts.Model, opts.Salt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build sanitized column list: %w", err)
+		}
+
+		opts.sanitizedColumns = columns
+	}
+
 	// Build the SQL query
 	query := g.buildQuery(opts)
 
@@ -112,7 +128,15 @@ func (g *Generator) Generate(ctx context.Context, opts GenerateOptions) (*Genera
 func (g *Generator) buildQuery(opts GenerateOptions) string {
 	var sb strings.Builder
 
-	sb.WriteString("SELECT * FROM default.")
+	// Use sanitized column list if available, otherwise SELECT *
+	if opts.sanitizedColumns != "" {
+		sb.WriteString("SELECT ")
+		sb.WriteString(opts.sanitizedColumns)
+		sb.WriteString(" FROM default.")
+	} else {
+		sb.WriteString("SELECT * FROM default.")
+	}
+
 	sb.WriteString(opts.Model)
 	sb.WriteString("\nWHERE meta_network_name = '")
 	sb.WriteString(opts.Network)

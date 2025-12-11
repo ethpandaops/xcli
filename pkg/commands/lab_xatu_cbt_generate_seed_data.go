@@ -21,16 +21,17 @@ const (
 // NewLabXatuCBTGenerateSeedDataCommand creates the lab xatu-cbt generate-seed-data command.
 func NewLabXatuCBTGenerateSeedDataCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	var (
-		model       string
-		network     string
-		spec        string
-		rangeColumn string
-		from        string
-		to          string
-		filters     []string
-		limit       int
-		output      string
-		upload      bool
+		model         string
+		network       string
+		spec          string
+		rangeColumn   string
+		from          string
+		to            string
+		filters       []string
+		limit         int
+		output        string
+		upload        bool
+		noSanitizeIPs bool
 	)
 
 	cmd := &cobra.Command{
@@ -66,7 +67,7 @@ S3 Upload Configuration (defaults to Cloudflare R2):
   S3_BUCKET              Override bucket (default: ethpandaops-platform-production-public)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runGenerateSeedData(cmd.Context(), log, configPath,
-				model, network, spec, rangeColumn, from, to, filters, limit, output, upload)
+				model, network, spec, rangeColumn, from, to, filters, limit, output, upload, !noSanitizeIPs)
 		},
 	}
 
@@ -80,6 +81,7 @@ S3 Upload Configuration (defaults to Cloudflare R2):
 	cmd.Flags().IntVar(&limit, "limit", defaultRowLimit, "Max rows (0 = unlimited)")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "Output file path (default: ./{model}.parquet)")
 	cmd.Flags().BoolVar(&upload, "upload", false, "Upload to S3 after generation")
+	cmd.Flags().BoolVar(&noSanitizeIPs, "no-sanitize-ips", false, "Disable IP address sanitization (IPs are sanitized by default)")
 
 	return cmd
 }
@@ -94,6 +96,7 @@ func runGenerateSeedData(
 	limit int,
 	output string,
 	upload bool,
+	sanitizeIPs bool,
 ) error {
 	// Load configuration
 	labCfg, _, err := config.LoadLabConfig(configPath)
@@ -229,6 +232,18 @@ func runGenerateSeedData(
 		output = fmt.Sprintf("./%s.parquet", model)
 	}
 
+	// Generate salt for IP sanitization if enabled
+	var salt string
+
+	if sanitizeIPs {
+		var saltErr error
+
+		salt, saltErr = seeddata.GenerateSalt()
+		if saltErr != nil {
+			return fmt.Errorf("failed to generate salt for IP sanitization: %w", saltErr)
+		}
+	}
+
 	// Generate seed data
 	ui.Header("Generating seed data")
 
@@ -244,6 +259,8 @@ func runGenerateSeedData(
 		Filters:     filters,
 		Limit:       limit,
 		OutputPath:  output,
+		SanitizeIPs: sanitizeIPs,
+		Salt:        salt,
 	})
 	if err != nil {
 		spinner.Fail("Failed to generate seed data")
