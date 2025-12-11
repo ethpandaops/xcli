@@ -14,14 +14,18 @@ func NewLabXatuCBTCommand(log logrus.FieldLogger, configPath string) *cobra.Comm
 for tests.
 
 Common workflows:
-  1. Generate seed data for tests:
+  1. Generate seed data for a single external model:
      xcli lab xatu-cbt generate-seed-data
+
+  2. Generate test YAML for transformation models (auto-resolves dependencies):
+     xcli lab xatu-cbt generate-transformation-test
 
 Use 'xcli lab xatu-cbt [command] --help' for more information about a command.`,
 	}
 
 	// Add xatu-cbt subcommands
 	cmd.AddCommand(NewLabXatuCBTGenerateSeedDataCommand(log, configPath))
+	cmd.AddCommand(NewLabXatuCBTGenerateTransformationTestCommand(log, configPath))
 
 	return cmd
 }

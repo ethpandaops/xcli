@@ -154,18 +154,48 @@ func (g *Generator) buildQuery(opts GenerateOptions) string {
 }
 
 // formatSQLValue formats a value for use in SQL.
-// Numeric values are returned as-is, non-numeric values are quoted.
+// Numeric values are returned as-is, datetime values use toDateTime(), other values are quoted.
 func formatSQLValue(val string) string {
 	// Check if value is purely numeric (integer or decimal)
 	if isNumeric(val) {
 		return val
 	}
 
-	// Quote non-numeric values (strings, dates, etc.)
+	// Check if value looks like a datetime (YYYY-MM-DD HH:MM:SS)
+	if isDateTime(val) {
+		return fmt.Sprintf("toDateTime('%s')", val)
+	}
+
+	// Quote non-numeric values (strings, etc.)
 	// Escape single quotes by doubling them
 	escaped := strings.ReplaceAll(val, "'", "''")
 
 	return "'" + escaped + "'"
+}
+
+// isDateTime checks if a string looks like a datetime (YYYY-MM-DD HH:MM:SS).
+func isDateTime(s string) bool {
+	// Must be exactly 19 characters: YYYY-MM-DD HH:MM:SS
+	if len(s) != 19 {
+		return false
+	}
+
+	// Check format: YYYY-MM-DD HH:MM:SS
+	// Positions: 0123456789012345678
+	//            2025-12-10 20:00:00
+	if s[4] != '-' || s[7] != '-' || s[10] != ' ' || s[13] != ':' || s[16] != ':' {
+		return false
+	}
+
+	// Check that other positions are digits
+	digitPositions := []int{0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18}
+	for _, pos := range digitPositions {
+		if s[pos] < '0' || s[pos] > '9' {
+			return false
+		}
+	}
+
+	return true
 }
 
 // isNumeric checks if a string represents a numeric value.
