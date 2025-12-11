@@ -287,6 +287,9 @@ func runGenerateTransformationTest(
 		}
 	}
 
+	ui.Blank()
+	ui.Info(fmt.Sprintf("Querying range: %s to %s", from, to))
+
 	// Prompt for limit
 	if limit == defaultRowLimit {
 		limit, promptErr = promptForLimit()
