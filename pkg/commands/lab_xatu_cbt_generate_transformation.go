@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
+	"strings"
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
@@ -13,42 +13,6 @@ import (
 	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-)
-
-// rangePreset defines a time range preset for seed data generation.
-type rangePreset struct {
-	Label    string        // Display text (e.g., "Last 5 minutes")
-	Value    string        // Internal identifier (e.g., "5m")
-	Duration time.Duration // Duration to subtract from effective max
-}
-
-// rangePresets defines the available range presets for seed data generation.
-// Presets are ordered from shortest to longest duration.
-var rangePresets = []rangePreset{
-	// Minutes
-	{Label: "Last 1 minute", Value: "1m", Duration: 1 * time.Minute},
-	{Label: "Last 5 minutes", Value: "5m", Duration: 5 * time.Minute},
-	{Label: "Last 15 minutes", Value: "15m", Duration: 15 * time.Minute},
-	{Label: "Last 30 minutes", Value: "30m", Duration: 30 * time.Minute},
-	// Hours
-	{Label: "Last 1 hour", Value: "1h", Duration: 1 * time.Hour},
-	{Label: "Last 6 hours", Value: "6h", Duration: 6 * time.Hour},
-	{Label: "Last 12 hours", Value: "12h", Duration: 12 * time.Hour},
-	// Days/Weeks/Months
-	{Label: "Last 1 day", Value: "1d", Duration: 24 * time.Hour},
-	{Label: "Last 1 week", Value: "1w", Duration: 7 * 24 * time.Hour},
-	{Label: "Last 1 month", Value: "1mo", Duration: 30 * 24 * time.Hour},
-	{Label: "Last 3 months", Value: "3mo", Duration: 90 * 24 * time.Hour},
-	{Label: "Last 6 months", Value: "6mo", Duration: 180 * 24 * time.Hour},
-	// Custom
-	{Label: "Custom range", Value: "custom", Duration: 0},
-}
-
-const (
-	// defaultRangePreset is the default range preset value.
-	defaultRangePreset = "5m"
-	// ingestionLagBuffer accounts for data ingestion delay when calculating effective max time.
-	ingestionLagBuffer = 1 * time.Minute
 )
 
 // NewLabXatuCBTGenerateTransformationTestCommand creates the command.
@@ -65,6 +29,7 @@ func NewLabXatuCBTGenerateTransformationTestCommand(log logrus.FieldLogger, conf
 		aiAssertions  bool
 		skipExisting  bool
 		noSanitizeIPs bool
+		duration      string
 	)
 
 	cmd := &cobra.Command{
@@ -104,7 +69,7 @@ S3 Upload Configuration (defaults to Cloudflare R2):
   S3_BUCKET              Override bucket (default: ethpandaops-platform-production-public)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runGenerateTransformationTest(cmd.Context(), log, configPath,
-				model, network, spec, rangeColumn, from, to, limit, upload, aiAssertions, skipExisting, !noSanitizeIPs)
+				model, network, spec, rangeColumn, from, to, limit, upload, aiAssertions, skipExisting, !noSanitizeIPs, duration)
 		},
 	}
 
@@ -119,6 +84,7 @@ S3 Upload Configuration (defaults to Cloudflare R2):
 	cmd.Flags().BoolVar(&aiAssertions, "ai-assertions", false, "Use Claude to generate assertions")
 	cmd.Flags().BoolVar(&skipExisting, "skip-existing", false, "Skip generating seed data for existing S3 files")
 	cmd.Flags().BoolVar(&noSanitizeIPs, "no-sanitize-ips", false, "Disable IP address sanitization (IPs are sanitized by default)")
+	cmd.Flags().StringVar(&duration, "duration", "", "Time range duration (e.g., 1m, 5m, 10m, 30m)")
 
 	return cmd
 }
@@ -131,6 +97,7 @@ func runGenerateTransformationTest(
 	model, network, spec, rangeColumn, from, to string,
 	limit int,
 	upload, aiAssertions, skipExisting, sanitizeIPs bool,
+	duration string,
 ) error {
 	// Load configuration
 	labCfg, _, err := config.LoadLabConfig(configPath)
@@ -205,93 +172,330 @@ func runGenerateTransformationTest(
 		}
 	}
 
-	// Detect range columns for external models
-	ui.Header("Detecting range columns")
+	// AI-assisted range discovery
+	ui.Blank()
+	ui.Header("Analyzing range strategies")
 
-	rangeInfos, err := seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
-	if err != nil {
-		return fmt.Errorf("failed to detect range columns: %w", err)
-	}
-
-	// Track detection status for prompting
-	anyDefault := false
-	detectedColumns := make(map[string]bool)
-
-	for _, info := range rangeInfos {
-		status := "detected"
-		if !info.Detected {
-			status = "default"
-			anyDefault = true
+	// Prompt for duration if not specified
+	if duration == "" {
+		durationOpts := []ui.SelectOption{
+			{Label: "5m", Description: "recommended", Value: "5m"},
+			{Label: "30s", Description: "minimal test", Value: "30s"},
+			{Label: "1m", Description: "quick test", Value: "1m"},
+			{Label: "10m", Description: "", Value: "10m"},
+			{Label: "30m", Description: "", Value: "30m"},
+			{Label: "1h", Description: "large dataset", Value: "1h"},
 		}
 
-		detectedColumns[info.RangeColumn] = true
-		ui.Info(fmt.Sprintf("  • %s: %s (%s)", info.Model, info.RangeColumn, status))
+		selectedDuration, durationErr := ui.Select("Time range duration", durationOpts)
+		if durationErr != nil {
+			return durationErr
+		}
+
+		duration = selectedDuration
 	}
 
-	// Use common range column or override
-	if rangeColumn == "" {
-		rangeColumn = seeddata.FindCommonRangeColumn(rangeInfos)
+	ui.Info(fmt.Sprintf("Using %s time range", duration))
+	ui.Info("This may take a few minutes for models with many dependencies - grab a coffee ☕")
 
-		// Prompt user if detection used defaults or found mismatches
-		shouldPrompt := anyDefault || len(detectedColumns) > 1
+	var discoveryResult *seeddata.DiscoveryResult
 
-		if shouldPrompt {
-			if len(detectedColumns) > 1 {
-				ui.Warning("Different range columns detected across models")
+	// Try AI discovery first
+	discoveryClient, discoveryErr := seeddata.NewClaudeDiscoveryClient(log, gen)
+	if discoveryErr != nil {
+		ui.Warning(fmt.Sprintf("Claude CLI not available: %v", discoveryErr))
+		ui.Info("Falling back to heuristic range detection")
+
+		// Fallback to heuristic detection
+		var rangeInfos map[string]*seeddata.RangeColumnInfo
+
+		rangeInfos, err = seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
+		if err != nil {
+			return fmt.Errorf("failed to detect range columns: %w", err)
+		}
+
+		discoveryResult, err = seeddata.FallbackRangeDiscovery(ctx, gen, externalModels, network, rangeInfos, duration)
+		if err != nil {
+			return fmt.Errorf("fallback range discovery failed: %w", err)
+		}
+	} else {
+		// Gather schema information
+		schemaSpinner := ui.NewSpinner("Gathering schema information")
+
+		schemaInfo, schemaErr := discoveryClient.GatherSchemaInfo(ctx, externalModels, network, labCfg.Repos.XatuCBT)
+		if schemaErr != nil {
+			schemaSpinner.Fail("Failed to gather schema info")
+
+			return fmt.Errorf("failed to gather schema info: %w", schemaErr)
+		}
+
+		schemaSpinner.Success(fmt.Sprintf("Schema info gathered for %d models", len(schemaInfo)))
+
+		// Display detected range info
+		for _, schema := range schemaInfo {
+			if schema.RangeInfo != nil {
+				status := "detected"
+				if !schema.RangeInfo.Detected {
+					status = "default"
+				}
+
+				rangeStr := ""
+				if schema.RangeInfo.MinValue != "" && schema.RangeInfo.MaxValue != "" {
+					rangeStr = fmt.Sprintf(" [%s → %s]", schema.RangeInfo.MinValue, schema.RangeInfo.MaxValue)
+				}
+
+				ui.Info(fmt.Sprintf("  • %s: %s (%s)%s", schema.Model, schema.RangeInfo.Column, status, rangeStr))
+			}
+		}
+
+		// Read transformation SQL
+		transformationSQL, sqlErr := seeddata.ReadTransformationSQL(model, labCfg.Repos.XatuCBT)
+		if sqlErr != nil {
+			return fmt.Errorf("failed to read transformation SQL: %w", sqlErr)
+		}
+
+		// Invoke Claude for analysis
+		ui.Blank()
+
+		analysisSpinner := ui.NewSpinner("Analyzing correlation strategy with Claude")
+
+		discoveryResult, err = discoveryClient.AnalyzeRanges(ctx, seeddata.DiscoveryInput{
+			TransformationModel: model,
+			TransformationSQL:   transformationSQL,
+			Network:             network,
+			Duration:            duration,
+			ExternalModels:      schemaInfo,
+		})
+		if err != nil {
+			analysisSpinner.Fail("AI analysis failed")
+			ui.Warning(fmt.Sprintf("Claude analysis failed: %v", err))
+			ui.Info("Falling back to heuristic range detection")
+
+			// Fallback to heuristic detection
+			rangeInfos, rangeErr := seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
+			if rangeErr != nil {
+				return fmt.Errorf("failed to detect range columns: %w", rangeErr)
 			}
 
-			rangeColumn, promptErr = promptForRangeColumn(rangeColumn)
-			if promptErr != nil {
-				return promptErr
+			discoveryResult, err = seeddata.FallbackRangeDiscovery(ctx, gen, externalModels, network, rangeInfos, duration)
+			if err != nil {
+				return fmt.Errorf("fallback range discovery failed: %w", err)
 			}
-		}
-
-		ui.Info(fmt.Sprintf("Using range column: %s", rangeColumn))
-	}
-
-	// Query available ranges
-	ui.Blank()
-	ui.Header("Querying available data ranges")
-
-	rangeSpinner := ui.NewSpinner("Querying external ClickHouse")
-
-	ranges, err := gen.QueryModelRanges(ctx, externalModels, network, rangeInfos, rangeColumn)
-	if err != nil {
-		rangeSpinner.Fail("Failed to query ranges")
-
-		return fmt.Errorf("failed to query ranges: %w", err)
-	}
-
-	rangeSpinner.Success("Range data retrieved")
-
-	for _, r := range ranges {
-		ui.Info(fmt.Sprintf("  • %s: %s", r.Model, r.FormatRange()))
-	}
-
-	// Find intersection
-	intersection, err := seeddata.FindIntersection(ranges)
-	if err != nil {
-		ui.Error("No intersecting range found across all models")
-
-		return fmt.Errorf("range intersection failed: %w", err)
-	}
-
-	ui.Blank()
-	ui.Success(fmt.Sprintf("Intersecting range: %s", intersection.FormatRange()))
-
-	// Prompt for range within intersection
-	if from == "" || to == "" {
-		from, to, promptErr = promptForRangeWithinIntersection(intersection)
-		if promptErr != nil {
-			return promptErr
+		} else {
+			analysisSpinner.Success(fmt.Sprintf("Strategy generated (confidence: %.0f%%)", discoveryResult.OverallConfidence*100))
 		}
 	}
 
-	ui.Blank()
-	ui.Info(fmt.Sprintf("Querying range: %s to %s", from, to))
+	// Validate that Claude's strategies cover all expected models
+	// This catches cases where Claude named a model differently
+	var missingModels []string
 
-	// Prompt for limit
-	if limit == defaultRowLimit {
+	for _, extModel := range externalModels {
+		if discoveryResult.GetStrategy(extModel) == nil {
+			missingModels = append(missingModels, extModel)
+		}
+	}
+
+	if len(missingModels) > 0 {
+		ui.Blank()
+		ui.Warning("The following models are NOT covered by Claude's strategy:")
+
+		for _, m := range missingModels {
+			ui.Warning(fmt.Sprintf("  • %s", m))
+		}
+
+		ui.Warning("These will use the primary range column, which may be incorrect.")
+		ui.Info("Claude's strategies cover these models:")
+
+		for _, s := range discoveryResult.Strategies {
+			ui.Info(fmt.Sprintf("  • %s", s.Model))
+		}
+
+		ui.Blank()
+
+		proceedMissing, missErr := ui.Confirm("Proceed anyway?")
+		if missErr != nil {
+			return missErr
+		}
+
+		if !proceedMissing {
+			ui.Info("Aborted. Try regenerating with clearer model names.")
+
+			return nil
+		}
+	}
+
+	// Display the proposed strategy
+	ui.Blank()
+	ui.Header("Proposed Strategy")
+	ui.Info(fmt.Sprintf("Summary: %s", discoveryResult.Summary))
+	ui.Blank()
+	ui.Info(fmt.Sprintf("Primary Range: %s (%s)", discoveryResult.PrimaryRangeColumn, discoveryResult.PrimaryRangeType))
+	ui.Info(fmt.Sprintf("  From: %s", discoveryResult.FromValue))
+	ui.Info(fmt.Sprintf("  To:   %s", discoveryResult.ToValue))
+	ui.Blank()
+
+	ui.Info("Per-Table Strategies:")
+
+	for _, strategy := range discoveryResult.Strategies {
+		confidence := fmt.Sprintf("%.0f%%", strategy.Confidence*100)
+		bridgeInfo := ""
+
+		if strategy.RequiresBridge {
+			bridgeInfo = fmt.Sprintf(" (via %s)", strategy.BridgeTable)
+		}
+
+		ui.Info(fmt.Sprintf("  • %s: %s [%s → %s] %s%s",
+			strategy.Model,
+			strategy.RangeColumn,
+			strategy.FromValue,
+			strategy.ToValue,
+			confidence,
+			bridgeInfo,
+		))
+	}
+
+	// Display warnings
+	if len(discoveryResult.Warnings) > 0 {
+		ui.Blank()
+
+		for _, warning := range discoveryResult.Warnings {
+			ui.Warning(warning)
+		}
+	}
+
+	// Warn if low confidence
+	if discoveryResult.OverallConfidence < 0.5 {
+		ui.Blank()
+		ui.Warning("Low confidence score - manual review recommended")
+	}
+
+	// Validate that each model has data in the proposed range
+	ui.Blank()
+	ui.Header("Validating data availability")
+
+	validationSpinner := ui.NewSpinner("Checking row counts for each model")
+
+	validation, validationErr := gen.ValidateStrategyHasData(ctx, discoveryResult, network)
+	if validationErr != nil {
+		validationSpinner.Fail("Validation failed")
+
+		return fmt.Errorf("failed to validate strategy: %w", validationErr)
+	}
+
+	validationSpinner.Success("Validation complete")
+
+	// Display row counts
+	ui.Blank()
+	ui.Info("Data availability per model:")
+
+	for _, count := range validation.Counts {
+		status := "✓"
+		if !count.HasData {
+			status = "✗"
+		}
+
+		if count.Error != nil {
+			ui.Warning(fmt.Sprintf("  %s %s: error - %v", status, count.Model, count.Error))
+		} else {
+			ui.Info(fmt.Sprintf("  %s %s: %d rows", status, count.Model, count.RowCount))
+		}
+	}
+
+	ui.Blank()
+	ui.Info(fmt.Sprintf("Total rows across all models: %d", validation.TotalRows))
+
+	if validation.MinRowModel != "" {
+		ui.Info(fmt.Sprintf("Model with fewest rows: %s (%d rows)", validation.MinRowModel, validation.MinRowCount))
+	}
+
+	// Handle errored models (timeouts, etc.)
+	if len(validation.ErroredModels) > 0 {
+		ui.Blank()
+		ui.Error("The following models FAILED to query (timeout or error):")
+
+		for _, model := range validation.ErroredModels {
+			ui.Error(fmt.Sprintf("  • %s", model))
+		}
+
+		ui.Blank()
+		ui.Warning("These queries timed out - the tables may be too large or the range too wide.")
+		ui.Warning("Consider narrowing the block/time range, or proceed if you believe the data exists.")
+
+		proceedWithErrors, errErr := ui.Confirm("Proceed anyway (assuming data exists)?")
+		if errErr != nil {
+			return errErr
+		}
+
+		if !proceedWithErrors {
+			ui.Info("Aborted by user. Try a narrower range.")
+
+			return nil
+		}
+	}
+
+	// Handle empty models (zero rows)
+	if len(validation.EmptyModels) > 0 {
+		ui.Blank()
+		ui.Error("The following models have NO DATA in the proposed range:")
+
+		for _, model := range validation.EmptyModels {
+			ui.Error(fmt.Sprintf("  • %s", model))
+		}
+
+		ui.Blank()
+		ui.Warning("Empty parquets will be generated for these models, which may cause test failures.")
+
+		expandWindow, expandErr := ui.Confirm("Would you like to expand the time window and retry?")
+		if expandErr != nil {
+			return expandErr
+		}
+
+		if expandWindow {
+			ui.Info("Please re-run the command with a larger time window or different range.")
+			ui.Info("Tip: Some tables (like canonical_execution_contracts) may have sparse data.")
+
+			return nil
+		}
+
+		// Let user proceed anyway if they want
+		proceedAnyway, proceedErr := ui.Confirm("Proceed anyway with potentially empty data?")
+		if proceedErr != nil {
+			return proceedErr
+		}
+
+		if !proceedAnyway {
+			ui.Info("Aborted by user")
+
+			return nil
+		}
+	}
+
+	// User confirmation
+	ui.Blank()
+
+	proceed, confirmErr := ui.Confirm("Proceed with this strategy?")
+	if confirmErr != nil {
+		return confirmErr
+	}
+
+	if !proceed {
+		ui.Info("Aborted by user")
+
+		return nil
+	}
+
+	// Row limit handling:
+	// - With AI discovery: use unlimited (0) since Claude already picked sensible ranges
+	// - Manual/fallback: prompt for limit to avoid accidentally pulling too much data
+	// - Explicit --limit flag always respected
+	if discoveryResult != nil && limit == defaultRowLimit {
+		// AI discovery mode: no limit needed, Claude picked appropriate ranges
+		limit = 0
+
+		ui.Info("Using unlimited rows (AI discovery already optimized the range)")
+	} else if limit == defaultRowLimit {
+		// Fallback/manual mode: prompt for safety
 		limit, promptErr = promptForLimit()
 		if promptErr != nil {
 			return promptErr
@@ -347,6 +551,41 @@ func runGenerateTransformationTest(
 	urls := make(map[string]string, len(externalModels))
 
 	for _, extModel := range externalModels {
+		// Get the strategy for this model
+		strategy := discoveryResult.GetStrategy(extModel)
+		if strategy == nil {
+			ui.Warning(fmt.Sprintf("No strategy found for %s, using defaults", extModel))
+
+			// Detect the correct range column for this model instead of blindly using primary
+			detectedCol, detectErr := seeddata.DetectRangeColumnForModel(extModel, labCfg.Repos.XatuCBT)
+			if detectErr != nil {
+				ui.Warning(fmt.Sprintf("Could not detect range column for %s: %v", extModel, detectErr))
+
+				detectedCol = seeddata.DefaultRangeColumn
+			}
+
+			// Check if detected column type matches primary range type
+			colLower := strings.ToLower(detectedCol)
+			isTimeColumn := strings.Contains(colLower, "date") || strings.Contains(colLower, "time")
+			primaryIsTime := discoveryResult.PrimaryRangeType == seeddata.RangeColumnTypeTime
+
+			if isTimeColumn != primaryIsTime {
+				// Column types don't match - we can't use primary range values
+				ui.Error(fmt.Sprintf("  %s uses %s but primary range is %s - cannot convert automatically",
+					extModel, detectedCol, discoveryResult.PrimaryRangeColumn))
+				ui.Error("  Please re-run with Claude to get proper correlation, or use --range-column to override")
+
+				return fmt.Errorf("cannot generate %s: range column type mismatch", extModel)
+			}
+
+			strategy = &seeddata.TableRangeStrategy{
+				Model:       extModel,
+				RangeColumn: detectedCol,
+				FromValue:   discoveryResult.FromValue,
+				ToValue:     discoveryResult.ToValue,
+			}
+		}
+
 		filename := seeddata.GetParquetFilename(model, extModel)
 		outputPath := fmt.Sprintf("./%s", filename)
 
@@ -362,15 +601,18 @@ func runGenerateTransformationTest(
 			}
 		}
 
+		// Show query parameters (helps debug empty parquets)
+		ui.Info(fmt.Sprintf("  %s: %s [%s → %s]", extModel, strategy.RangeColumn, strategy.FromValue, strategy.ToValue))
+
 		genSpinner := ui.NewSpinner(fmt.Sprintf("Generating %s", extModel))
 
 		result, genErr := gen.Generate(ctx, seeddata.GenerateOptions{
 			Model:       extModel,
 			Network:     network,
 			Spec:        spec,
-			RangeColumn: rangeColumn,
-			From:        from,
-			To:          to,
+			RangeColumn: strategy.RangeColumn,
+			From:        strategy.FromValue,
+			To:          strategy.ToValue,
 			Limit:       limit,
 			OutputPath:  outputPath,
 			SanitizeIPs: sanitizeIPs,
@@ -383,6 +625,18 @@ func runGenerateTransformationTest(
 		}
 
 		genSpinner.Success(fmt.Sprintf("%s (%s)", extModel, formatFileSize(result.FileSize)))
+
+		// Warn if file is too large for comfortable test imports
+		const largeFileThreshold = 15 * 1024 * 1024 // 15MB
+		if result.FileSize > largeFileThreshold {
+			ui.Warning(fmt.Sprintf("  Large file (%s) - may slow down tests on low-powered machines. Consider using a shorter duration.",
+				formatFileSize(result.FileSize)))
+		}
+
+		// Show query for first model to help debug empty parquets
+		if extModel == externalModels[0] {
+			ui.Info(fmt.Sprintf("  Query: %s", result.Query))
+		}
 
 		// Display sanitized columns if any
 		if len(result.SanitizedColumns) > 0 {
@@ -520,116 +774,6 @@ func promptForTransformationModel(xatuCBTPath string) (string, error) {
 	}
 
 	return ui.Select("Select transformation model", options)
-}
-
-func promptForRangeColumn(defaultColumn string) (string, error) {
-	// Don't pre-fill input - pterm concatenates instead of replacing
-	// Show default in prompt, user can press enter to accept
-	column, err := ui.TextInput(
-		fmt.Sprintf("Range column [%s]", defaultColumn),
-		"")
-	if err != nil {
-		return "", err
-	}
-
-	if column == "" {
-		return defaultColumn, nil
-	}
-
-	return column, nil
-}
-
-func promptForRangeWithinIntersection(intersection *seeddata.ModelRange) (string, string, error) {
-	// Account for ingestion lag when calculating effective max time
-	effectiveMax := intersection.Max.Add(-ingestionLagBuffer)
-	availableDuration := effectiveMax.Sub(intersection.Min)
-
-	// Check if we have any usable range
-	if availableDuration <= 0 {
-		return "", "", fmt.Errorf(
-			"intersection range too short after accounting for ingestion lag (need > %s)",
-			ingestionLagBuffer,
-		)
-	}
-
-	ui.Info(fmt.Sprintf("Effective end (accounting for lag): %s",
-		effectiveMax.Format("2006-01-02 15:04:05")))
-
-	// Build select options from presets
-	options := make([]ui.SelectOption, 0, len(rangePresets))
-
-	for _, preset := range rangePresets {
-		opt := ui.SelectOption{
-			Label: preset.Label,
-			Value: preset.Value,
-		}
-
-		// Mark presets that exceed available range (but still allow selection)
-		if preset.Duration > 0 && preset.Duration > availableDuration {
-			opt.Description = "(exceeds available range)"
-		}
-
-		options = append(options, opt)
-	}
-
-	// Show selection with default preset
-	selected, err := ui.SelectWithDefault("Select time range", options, defaultRangePreset)
-	if err != nil {
-		return "", "", err
-	}
-
-	// Handle custom range selection
-	if selected == "custom" {
-		return promptForCustomRange(intersection)
-	}
-
-	// Find the selected preset and calculate the range
-	for _, preset := range rangePresets {
-		if preset.Value == selected {
-			fromTime := effectiveMax.Add(-preset.Duration)
-			toTime := effectiveMax
-
-			return fromTime.Format("2006-01-02 15:04:05"), toTime.Format("2006-01-02 15:04:05"), nil
-		}
-	}
-
-	return "", "", fmt.Errorf("unknown preset: %s", selected)
-}
-
-// promptForCustomRange handles manual From/To input for custom range selection.
-func promptForCustomRange(intersection *seeddata.ModelRange) (string, string, error) {
-	defaultFrom := intersection.Min.Format("2006-01-02 15:04:05")
-	defaultTo := intersection.Max.Format("2006-01-02 15:04:05")
-
-	ui.Info(fmt.Sprintf("Enter range within intersection (%s to %s)",
-		intersection.Min.Format("2006-01-02 15:04:05"),
-		intersection.Max.Format("2006-01-02 15:04:05")))
-
-	// Don't pre-fill input - pterm concatenates instead of replacing
-	// Show default in prompt, user can press enter to accept
-	from, err := ui.TextInput(
-		fmt.Sprintf("From [%s]", defaultFrom),
-		"")
-	if err != nil {
-		return "", "", err
-	}
-
-	if from == "" {
-		from = defaultFrom
-	}
-
-	to, err := ui.TextInput(
-		fmt.Sprintf("To [%s]", defaultTo),
-		"")
-	if err != nil {
-		return "", "", err
-	}
-
-	if to == "" {
-		to = defaultTo
-	}
-
-	return from, to, nil
 }
 
 func generateAIAssertions(ctx context.Context, log logrus.FieldLogger, model string, externalModels []string, xatuCBTPath string) ([]seeddata.Assertion, error) {

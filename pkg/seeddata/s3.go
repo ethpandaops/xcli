@@ -126,15 +126,44 @@ func (u *S3Uploader) Upload(ctx context.Context, opts UploadOptions) (*UploadRes
 	}
 	defer file.Close()
 
-	// Upload to S3
+	// Get file size for explicit ContentLength
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat file: %w", err)
+	}
+
+	fileSize := fileInfo.Size()
+
+	u.log.WithFields(logrus.Fields{
+		"file": opts.LocalPath,
+		"size": fileSize,
+		"key":  key,
+	}).Debug("uploading file to S3")
+
+	// Upload to S3 with explicit content length
 	_, err = u.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(u.bucket),
-		Key:         aws.String(key),
-		Body:        file,
-		ContentType: aws.String("application/octet-stream"),
+		Bucket:        aws.String(u.bucket),
+		Key:           aws.String(key),
+		Body:          file,
+		ContentType:   aws.String("application/octet-stream"),
+		ContentLength: aws.Int64(fileSize),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload to S3: %w", err)
+	}
+
+	// Verify upload by checking object metadata
+	headResp, headErr := u.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(u.bucket),
+		Key:    aws.String(key),
+	})
+	if headErr != nil {
+		u.log.WithError(headErr).Warn("failed to verify upload")
+	} else if headResp.ContentLength != nil && *headResp.ContentLength != fileSize {
+		return nil, fmt.Errorf("upload verification failed: expected %d bytes but S3 reports %d bytes",
+			fileSize, *headResp.ContentLength)
+	} else {
+		u.log.WithField("verified_size", *headResp.ContentLength).Debug("upload verified")
 	}
 
 	return &UploadResult{
