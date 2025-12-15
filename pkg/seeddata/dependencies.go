@@ -40,10 +40,28 @@ type DependencyTree struct {
 // dependencyPattern matches dependency strings like "{{transformation}}.model_name" or "{{external}}.model_name".
 var dependencyPattern = regexp.MustCompile(`^\{\{(transformation|external)\}\}\.(.+)$`)
 
+// IntervalType represents the interval type from external model frontmatter.
+type IntervalType string
+
+const (
+	// IntervalTypeSlot is slot-based interval (time ranges via slot_start_date_time).
+	IntervalTypeSlot IntervalType = "slot"
+	// IntervalTypeBlock is block number based interval.
+	IntervalTypeBlock IntervalType = "block"
+	// IntervalTypeEntity is for dimension/reference tables with no time range.
+	IntervalTypeEntity IntervalType = "entity"
+)
+
+// intervalConfig represents the interval configuration in model frontmatter.
+type intervalConfig struct {
+	Type IntervalType `yaml:"type"`
+}
+
 // sqlFrontmatter represents the YAML frontmatter in SQL files.
 type sqlFrontmatter struct {
-	Table        string   `yaml:"table"`
-	Dependencies []string `yaml:"dependencies"`
+	Table        string         `yaml:"table"`
+	Dependencies []string       `yaml:"dependencies"`
+	Interval     intervalConfig `yaml:"interval"`
 }
 
 // ParseDependencies parses the dependencies from a SQL file's YAML frontmatter.
@@ -84,16 +102,16 @@ func ResolveDependencyTree(model string, xatuCBTPath string, visited map[string]
 
 	defer func() { visited[model] = false }()
 
-	// First, try to find as transformation model
-	transformationPath := filepath.Join(xatuCBTPath, "models", "transformations", model+".sql")
+	// Try to find as transformation model (supports .sql and .yml extensions)
+	transformationPath := findModelFile(xatuCBTPath, "transformations", model)
 
-	if _, err := os.Stat(transformationPath); err == nil {
+	if transformationPath != "" {
 		return resolveTransformationTree(model, transformationPath, xatuCBTPath, visited)
 	}
 
 	// If not found as transformation, check if it's an external model
-	externalPath := filepath.Join(xatuCBTPath, "models", "external", model+".sql")
-	if _, err := os.Stat(externalPath); err == nil {
+	externalPath := findModelFile(xatuCBTPath, "external", model)
+	if externalPath != "" {
 		return &DependencyTree{
 			Model:        model,
 			Type:         DependencyTypeExternal,
@@ -103,6 +121,20 @@ func ResolveDependencyTree(model string, xatuCBTPath string, visited map[string]
 	}
 
 	return nil, fmt.Errorf("model '%s' not found in transformations or external models", model)
+}
+
+// findModelFile looks for a model file with supported extensions (.sql, .yml, .yaml).
+func findModelFile(xatuCBTPath, folder, model string) string {
+	extensions := []string{".sql", ".yml", ".yaml"}
+
+	for _, ext := range extensions {
+		path := filepath.Join(xatuCBTPath, "models", folder, model+ext)
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+
+	return ""
 }
 
 // resolveTransformationTree resolves a transformation model's dependency tree.
@@ -191,6 +223,67 @@ func (t *DependencyTree) PrintTree(indent string) string {
 	return sb.String()
 }
 
+// GetIntermediateDependencies returns all intermediate (transformation) model names from the
+// dependency tree, excluding the root model. These are non-leaf nodes that transform external data.
+// The result is deduplicated.
+func (t *DependencyTree) GetIntermediateDependencies() []string {
+	seen := make(map[string]bool, 8)
+	intermediates := make([]string, 0, 8)
+
+	t.collectIntermediateDeps(seen, &intermediates, true)
+
+	return intermediates
+}
+
+// collectIntermediateDeps recursively collects intermediate (transformation) dependencies.
+func (t *DependencyTree) collectIntermediateDeps(seen map[string]bool, result *[]string, isRoot bool) {
+	// Skip external models (leaf nodes)
+	if t.Type == DependencyTypeExternal {
+		return
+	}
+
+	// Add this model if it's not the root and not already seen
+	if !isRoot && !seen[t.Model] {
+		seen[t.Model] = true
+		*result = append(*result, t.Model)
+	}
+
+	// Recurse into children
+	for _, child := range t.Children {
+		child.collectIntermediateDeps(seen, result, false)
+	}
+}
+
+// ReadIntermediateSQL reads the SQL content for all intermediate dependencies.
+// Returns a map of model name to SQL content.
+// Note: YAML script models (.yml/.yaml) are skipped as they don't contain SQL to analyze.
+func ReadIntermediateSQL(tree *DependencyTree, xatuCBTPath string) (map[string]string, error) {
+	intermediates := tree.GetIntermediateDependencies()
+	result := make(map[string]string, len(intermediates))
+
+	for _, model := range intermediates {
+		modelPath := findModelFile(xatuCBTPath, "transformations", model)
+		if modelPath == "" {
+			// Model file not found, skip
+			continue
+		}
+
+		// Only read SQL files - YAML script models don't have SQL to analyze
+		if !strings.HasSuffix(modelPath, ".sql") {
+			continue
+		}
+
+		content, err := os.ReadFile(modelPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read SQL for %s: %w", model, err)
+		}
+
+		result[model] = string(content)
+	}
+
+	return result, nil
+}
+
 // ListTransformationModels returns a list of available transformation models from the xatu-cbt repo.
 func ListTransformationModels(xatuCBTPath string) ([]string, error) {
 	modelsDir := filepath.Join(xatuCBTPath, "models", "transformations")
@@ -208,17 +301,50 @@ func ListTransformationModels(xatuCBTPath string) ([]string, error) {
 		}
 
 		name := entry.Name()
-		if strings.HasSuffix(name, ".sql") {
-			// Remove .sql extension to get model name
-			models = append(models, strings.TrimSuffix(name, ".sql"))
+
+		// Support .sql, .yml, and .yaml extensions
+		for _, ext := range []string{".sql", ".yml", ".yaml"} {
+			if strings.HasSuffix(name, ext) {
+				models = append(models, strings.TrimSuffix(name, ext))
+
+				break
+			}
 		}
 	}
 
 	return models, nil
 }
 
-// parseFrontmatter extracts and parses the YAML frontmatter from a SQL file.
-func parseFrontmatter(sqlPath string) (*sqlFrontmatter, error) {
+// parseFrontmatter extracts and parses the YAML frontmatter from a SQL file,
+// or parses a pure YAML file (.yml/.yaml) directly.
+func parseFrontmatter(modelPath string) (*sqlFrontmatter, error) {
+	// Check if this is a pure YAML file (not SQL with frontmatter)
+	if strings.HasSuffix(modelPath, ".yml") || strings.HasSuffix(modelPath, ".yaml") {
+		return parseYAMLFile(modelPath)
+	}
+
+	// Parse SQL file with YAML frontmatter
+	return parseSQLFrontmatter(modelPath)
+}
+
+// parseYAMLFile parses a pure YAML model file (.yml or .yaml).
+func parseYAMLFile(yamlPath string) (*sqlFrontmatter, error) {
+	content, err := os.ReadFile(yamlPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	var fm sqlFrontmatter
+
+	if err := yaml.Unmarshal(content, &fm); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML file: %w", err)
+	}
+
+	return &fm, nil
+}
+
+// parseSQLFrontmatter extracts and parses the YAML frontmatter from a SQL file.
+func parseSQLFrontmatter(sqlPath string) (*sqlFrontmatter, error) {
 	file, err := os.Open(sqlPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
@@ -267,6 +393,53 @@ func parseFrontmatter(sqlPath string) (*sqlFrontmatter, error) {
 	}
 
 	return &fm, nil
+}
+
+// GetExternalModelIntervalType returns the interval type for an external model.
+// Returns IntervalTypeEntity for dimension tables, or the actual type (slot, block, etc.).
+func GetExternalModelIntervalType(model, xatuCBTPath string) (IntervalType, error) {
+	modelPath := findModelFile(xatuCBTPath, "external", model)
+	if modelPath == "" {
+		return "", fmt.Errorf("external model '%s' not found", model)
+	}
+
+	fm, err := parseFrontmatter(modelPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse frontmatter: %w", err)
+	}
+
+	if fm.Interval.Type == "" {
+		// Default to slot if not specified
+		return IntervalTypeSlot, nil
+	}
+
+	return fm.Interval.Type, nil
+}
+
+// IsEntityModel checks if an external model is an entity/dimension table.
+func IsEntityModel(model, xatuCBTPath string) bool {
+	intervalType, err := GetExternalModelIntervalType(model, xatuCBTPath)
+	if err != nil {
+		return false
+	}
+
+	return intervalType == IntervalTypeEntity
+}
+
+// GetExternalModelIntervalTypes returns interval types for multiple external models.
+func GetExternalModelIntervalTypes(models []string, xatuCBTPath string) (map[string]IntervalType, error) {
+	result := make(map[string]IntervalType, len(models))
+
+	for _, model := range models {
+		intervalType, err := GetExternalModelIntervalType(model, xatuCBTPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get interval type for %s: %w", model, err)
+		}
+
+		result[model] = intervalType
+	}
+
+	return result, nil
 }
 
 // parseDependencyString parses a dependency string like "{{transformation}}.model_name".
