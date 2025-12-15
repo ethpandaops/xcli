@@ -37,17 +37,19 @@ func NewGenerator(log logrus.FieldLogger, cfg *config.LabConfig) *Generator {
 
 // GenerateOptions contains options for generating seed data.
 type GenerateOptions struct {
-	Model       string   // Table name (e.g., "beacon_api_eth_v1_events_block")
-	Network     string   // Network name (e.g., "mainnet", "sepolia")
-	Spec        string   // Fork spec (e.g., "pectra", "fusaka")
-	RangeColumn string   // Column to filter on (e.g., "slot", "epoch")
-	From        string   // Range start value
-	To          string   // Range end value
-	Filters     []Filter // Additional filters
-	Limit       int      // Max rows (0 = unlimited)
-	OutputPath  string   // Output file path
-	SanitizeIPs bool     // Enable IP address sanitization
-	Salt        string   // Salt for IP sanitization (shared across batch for consistency)
+	Model             string   // Table name (e.g., "beacon_api_eth_v1_events_block")
+	Network           string   // Network name (e.g., "mainnet", "sepolia")
+	Spec              string   // Fork spec (e.g., "pectra", "fusaka")
+	RangeColumn       string   // Column to filter on (e.g., "slot", "epoch")
+	From              string   // Range start value
+	To                string   // Range end value
+	Filters           []Filter // Additional filters
+	FilterSQL         string   // Raw SQL fragment for additional WHERE conditions (from AI discovery)
+	CorrelationFilter string   // Subquery filter for dimension tables (e.g., "validator_index IN (SELECT ...)")
+	Limit             int      // Max rows (0 = unlimited)
+	OutputPath        string   // Output file path
+	SanitizeIPs       bool     // Enable IP address sanitization
+	Salt              string   // Salt for IP sanitization (shared across batch for consistency)
 
 	// sanitizedColumns is an internal field set by Generate() when SanitizeIPs is true.
 	// It contains the pre-computed column list with IP sanitization expressions.
@@ -67,6 +69,7 @@ type GenerateResult struct {
 	RowCount         int64    // Number of rows extracted (estimated from file size)
 	FileSize         int64    // File size in bytes
 	SanitizedColumns []string // IP columns that were sanitized (for display to user)
+	Query            string   // SQL query used (for debugging)
 }
 
 // Generate extracts data from external ClickHouse and writes to a parquet file.
@@ -110,10 +113,14 @@ func (g *Generator) Generate(ctx context.Context, opts GenerateOptions) (*Genera
 	query := g.buildQuery(opts)
 
 	g.log.WithFields(logrus.Fields{
-		"model":   opts.Model,
-		"network": opts.Network,
-		"output":  opts.OutputPath,
-	}).Debug("generating seed data")
+		"model":        opts.Model,
+		"network":      opts.Network,
+		"output":       opts.OutputPath,
+		"range_column": opts.RangeColumn,
+		"from":         opts.From,
+		"to":           opts.To,
+		"query":        query,
+	}).Info("generating seed data")
 
 	// Execute query and stream to file
 	fileSize, err := g.executeQueryToFile(ctx, query, opts.OutputPath)
@@ -125,6 +132,7 @@ func (g *Generator) Generate(ctx context.Context, opts GenerateOptions) (*Genera
 		OutputPath:       opts.OutputPath,
 		FileSize:         fileSize,
 		SanitizedColumns: sanitizedColumns,
+		Query:            query,
 	}, nil
 }
 
@@ -147,21 +155,33 @@ func (g *Generator) buildQuery(opts GenerateOptions) string {
 	sb.WriteString("'")
 
 	// Add range filter if specified
+	// Use column-name-based detection (same logic as validation query in discovery.go)
 	if opts.RangeColumn != "" && opts.From != "" && opts.To != "" {
-		fromVal := formatSQLValue(opts.From)
-		toVal := formatSQLValue(opts.To)
+		colLower := strings.ToLower(opts.RangeColumn)
+		isTimeColumn := strings.Contains(colLower, "date") || strings.Contains(colLower, "time")
 
 		sb.WriteString("\n  AND ")
 		sb.WriteString(opts.RangeColumn)
 		sb.WriteString(" >= ")
-		sb.WriteString(fromVal)
+
+		if isTimeColumn {
+			sb.WriteString(fmt.Sprintf("toDateTime('%s')", opts.From))
+		} else {
+			sb.WriteString(opts.From) // Numeric value as-is
+		}
+
 		sb.WriteString("\n  AND ")
 		sb.WriteString(opts.RangeColumn)
 		sb.WriteString(" <= ")
-		sb.WriteString(toVal)
+
+		if isTimeColumn {
+			sb.WriteString(fmt.Sprintf("toDateTime('%s')", opts.To))
+		} else {
+			sb.WriteString(opts.To) // Numeric value as-is
+		}
 	}
 
-	// Add additional filters
+	// Add additional filters (structured)
 	for _, filter := range opts.Filters {
 		sb.WriteString("\n  AND ")
 		sb.WriteString(filter.Column)
@@ -169,6 +189,18 @@ func (g *Generator) buildQuery(opts GenerateOptions) string {
 		sb.WriteString(filter.Operator)
 		sb.WriteString(" ")
 		sb.WriteString(formatSQLValue(filter.Value))
+	}
+
+	// Add raw SQL filter if specified (from AI discovery)
+	if opts.FilterSQL != "" {
+		sb.WriteString("\n  AND ")
+		sb.WriteString(opts.FilterSQL)
+	}
+
+	// Add correlation filter if specified (subquery for dimension tables)
+	if opts.CorrelationFilter != "" {
+		sb.WriteString("\n  AND ")
+		sb.WriteString(opts.CorrelationFilter)
 	}
 
 	// Add limit if specified
