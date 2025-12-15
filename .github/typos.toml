@@ -1,2 +1,2 @@
 [files]
-extend-exclude = ["pkg/tui/view.go", "pkg/tui/logs.go"]
+extend-exclude = ["pkg/tui/view.go", "pkg/tui/logs.go", "pkg/seeddata/discovery.go"]
