@@ -231,8 +231,10 @@ func extractYAMLFromResponse(response string) string {
 		trimmed := strings.TrimSpace(line)
 
 		// Start YAML when we see assertion-style or discovery-style start markers
+		// Include common typos/variations Claude might output
 		if strings.HasPrefix(trimmed, "- name:") ||
 			strings.HasPrefix(trimmed, "primaryRangeType:") ||
+			strings.HasPrefix(trimmed, "primaryrangeType:") ||
 			strings.HasPrefix(trimmed, "primary_range_type:") {
 			inYAML = true
 		}

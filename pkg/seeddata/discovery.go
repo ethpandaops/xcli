@@ -382,8 +382,11 @@ func (c *ClaudeDiscoveryClient) buildDiscoveryPrompt(input DiscoveryInput) strin
 	sb.WriteString("   Include these as `filterSql` - a SQL fragment like \"aggregation_bits = ''\" or \"attesting_validator_index IS NOT NULL\"\n\n")
 
 	sb.WriteString("## Output Format\n")
-	sb.WriteString("Output ONLY valid YAML matching this structure.\n")
-	sb.WriteString("**CRITICAL**: All datetime values MUST be quoted (e.g., \"2025-01-01 00:00:00\") - unquoted colons break YAML!\n\n")
+	sb.WriteString("Output ONLY valid YAML matching this EXACT structure.\n\n")
+	sb.WriteString("**CRITICAL FORMATTING RULES**:\n")
+	sb.WriteString("1. ALL field names MUST use proper camelCase (e.g., `primaryRangeColumn`, `fromValue`, `filterSql`)\n")
+	sb.WriteString("2. All datetime values MUST be quoted: `fromValue: \"2025-01-01 00:00:00\"`\n")
+	sb.WriteString("3. Output ONLY the YAML - no markdown code blocks, no explanations\n\n")
 	sb.WriteString("```yaml\n")
 	sb.WriteString("primaryRangeType: time\n")
 	sb.WriteString("primaryRangeColumn: slot_start_date_time\n")
@@ -422,8 +425,9 @@ func (c *ClaudeDiscoveryClient) buildDiscoveryPrompt(input DiscoveryInput) strin
 	sb.WriteString("- For block_number tables, estimate block numbers that correspond to the chosen time window\n")
 	sb.WriteString("- Include ALL external models in the strategies list\n")
 	sb.WriteString("- **ANALYZE ALL WHERE CLAUSES** in transformation and intermediate SQL - missing filters will cause empty test output!\n")
-	sb.WriteString("- Include `filterSql` for each model (empty string if no additional filters needed)\n")
-	sb.WriteString("- Output ONLY the YAML, no explanations before or after\n")
+	sb.WriteString("- Include `filterSql` for each model (empty string if no additional filters needed)\n\n")
+
+	sb.WriteString("**YOUR RESPONSE MUST START WITH `primaryRangeType:` - no preamble, no explanations, no markdown, just the raw YAML.**\n")
 
 	return sb.String()
 }
@@ -440,7 +444,12 @@ func (c *ClaudeDiscoveryClient) parseDiscoveryResponse(response string) (*Discov
 	}
 
 	// Normalize field names (Claude may output snake_case instead of camelCase)
+	beforeNorm := yamlContent
 	yamlContent = normalizeDiscoveryYAMLFields(yamlContent)
+
+	if beforeNorm != yamlContent {
+		c.log.Debug("YAML normalization applied field name corrections")
+	}
 
 	c.log.WithField("yaml_preview", truncateString(yamlContent, 300)).Debug("extracted YAML content")
 
@@ -449,48 +458,85 @@ func (c *ClaudeDiscoveryClient) parseDiscoveryResponse(response string) (*Discov
 	if err := yaml.Unmarshal([]byte(yamlContent), &result); err != nil {
 		c.log.WithFields(logrus.Fields{
 			"error":        err,
-			"yaml_content": truncateString(yamlContent, 500),
+			"yaml_content": yamlContent,
 		}).Error("failed to parse discovery YAML")
 
-		return nil, fmt.Errorf("failed to parse discovery YAML: %w", err)
+		// Include YAML preview in error for UI visibility
+		yamlPreview := yamlContent
+		if len(yamlPreview) > 800 {
+			yamlPreview = yamlPreview[:800] + "..."
+		}
+
+		return nil, fmt.Errorf("failed to parse discovery YAML: %w\n\nClaude's output:\n%s", err, yamlPreview)
 	}
 
 	// Validate result
 	if err := c.validateDiscoveryResult(&result); err != nil {
 		c.log.WithFields(logrus.Fields{
 			"error":        err,
-			"yaml_content": truncateString(yamlContent, 500),
+			"yaml_content": yamlContent, // Full content for debugging
 			"parsed":       result,
-		}).Error("invalid discovery result")
+		}).Warn("invalid discovery result - showing YAML for debugging")
 
-		return nil, fmt.Errorf("invalid discovery result: %w", err)
+		// Include YAML preview in error for UI visibility
+		yamlPreview := yamlContent
+		if len(yamlPreview) > 500 {
+			yamlPreview = yamlPreview[:500] + "..."
+		}
+
+		return nil, fmt.Errorf("invalid discovery result: %w\n\nClaude's YAML output:\n%s", err, yamlPreview)
 	}
 
 	return &result, nil
 }
 
-// normalizeDiscoveryYAMLFields converts common snake_case field names to camelCase
+// normalizeDiscoveryYAMLFields converts common field name variations to expected camelCase
 // and fixes common YAML formatting issues in Claude's output.
 func normalizeDiscoveryYAMLFields(yamlContent string) string {
-	// Map of snake_case to camelCase field names
+	// Map of various field name formats to expected camelCase
+	// Includes snake_case, PascalCase, typos, and other variations Claude might output
 	replacements := map[string]string{
+		// snake_case variations
 		"primary_range_type:":   "primaryRangeType:",
 		"primary_range_column:": "primaryRangeColumn:",
-		"from_value:":           "fromValue:",
-		"to_value:":             "toValue:",
-		"range_column:":         "rangeColumn:",
-		"column_type:":          "columnType:",
-		"filter_sql:":           "filterSql:",
-		"correlation_filter:":   "correlationFilter:",
-		"requires_bridge:":      "requiresBridge:",
-		"bridge_table:":         "bridgeTable:",
-		"bridge_join_sql:":      "bridgeJoinSql:",
-		"overall_confidence:":   "overallConfidence:",
+		// Common typos (missing capital letters)
+		"primaryrangeType:":   "primaryRangeType:",
+		"primaryrangeColumn:": "primaryRangeColumn:",
+		"primaryRangetype:":   "primaryRangeType:",
+		"primaryRangecolumn:": "primaryRangeColumn:",
+		"from_value:":         "fromValue:",
+		"to_value:":           "toValue:",
+		"range_column:":       "rangeColumn:",
+		"column_type:":        "columnType:",
+		"filter_sql:":         "filterSql:",
+		"correlation_filter:": "correlationFilter:",
+		"requires_bridge:":    "requiresBridge:",
+		"bridge_table:":       "bridgeTable:",
+		"bridge_join_sql:":    "bridgeJoinSql:",
+		"overall_confidence:": "overallConfidence:",
+		// PascalCase variations
+		"PrimaryRangeType:":   "primaryRangeType:",
+		"PrimaryRangeColumn:": "primaryRangeColumn:",
+		"FromValue:":          "fromValue:",
+		"ToValue:":            "toValue:",
+		"RangeColumn:":        "rangeColumn:",
+		"ColumnType:":         "columnType:",
+		"FilterSql:":          "filterSql:",
+		"FilterSQL:":          "filterSql:",
+		"CorrelationFilter:":  "correlationFilter:",
+		"RequiresBridge:":     "requiresBridge:",
+		"BridgeTable:":        "bridgeTable:",
+		"BridgeJoinSql:":      "bridgeJoinSql:",
+		"BridgeJoinSQL:":      "bridgeJoinSql:",
+		"OverallConfidence:":  "overallConfidence:",
+		// Common typos/variations
+		"filterSql:": "filterSql:",
+		"filter:":    "filterSql:", // Claude might shorten this
 	}
 
 	result := yamlContent
-	for snake, camel := range replacements {
-		result = strings.ReplaceAll(result, snake, camel)
+	for variant, camel := range replacements {
+		result = strings.ReplaceAll(result, variant, camel)
 	}
 
 	// Fix unquoted datetime values (e.g., "fromValue: 2025-01-01 00:00:00" -> "fromValue: \"2025-01-01 00:00:00\"")
