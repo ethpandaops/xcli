@@ -141,12 +141,15 @@ func (u *S3Uploader) Upload(ctx context.Context, opts UploadOptions) (*UploadRes
 	}).Debug("uploading file to S3")
 
 	// Upload to S3 with explicit content length
+	// Cache-Control: no-cache ensures CDN/browsers always revalidate with origin
+	// R2 will use ETag for efficient conditional requests (304 Not Modified)
 	_, err = u.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(u.bucket),
 		Key:           aws.String(key),
 		Body:          file,
 		ContentType:   aws.String("application/octet-stream"),
 		ContentLength: aws.Int64(fileSize),
+		CacheControl:  aws.String("no-cache"),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload to S3: %w", err)

@@ -220,7 +220,7 @@ func extractYAMLFromResponse(response string) string {
 		return strings.TrimSpace(matches[1])
 	}
 
-	// If no code block, look for content starting with a YAML list
+	// If no code block, look for content starting with a YAML list or discovery YAML
 	lines := strings.Split(response, "\n")
 
 	var yamlLines []string
@@ -229,13 +229,21 @@ func extractYAMLFromResponse(response string) string {
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "- name:") {
+
+		// Start YAML when we see assertion-style or discovery-style start markers
+		if strings.HasPrefix(trimmed, "- name:") ||
+			strings.HasPrefix(trimmed, "primaryRangeType:") ||
+			strings.HasPrefix(trimmed, "primary_range_type:") {
 			inYAML = true
 		}
 
 		if inYAML {
-			// Stop if we hit non-YAML content
-			if trimmed != "" && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "\t") {
+			// Stop if we hit non-YAML content (text that doesn't look like YAML)
+			if trimmed != "" &&
+				!strings.HasPrefix(line, " ") &&
+				!strings.HasPrefix(line, "-") &&
+				!strings.HasPrefix(line, "\t") &&
+				!strings.Contains(line, ":") {
 				break
 			}
 

@@ -37,17 +37,19 @@ func NewGenerator(log logrus.FieldLogger, cfg *config.LabConfig) *Generator {
 
 // GenerateOptions contains options for generating seed data.
 type GenerateOptions struct {
-	Model       string   // Table name (e.g., "beacon_api_eth_v1_events_block")
-	Network     string   // Network name (e.g., "mainnet", "sepolia")
-	Spec        string   // Fork spec (e.g., "pectra", "fusaka")
-	RangeColumn string   // Column to filter on (e.g., "slot", "epoch")
-	From        string   // Range start value
-	To          string   // Range end value
-	Filters     []Filter // Additional filters
-	Limit       int      // Max rows (0 = unlimited)
-	OutputPath  string   // Output file path
-	SanitizeIPs bool     // Enable IP address sanitization
-	Salt        string   // Salt for IP sanitization (shared across batch for consistency)
+	Model             string   // Table name (e.g., "beacon_api_eth_v1_events_block")
+	Network           string   // Network name (e.g., "mainnet", "sepolia")
+	Spec              string   // Fork spec (e.g., "pectra", "fusaka")
+	RangeColumn       string   // Column to filter on (e.g., "slot", "epoch")
+	From              string   // Range start value
+	To                string   // Range end value
+	Filters           []Filter // Additional filters
+	FilterSQL         string   // Raw SQL fragment for additional WHERE conditions (from AI discovery)
+	CorrelationFilter string   // Subquery filter for dimension tables (e.g., "validator_index IN (SELECT ...)")
+	Limit             int      // Max rows (0 = unlimited)
+	OutputPath        string   // Output file path
+	SanitizeIPs       bool     // Enable IP address sanitization
+	Salt              string   // Salt for IP sanitization (shared across batch for consistency)
 
 	// sanitizedColumns is an internal field set by Generate() when SanitizeIPs is true.
 	// It contains the pre-computed column list with IP sanitization expressions.
@@ -179,7 +181,7 @@ func (g *Generator) buildQuery(opts GenerateOptions) string {
 		}
 	}
 
-	// Add additional filters
+	// Add additional filters (structured)
 	for _, filter := range opts.Filters {
 		sb.WriteString("\n  AND ")
 		sb.WriteString(filter.Column)
@@ -187,6 +189,18 @@ func (g *Generator) buildQuery(opts GenerateOptions) string {
 		sb.WriteString(filter.Operator)
 		sb.WriteString(" ")
 		sb.WriteString(formatSQLValue(filter.Value))
+	}
+
+	// Add raw SQL filter if specified (from AI discovery)
+	if opts.FilterSQL != "" {
+		sb.WriteString("\n  AND ")
+		sb.WriteString(opts.FilterSQL)
+	}
+
+	// Add correlation filter if specified (subquery for dimension tables)
+	if opts.CorrelationFilter != "" {
+		sb.WriteString("\n  AND ")
+		sb.WriteString(opts.CorrelationFilter)
 	}
 
 	// Add limit if specified
