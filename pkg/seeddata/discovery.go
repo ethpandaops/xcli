@@ -34,6 +34,9 @@ const (
 	RangeColumnTypeNone RangeColumnType = "none"
 	// RangeColumnTypeUnknown represents an unclassified column type.
 	RangeColumnTypeUnknown RangeColumnType = "unknown"
+
+	// BlockNumberColumn is the standard column name for block-based tables.
+	BlockNumberColumn = "block_number"
 )
 
 // TableRangeStrategy describes how to filter a single table for seed data extraction.
@@ -669,7 +672,7 @@ func ClassifyRangeColumn(column string, schema []ColumnInfo) RangeColumnType {
 		return RangeColumnTypeTime
 	case strings.Contains(colLower, "timestamp"):
 		return RangeColumnTypeTime
-	case colLower == "block_number" || strings.HasSuffix(colLower, "_block_number"):
+	case colLower == BlockNumberColumn || strings.HasSuffix(colLower, "_block_number"):
 		return RangeColumnTypeBlock
 	case colLower == "slot" || strings.HasSuffix(colLower, "_slot"):
 		return RangeColumnTypeSlot
@@ -816,6 +819,8 @@ func categorizeModelsByType(
 }
 
 // FallbackRangeDiscovery provides heuristic-based range discovery when Claude is unavailable.
+//
+//nolint:funlen,gocognit,cyclop,gocyclo // Complex heuristic logic requires length
 func FallbackRangeDiscovery(
 	ctx context.Context,
 	gen *Generator,
@@ -835,11 +840,25 @@ func FallbackRangeDiscovery(
 	}
 
 	// Group models by interval type
-	timeModels, blockModels, entityModels, unknownModels := categorizeModelsByType(models, intervalTypes, rangeInfos)
+	_, blockModels, entityModels, unknownModels := categorizeModelsByType(models, intervalTypes, rangeInfos)
 
-	// Query ranges for models
-	var latestMin, earliestMax time.Time
+	// Track time ranges and block ranges separately
+	var latestTimeMin, earliestTimeMax time.Time
 
+	var latestBlockMin, earliestBlockMax int64
+
+	hasTimeRanges := false
+	hasBlockRanges := false
+
+	// Store per-model range info for later assignment
+	type modelRangeInfo struct {
+		rangeCol   string
+		colType    RangeColumnType
+		reasoning  string
+		confidence float64
+	}
+
+	modelRanges := make(map[string]*modelRangeInfo, len(models))
 	strategies := make([]TableRangeStrategy, 0, len(models))
 
 	for _, model := range models {
@@ -847,51 +866,40 @@ func FallbackRangeDiscovery(
 
 		// Check model category
 		isEntity := contains(entityModels, model)
+		isBlock := contains(blockModels, model)
 		isUnknown := contains(unknownModels, model)
 
 		var rangeCol string
 
 		var colType RangeColumnType
 
-		// For entity models, find a time column in the schema
+		// For entity models, they typically don't have time-based ranges
+		// Mark them as "none" type - they'll get all data or use correlation
 		if isEntity {
-			// Query schema to find a time column
-			columns, schemaErr := gen.DescribeTable(ctx, model)
-			if schemaErr != nil {
-				gen.log.WithError(schemaErr).WithField("model", model).Warn("failed to describe entity table")
+			gen.log.WithField("model", model).Info("entity/dimension table - will query without range filter")
 
-				strategies = append(strategies, TableRangeStrategy{
-					Model:      model,
-					ColumnType: RangeColumnTypeTime,
-					Confidence: 0.3,
-					Reasoning:  fmt.Sprintf("Entity model (schema query failed: %v)", schemaErr),
-				})
+			strategies = append(strategies, TableRangeStrategy{
+				Model:      model,
+				ColumnType: RangeColumnTypeNone,
+				Confidence: 0.7,
+				Reasoning:  "Entity/dimension table - no range filtering (all data)",
+			})
 
-				continue
+			continue
+		} else if isBlock {
+			// Block-based models use block_number
+			rangeCol = BlockNumberColumn
+			if info != nil && info.RangeColumn != "" {
+				rangeCol = info.RangeColumn
 			}
 
-			timeCol := findTimeColumnInSchema(columns)
-			if timeCol == "" {
-				gen.log.WithField("model", model).Warn("no time column found for entity model")
-
-				strategies = append(strategies, TableRangeStrategy{
-					Model:      model,
-					ColumnType: RangeColumnTypeTime,
-					Confidence: 0.3,
-					Reasoning:  "Entity model - no time column found in schema",
-				})
-
-				continue
-			}
-
-			rangeCol = timeCol
-			colType = RangeColumnTypeTime
+			colType = RangeColumnTypeBlock
 		} else if isUnknown {
 			// Unknown models - try default range column
 			rangeCol = DefaultRangeColumn
 			colType = RangeColumnTypeTime
 		} else {
-			// Time or block models - use detected range column
+			// Time models - use detected range column
 			rangeCol = DefaultRangeColumn
 			if info != nil {
 				rangeCol = info.RangeColumn
@@ -915,86 +923,190 @@ func FallbackRangeDiscovery(
 			continue
 		}
 
-		if latestMin.IsZero() || modelRange.Min.After(latestMin) {
-			latestMin = modelRange.Min
-		}
+		// Track ranges based on column type
+		if colType == RangeColumnTypeBlock {
+			// Parse raw values as block numbers
+			var minBlock, maxBlock int64
 
-		if earliestMax.IsZero() || modelRange.Max.Before(earliestMax) {
-			earliestMax = modelRange.Max
-		}
+			if _, scanErr := fmt.Sscanf(modelRange.MinRaw, "%d", &minBlock); scanErr != nil {
+				gen.log.WithError(scanErr).WithField("model", model).Warn("failed to parse min block number")
 
-		reasoning := "Heuristic-based detection (Claude unavailable)"
-		if isEntity {
-			reasoning = fmt.Sprintf("Entity model - using %s for time filtering", rangeCol)
-		}
+				continue
+			}
 
-		strategies = append(strategies, TableRangeStrategy{
-			Model:       model,
-			RangeColumn: rangeCol,
-			ColumnType:  colType,
-			Confidence:  0.7,
-			Reasoning:   reasoning,
-		})
+			if _, scanErr := fmt.Sscanf(modelRange.MaxRaw, "%d", &maxBlock); scanErr != nil {
+				gen.log.WithError(scanErr).WithField("model", model).Warn("failed to parse max block number")
+
+				continue
+			}
+
+			if !hasBlockRanges || minBlock > latestBlockMin {
+				latestBlockMin = minBlock
+			}
+
+			if !hasBlockRanges || maxBlock < earliestBlockMax {
+				earliestBlockMax = maxBlock
+			}
+
+			hasBlockRanges = true
+
+			modelRanges[model] = &modelRangeInfo{
+				rangeCol:   rangeCol,
+				colType:    colType,
+				reasoning:  "Block-based model",
+				confidence: 0.7,
+			}
+		} else {
+			// Time-based range
+			if latestTimeMin.IsZero() || modelRange.Min.After(latestTimeMin) {
+				latestTimeMin = modelRange.Min
+			}
+
+			if earliestTimeMax.IsZero() || modelRange.Max.Before(earliestTimeMax) {
+				earliestTimeMax = modelRange.Max
+			}
+
+			hasTimeRanges = true
+
+			modelRanges[model] = &modelRangeInfo{
+				rangeCol:   rangeCol,
+				colType:    colType,
+				reasoning:  "Time-based model",
+				confidence: 0.7,
+			}
+		}
 	}
 
-	// Handle case where no models have valid ranges
-	hasRanges := !latestMin.IsZero() && !earliestMax.IsZero()
-
+	// Determine primary type and compute range values
 	var fromValue, toValue string
 
 	var primaryType RangeColumnType
 
 	var primaryColumn string
 
-	if hasRanges {
-		// Check for intersection
-		if latestMin.After(earliestMax) {
-			return nil, fmt.Errorf("no intersecting range found across all models")
+	// Calculate time-based range values if we have time models
+	var timeFromValue, timeToValue string
+
+	if hasTimeRanges {
+		if latestTimeMin.After(earliestTimeMax) {
+			gen.log.Warn("no intersecting time range found, using latest available data")
+
+			earliestTimeMax = latestTimeMin.Add(5 * time.Minute)
 		}
 
-		// Parse duration string (e.g., "5m", "10m", "1h")
 		rangeDuration, parseErr := time.ParseDuration(duration)
 		if parseErr != nil {
-			rangeDuration = 5 * time.Minute // Default to 5 minutes if parsing fails
+			rangeDuration = 5 * time.Minute
 		}
 
-		// Use the last N minutes/hours of available data
-		effectiveMax := earliestMax.Add(-1 * time.Minute) // Account for ingestion lag
+		effectiveMax := earliestTimeMax.Add(-1 * time.Minute)
 		effectiveMin := effectiveMax.Add(-rangeDuration)
 
-		if effectiveMin.Before(latestMin) {
-			effectiveMin = latestMin
+		if effectiveMin.Before(latestTimeMin) {
+			effectiveMin = latestTimeMin
 		}
 
-		fromValue = effectiveMin.Format("2006-01-02 15:04:05")
-		toValue = effectiveMax.Format("2006-01-02 15:04:05")
+		timeFromValue = effectiveMin.Format("2006-01-02 15:04:05")
+		timeToValue = effectiveMax.Format("2006-01-02 15:04:05")
+	}
 
-		// Determine primary range type based on majority
-		if len(timeModels)+len(entityModels) >= len(blockModels) {
-			primaryType = RangeColumnTypeTime
-			primaryColumn = DefaultRangeColumn
-		} else {
-			primaryType = RangeColumnTypeBlock
-			primaryColumn = "block_number"
+	// Calculate block-based range values if we have block models
+	var blockFromValue, blockToValue string
+
+	if hasBlockRanges {
+		if latestBlockMin > earliestBlockMax {
+			gen.log.Warn("no intersecting block range found, using latest available data")
+
+			earliestBlockMax = latestBlockMin + 1000
 		}
 
-		// Update strategies with range values (skip strategies without valid range column)
-		for i := range strategies {
-			if strategies[i].RangeColumn != "" {
-				strategies[i].FromValue = fromValue
-				strategies[i].ToValue = toValue
-			}
+		// For blocks, use a reasonable range (e.g., last 1000 blocks or based on duration)
+		// Approximate: 1 block every 12 seconds, so 5 minutes = ~25 blocks
+		rangeDuration, parseErr := time.ParseDuration(duration)
+		if parseErr != nil {
+			rangeDuration = 5 * time.Minute
 		}
+
+		blocksPerDuration := int64(rangeDuration.Seconds() / 12) // ~12 second block time
+		if blocksPerDuration < 100 {
+			blocksPerDuration = 100 // Minimum 100 blocks
+		}
+
+		effectiveMax := earliestBlockMax - 10 // Account for reorgs
+		effectiveMin := effectiveMax - blocksPerDuration
+
+		if effectiveMin < latestBlockMin {
+			effectiveMin = latestBlockMin
+		}
+
+		blockFromValue = fmt.Sprintf("%d", effectiveMin)
+		blockToValue = fmt.Sprintf("%d", effectiveMax)
+	}
+
+	// Set primary type based on what we have
+	if hasTimeRanges && !hasBlockRanges {
+		primaryType = RangeColumnTypeTime
+		primaryColumn = DefaultRangeColumn
+		fromValue = timeFromValue
+		toValue = timeToValue
+	} else if hasBlockRanges && !hasTimeRanges {
+		primaryType = RangeColumnTypeBlock
+		primaryColumn = BlockNumberColumn
+		fromValue = blockFromValue
+		toValue = blockToValue
+	} else if hasTimeRanges && hasBlockRanges {
+		// Mixed - prefer time as primary
+		primaryType = RangeColumnTypeTime
+		primaryColumn = DefaultRangeColumn
+		fromValue = timeFromValue
+		toValue = timeToValue
 	} else {
-		// No valid ranges found - this is an error condition
-		return nil, fmt.Errorf("no valid range columns found for any model")
+		// No valid ranges found - check if we have entity-only models
+		if len(strategies) > 0 {
+			// All models are entity tables - proceed without primary range
+			primaryType = RangeColumnTypeNone
+			primaryColumn = ""
+			fromValue = ""
+			toValue = ""
+		} else {
+			return nil, fmt.Errorf("no valid range columns found for any model")
+		}
+	}
+
+	// Create strategies for models with ranges
+	for model, rangeInfo := range modelRanges {
+		strategy := TableRangeStrategy{
+			Model:       model,
+			RangeColumn: rangeInfo.rangeCol,
+			ColumnType:  rangeInfo.colType,
+			Confidence:  rangeInfo.confidence,
+			Reasoning:   rangeInfo.reasoning,
+		}
+
+		// Assign appropriate range values based on column type
+		if rangeInfo.colType == RangeColumnTypeBlock {
+			strategy.FromValue = blockFromValue
+			strategy.ToValue = blockToValue
+		} else {
+			strategy.FromValue = timeFromValue
+			strategy.ToValue = timeToValue
+		}
+
+		strategies = append(strategies, strategy)
 	}
 
 	warnings := make([]string, 0)
-	if len(blockModels) > 0 && len(timeModels) > 0 {
+
+	if hasBlockRanges && hasTimeRanges {
 		warnings = append(warnings,
 			"Mixed range column types detected (time and block). "+
-				"Block-based tables may not correlate correctly with time-based filtering.")
+				"Each table type will use its appropriate range values.")
+	}
+
+	if len(entityModels) > 0 {
+		warnings = append(warnings,
+			fmt.Sprintf("Entity/dimension tables detected (%v). These will query all data without range filtering.",
+				entityModels))
 	}
 
 	return &DiscoveryResult{
@@ -1064,7 +1176,6 @@ func (g *Generator) ValidateStrategyHasData(
 			Strategy: &strategy,
 			Error:    err,
 		}
-
 		if err != nil {
 			modelCount.HasData = false
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
@@ -15,21 +16,45 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// generateTransformationTestOptions holds all options for the generate-transformation-test command.
+type generateTransformationTestOptions struct {
+	model           string
+	models          []string
+	network         string
+	spec            string
+	rangeColumn     string
+	from            string
+	to              string
+	limit           int
+	upload          bool
+	aiAssertions    bool
+	skipExisting    bool
+	sanitizeIPs     bool
+	duration        string
+	yes             bool
+	skipAIDiscovery bool
+	parallel        int
+}
+
 // NewLabXatuCBTGenerateTransformationTestCommand creates the command.
 func NewLabXatuCBTGenerateTransformationTestCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	var (
-		model         string
-		network       string
-		spec          string
-		rangeColumn   string
-		from          string
-		to            string
-		limit         int
-		upload        bool
-		aiAssertions  bool
-		skipExisting  bool
-		noSanitizeIPs bool
-		duration      string
+		model           string
+		models          []string
+		network         string
+		spec            string
+		rangeColumn     string
+		from            string
+		to              string
+		limit           int
+		upload          bool
+		aiAssertions    bool
+		skipExisting    bool
+		noSanitizeIPs   bool
+		duration        string
+		yes             bool
+		skipAIDiscovery bool
+		parallel        int
 	)
 
 	cmd := &cobra.Command{
@@ -68,12 +93,31 @@ S3 Upload Configuration (defaults to Cloudflare R2):
   S3_ENDPOINT            Override endpoint (default: ethpandaops R2)
   S3_BUCKET              Override bucket (default: ethpandaops-platform-production-public)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runGenerateTransformationTest(cmd.Context(), log, configPath,
-				model, network, spec, rangeColumn, from, to, limit, upload, aiAssertions, skipExisting, !noSanitizeIPs, duration)
+			opts := generateTransformationTestOptions{
+				model:           model,
+				models:          models,
+				network:         network,
+				spec:            spec,
+				rangeColumn:     rangeColumn,
+				from:            from,
+				to:              to,
+				limit:           limit,
+				upload:          upload,
+				aiAssertions:    aiAssertions,
+				skipExisting:    skipExisting,
+				sanitizeIPs:     !noSanitizeIPs,
+				duration:        duration,
+				yes:             yes,
+				skipAIDiscovery: skipAIDiscovery,
+				parallel:        parallel,
+			}
+
+			return runGenerateTransformationTest(cmd.Context(), log, configPath, opts)
 		},
 	}
 
-	cmd.Flags().StringVar(&model, "model", "", "Transformation model name")
+	cmd.Flags().StringVar(&model, "model", "", "Transformation model name (single model)")
+	cmd.Flags().StringSliceVar(&models, "models", nil, "Comma-separated list of models to process (batch mode)")
 	cmd.Flags().StringVar(&network, "network", "", "Network name (mainnet, sepolia, etc.)")
 	cmd.Flags().StringVar(&spec, "spec", "", "Fork spec (pectra, fusaka, etc.)")
 	cmd.Flags().StringVar(&rangeColumn, "range-column", "", "Override detected range column")
@@ -85,6 +129,9 @@ S3 Upload Configuration (defaults to Cloudflare R2):
 	cmd.Flags().BoolVar(&skipExisting, "skip-existing", false, "Skip generating seed data for existing S3 files")
 	cmd.Flags().BoolVar(&noSanitizeIPs, "no-sanitize-ips", false, "Disable IP address sanitization (IPs are sanitized by default)")
 	cmd.Flags().StringVar(&duration, "duration", "", "Time range duration (e.g., 1m, 5m, 10m, 30m)")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "Non-interactive mode (auto-accept all prompts)")
+	cmd.Flags().BoolVar(&skipAIDiscovery, "skip-ai-discovery", false, "Skip Claude range analysis, use heuristics only")
+	cmd.Flags().IntVar(&parallel, "parallel", 1, "Number of models to process in parallel (batch mode)")
 
 	return cmd
 }
@@ -94,11 +141,23 @@ func runGenerateTransformationTest(
 	ctx context.Context,
 	log logrus.FieldLogger,
 	configPath string,
-	model, network, spec, rangeColumn, from, to string,
-	limit int,
-	upload, aiAssertions, skipExisting, sanitizeIPs bool,
-	duration string,
+	opts generateTransformationTestOptions,
 ) error {
+	// Extract options for easier access
+	model := opts.model
+	network := opts.network
+	spec := opts.spec
+	duration := opts.duration
+	upload := opts.upload
+	aiAssertions := opts.aiAssertions
+	skipExisting := opts.skipExisting
+	sanitizeIPs := opts.sanitizeIPs
+	limit := opts.limit
+	yes := opts.yes
+	skipAIDiscovery := opts.skipAIDiscovery
+	models := opts.models
+	parallel := opts.parallel
+
 	// Load configuration
 	labCfg, _, err := config.LoadLabConfig(configPath)
 	if err != nil {
@@ -111,6 +170,29 @@ func runGenerateTransformationTest(
 			"Run 'xcli lab mode hybrid' to switch to hybrid mode", labCfg.Mode)
 	}
 
+	// Handle batch mode
+	if len(models) > 0 {
+		return runBatchGenerateTransformationTest(ctx, log, labCfg, opts)
+	}
+
+	// Validate non-interactive mode requirements
+	if yes {
+		if network == "" {
+			return fmt.Errorf("--network is required in non-interactive mode (--yes)")
+		}
+
+		if spec == "" {
+			return fmt.Errorf("--spec is required in non-interactive mode (--yes)")
+		}
+
+		if duration == "" {
+			duration = "5m" // Default duration in non-interactive mode
+		}
+	}
+
+	// Silence unused variable warnings for parallel (only used in batch mode)
+	_ = parallel
+
 	// Create generator
 	gen := seeddata.NewGenerator(log, labCfg)
 
@@ -118,6 +200,10 @@ func runGenerateTransformationTest(
 	var promptErr error
 
 	if model == "" {
+		if yes {
+			return fmt.Errorf("--model is required in non-interactive mode (--yes)")
+		}
+
 		model, promptErr = promptForTransformationModel(labCfg.Repos.XatuCBT)
 		if promptErr != nil {
 			return promptErr
@@ -196,13 +282,29 @@ func runGenerateTransformationTest(
 	}
 
 	ui.Info(fmt.Sprintf("Using %s time range", duration))
-	ui.Info("This may take a few minutes for models with many dependencies - grab a coffee ☕")
+
+	if !skipAIDiscovery {
+		ui.Info("This may take a few minutes for models with many dependencies - grab a coffee ☕")
+	}
 
 	var discoveryResult *seeddata.DiscoveryResult
 
-	// Try AI discovery first
-	discoveryClient, discoveryErr := seeddata.NewClaudeDiscoveryClient(log, gen)
-	if discoveryErr != nil {
+	// Skip AI discovery if requested or use heuristics
+	if skipAIDiscovery {
+		ui.Info("Skipping AI discovery, using heuristic range detection")
+
+		var rangeInfos map[string]*seeddata.RangeColumnInfo
+
+		rangeInfos, err = seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
+		if err != nil {
+			return fmt.Errorf("failed to detect range columns: %w", err)
+		}
+
+		discoveryResult, err = seeddata.FallbackRangeDiscovery(ctx, gen, externalModels, network, rangeInfos, duration, labCfg.Repos.XatuCBT)
+		if err != nil {
+			return fmt.Errorf("fallback range discovery failed: %w", err)
+		}
+	} else if discoveryClient, discoveryErr := seeddata.NewClaudeDiscoveryClient(log, gen); discoveryErr != nil {
 		ui.Warning(fmt.Sprintf("Claude CLI not available: %v", discoveryErr))
 		ui.Info("Falling back to heuristic range detection")
 
@@ -334,15 +436,19 @@ func runGenerateTransformationTest(
 
 		ui.Blank()
 
-		proceedMissing, missErr := ui.Confirm("Proceed anyway?")
-		if missErr != nil {
-			return missErr
-		}
+		if !yes {
+			proceedMissing, missErr := ui.Confirm("Proceed anyway?")
+			if missErr != nil {
+				return missErr
+			}
 
-		if !proceedMissing {
-			ui.Info("Aborted. Try regenerating with clearer model names.")
+			if !proceedMissing {
+				ui.Info("Aborted. Try regenerating with clearer model names.")
 
-			return nil
+				return nil
+			}
+		} else {
+			ui.Info("Non-interactive mode: proceeding with missing models")
 		}
 	}
 
@@ -473,15 +579,19 @@ func runGenerateTransformationTest(
 		ui.Warning("These queries timed out - the tables may be too large or the range too wide.")
 		ui.Warning("Consider narrowing the block/time range, or proceed if you believe the data exists.")
 
-		proceedWithErrors, errErr := ui.Confirm("Proceed anyway (assuming data exists)?")
-		if errErr != nil {
-			return errErr
-		}
+		if !yes {
+			proceedWithErrors, errErr := ui.Confirm("Proceed anyway (assuming data exists)?")
+			if errErr != nil {
+				return errErr
+			}
 
-		if !proceedWithErrors {
-			ui.Info("Aborted by user. Try a narrower range.")
+			if !proceedWithErrors {
+				ui.Info("Aborted by user. Try a narrower range.")
 
-			return nil
+				return nil
+			}
+		} else {
+			ui.Info("Non-interactive mode: proceeding despite query errors")
 		}
 	}
 
@@ -497,43 +607,49 @@ func runGenerateTransformationTest(
 		ui.Blank()
 		ui.Warning("Empty parquets will be generated for these models, which may cause test failures.")
 
-		expandWindow, expandErr := ui.Confirm("Would you like to expand the time window and retry?")
-		if expandErr != nil {
-			return expandErr
-		}
+		if !yes {
+			expandWindow, expandErr := ui.Confirm("Would you like to expand the time window and retry?")
+			if expandErr != nil {
+				return expandErr
+			}
 
-		if expandWindow {
-			ui.Info("Please re-run the command with a larger time window or different range.")
-			ui.Info("Tip: Some tables (like canonical_execution_contracts) may have sparse data.")
+			if expandWindow {
+				ui.Info("Please re-run the command with a larger time window or different range.")
+				ui.Info("Tip: Some tables (like canonical_execution_contracts) may have sparse data.")
 
-			return nil
-		}
+				return nil
+			}
 
-		// Let user proceed anyway if they want
-		proceedAnyway, proceedErr := ui.Confirm("Proceed anyway with potentially empty data?")
-		if proceedErr != nil {
-			return proceedErr
-		}
+			// Let user proceed anyway if they want
+			proceedAnyway, proceedErr := ui.Confirm("Proceed anyway with potentially empty data?")
+			if proceedErr != nil {
+				return proceedErr
+			}
 
-		if !proceedAnyway {
-			ui.Info("Aborted by user")
+			if !proceedAnyway {
+				ui.Info("Aborted by user")
 
-			return nil
+				return nil
+			}
+		} else {
+			ui.Info("Non-interactive mode: proceeding with potentially empty data")
 		}
 	}
 
 	// User confirmation
-	ui.Blank()
+	if !yes {
+		ui.Blank()
 
-	proceed, confirmErr := ui.Confirm("Proceed with this strategy?")
-	if confirmErr != nil {
-		return confirmErr
-	}
+		proceed, confirmErr := ui.Confirm("Proceed with this strategy?")
+		if confirmErr != nil {
+			return confirmErr
+		}
 
-	if !proceed {
-		ui.Info("Aborted by user")
+		if !proceed {
+			ui.Info("Aborted by user")
 
-		return nil
+			return nil
+		}
 	}
 
 	// Row limit handling:
@@ -546,20 +662,19 @@ func runGenerateTransformationTest(
 
 		ui.Info("Using unlimited rows (AI discovery already optimized the range)")
 	} else if limit == defaultRowLimit {
-		// Fallback/manual mode: prompt for safety
-		limit, promptErr = promptForLimit()
-		if promptErr != nil {
-			return promptErr
+		if yes {
+			// Non-interactive mode: use unlimited
+			limit = 0
+		} else {
+			// Fallback/manual mode: prompt for safety
+			limit, promptErr = promptForLimit()
+			if promptErr != nil {
+				return promptErr
+			}
 		}
 	}
 
-	// Prompt for upload
-	if !upload {
-		upload, promptErr = ui.Confirm("Upload to S3?")
-		if promptErr != nil {
-			return promptErr
-		}
-	}
+	// In non-interactive mode, upload flag already set via CLI
 
 	// S3 preflight check if uploading
 	var uploader *seeddata.S3Uploader
@@ -764,6 +879,9 @@ func runGenerateTransformationTest(
 
 			assertions = seeddata.GetDefaultAssertions(model)
 		}
+	} else if yes {
+		// Non-interactive mode: use default assertions
+		assertions = seeddata.GetDefaultAssertions(model)
 	} else {
 		// Prompt for AI assertions
 		useAI, confirmErr := ui.Confirm("Generate assertions with Claude?")
@@ -799,10 +917,16 @@ func runGenerateTransformationTest(
 		return fmt.Errorf("failed to generate YAML: %w", err)
 	}
 
-	// Prompt to write YAML to xatu-cbt
-	writeYAML, writeErr := ui.Confirm("Write test YAML to xatu-cbt?")
-	if writeErr != nil {
-		return writeErr
+	// Write YAML to xatu-cbt
+	writeYAML := yes // In non-interactive mode, always write
+
+	if !yes {
+		var writeErr error
+
+		writeYAML, writeErr = ui.Confirm("Write test YAML to xatu-cbt?")
+		if writeErr != nil {
+			return writeErr
+		}
 	}
 
 	if writeYAML {
@@ -883,4 +1007,411 @@ func generateAIAssertions(ctx context.Context, log logrus.FieldLogger, model str
 	aiSpinner.Success(fmt.Sprintf("Generated %d assertions", len(assertions)))
 
 	return assertions, nil
+}
+
+// batchModelResult holds the result of processing a single model in batch mode.
+type batchModelResult struct {
+	Model   string
+	Success bool
+	Error   error
+}
+
+// runBatchGenerateTransformationTest processes multiple models with parallel support.
+//
+//nolint:funlen // Batch processing handler
+func runBatchGenerateTransformationTest(
+	ctx context.Context,
+	log logrus.FieldLogger,
+	labCfg *config.LabConfig,
+	opts generateTransformationTestOptions,
+) error {
+	models := opts.models
+	parallel := opts.parallel
+
+	if parallel < 1 {
+		parallel = 1
+	}
+
+	// Validate required options for batch mode
+	if opts.network == "" {
+		return fmt.Errorf("--network is required in batch mode")
+	}
+
+	if opts.spec == "" {
+		return fmt.Errorf("--spec is required in batch mode")
+	}
+
+	// Set defaults for batch mode
+	if opts.duration == "" {
+		opts.duration = "5m"
+	}
+
+	// Force non-interactive mode for batch
+	opts.yes = true
+
+	ui.Header(fmt.Sprintf("Batch mode: processing %d models (parallelism: %d)", len(models), parallel))
+	ui.Blank()
+
+	// Create result channel and semaphore
+	results := make([]batchModelResult, len(models))
+	sem := make(chan struct{}, parallel)
+
+	// Process models
+	var wg sync.WaitGroup
+
+	for i, model := range models {
+		wg.Add(1)
+
+		go func(idx int, modelName string) {
+			defer wg.Done()
+
+			// Acquire semaphore
+			sem <- struct{}{}
+
+			defer func() { <-sem }()
+
+			ui.Info(fmt.Sprintf("Starting: %s", modelName))
+
+			// Create a copy of opts for this model
+			modelOpts := opts
+			modelOpts.model = modelName
+			modelOpts.models = nil // Clear batch list
+
+			// Run the single model generation
+			err := runSingleModelGeneration(ctx, log, labCfg, modelOpts)
+
+			results[idx] = batchModelResult{
+				Model:   modelName,
+				Success: err == nil,
+				Error:   err,
+			}
+			if err != nil {
+				ui.Error(fmt.Sprintf("Failed: %s - %v", modelName, err))
+			} else {
+				ui.Success(fmt.Sprintf("Completed: %s", modelName))
+			}
+		}(i, model)
+	}
+
+	wg.Wait()
+
+	// Summary
+	ui.Blank()
+	ui.Header("Batch Summary")
+
+	var succeeded, failed int
+
+	for _, result := range results {
+		if result.Success {
+			succeeded++
+
+			ui.Success(fmt.Sprintf("  ✓ %s", result.Model))
+		} else {
+			failed++
+
+			ui.Error(fmt.Sprintf("  ✗ %s: %v", result.Model, result.Error))
+		}
+	}
+
+	ui.Blank()
+	ui.Info(fmt.Sprintf("Total: %d succeeded, %d failed", succeeded, failed))
+
+	if failed > 0 {
+		return fmt.Errorf("%d model(s) failed to process", failed)
+	}
+
+	return nil
+}
+
+// runSingleModelGeneration is the core logic for generating a single model's test.
+// It's extracted to be called both from single model mode and batch mode.
+//
+//nolint:funlen,cyclop,gocyclo,gocognit // Core generation logic
+func runSingleModelGeneration(
+	ctx context.Context,
+	log logrus.FieldLogger,
+	labCfg *config.LabConfig,
+	opts generateTransformationTestOptions,
+) error {
+	model := opts.model
+	network := opts.network
+	spec := opts.spec
+	duration := opts.duration
+	upload := opts.upload
+	aiAssertions := opts.aiAssertions
+	skipExisting := opts.skipExisting
+	sanitizeIPs := opts.sanitizeIPs
+	limit := opts.limit
+	skipAIDiscovery := opts.skipAIDiscovery
+
+	// Helper for prefixed logging (useful in batch mode)
+	prefix := fmt.Sprintf("[%s] ", model)
+	logInfo := func(msg string) { ui.Info(prefix + msg) }
+
+	gen := seeddata.NewGenerator(log, labCfg)
+
+	// Resolve dependency tree
+	logInfo("Resolving dependency tree")
+
+	tree, err := seeddata.ResolveDependencyTree(model, labCfg.Repos.XatuCBT, nil)
+	if err != nil {
+		return fmt.Errorf("failed to resolve dependencies: %w", err)
+	}
+
+	// Get external dependencies
+	externalModels := tree.GetExternalDependencies()
+	if len(externalModels) == 0 {
+		return fmt.Errorf("no external dependencies found for %s", model)
+	}
+
+	logInfo(fmt.Sprintf("Found %d external dependencies: %v", len(externalModels), externalModels))
+
+	// Range discovery
+	var discoveryResult *seeddata.DiscoveryResult
+
+	if skipAIDiscovery {
+		logInfo("Using heuristic range detection (--skip-ai-discovery)")
+
+		rangeInfos, rangeErr := seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
+		if rangeErr != nil {
+			return fmt.Errorf("failed to detect range columns: %w", rangeErr)
+		}
+
+		discoveryResult, err = seeddata.FallbackRangeDiscovery(ctx, gen, externalModels, network, rangeInfos, duration, labCfg.Repos.XatuCBT)
+		if err != nil {
+			return fmt.Errorf("fallback range discovery failed: %w", err)
+		}
+	} else if discoveryClient, discoveryErr := seeddata.NewClaudeDiscoveryClient(log, gen); discoveryErr != nil {
+		// Claude not available, use heuristics
+		logInfo("Claude unavailable, using heuristic range detection")
+
+		rangeInfos, rangeErr := seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
+		if rangeErr != nil {
+			return fmt.Errorf("failed to detect range columns: %w", rangeErr)
+		}
+
+		discoveryResult, err = seeddata.FallbackRangeDiscovery(ctx, gen, externalModels, network, rangeInfos, duration, labCfg.Repos.XatuCBT)
+		if err != nil {
+			return fmt.Errorf("fallback range discovery failed: %w", err)
+		}
+	} else {
+		// Use Claude for analysis
+		logInfo("Analyzing with Claude AI")
+
+		schemaInfo, schemaErr := discoveryClient.GatherSchemaInfo(ctx, externalModels, network, labCfg.Repos.XatuCBT)
+		if schemaErr != nil {
+			return fmt.Errorf("failed to gather schema info: %w", schemaErr)
+		}
+
+		transformationSQL, sqlErr := seeddata.ReadTransformationSQL(model, labCfg.Repos.XatuCBT)
+		if sqlErr != nil {
+			return fmt.Errorf("failed to read transformation SQL: %w", sqlErr)
+		}
+
+		intermediateSQL, _ := seeddata.ReadIntermediateSQL(tree, labCfg.Repos.XatuCBT)
+
+		var intermediateModels []seeddata.IntermediateSQL
+		for modelName, sql := range intermediateSQL {
+			intermediateModels = append(intermediateModels, seeddata.IntermediateSQL{
+				Model: modelName,
+				SQL:   sql,
+			})
+		}
+
+		discoveryResult, err = discoveryClient.AnalyzeRanges(ctx, seeddata.DiscoveryInput{
+			TransformationModel: model,
+			TransformationSQL:   transformationSQL,
+			IntermediateModels:  intermediateModels,
+			Network:             network,
+			Duration:            duration,
+			ExternalModels:      schemaInfo,
+		})
+		if err != nil {
+			// Fallback to heuristics
+			logInfo("Claude analysis failed, falling back to heuristics")
+
+			rangeInfos, rangeErr := seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
+			if rangeErr != nil {
+				return fmt.Errorf("failed to detect range columns: %w", rangeErr)
+			}
+
+			discoveryResult, err = seeddata.FallbackRangeDiscovery(ctx, gen, externalModels, network, rangeInfos, duration, labCfg.Repos.XatuCBT)
+			if err != nil {
+				return fmt.Errorf("fallback range discovery failed: %w", err)
+			}
+		} else {
+			logInfo(fmt.Sprintf("Claude strategy generated (confidence: %.0f%%)", discoveryResult.OverallConfidence*100))
+		}
+	}
+
+	// Use unlimited rows if using AI discovery
+	if discoveryResult != nil && limit == defaultRowLimit {
+		limit = 0
+	}
+
+	// Log the discovery result
+	if discoveryResult != nil {
+		logInfo(fmt.Sprintf("Range: %s [%s → %s]", discoveryResult.PrimaryRangeColumn, discoveryResult.FromValue, discoveryResult.ToValue))
+
+		for _, strategy := range discoveryResult.Strategies {
+			if strategy.RangeColumn == "" || strategy.ColumnType == seeddata.RangeColumnTypeNone {
+				logInfo(fmt.Sprintf("  • %s: (dimension table - all data)", strategy.Model))
+			} else {
+				logInfo(fmt.Sprintf("  • %s: %s [%s → %s]", strategy.Model, strategy.RangeColumn, strategy.FromValue, strategy.ToValue))
+			}
+		}
+	}
+
+	// S3 uploader setup
+	var uploader *seeddata.S3Uploader
+
+	if upload {
+		uploader, err = seeddata.NewS3Uploader(ctx, log)
+		if err != nil {
+			return fmt.Errorf("failed to create S3 uploader: %w", err)
+		}
+
+		if accessErr := uploader.CheckAccess(ctx); accessErr != nil {
+			return fmt.Errorf("S3 preflight check failed: %w", accessErr)
+		}
+
+		logInfo("S3 uploader ready")
+	}
+
+	// Generate salt for IP sanitization
+	var salt string
+
+	if sanitizeIPs {
+		salt, err = seeddata.GenerateSalt()
+		if err != nil {
+			return fmt.Errorf("failed to generate salt for IP sanitization: %w", err)
+		}
+	}
+
+	// Generate seed data for all external models
+	urls := make(map[string]string, len(externalModels))
+
+	for _, extModel := range externalModels {
+		strategy := discoveryResult.GetStrategy(extModel)
+		if strategy == nil {
+			detectedCol, detectErr := seeddata.DetectRangeColumnForModel(extModel, labCfg.Repos.XatuCBT)
+			if detectErr != nil {
+				detectedCol = seeddata.DefaultRangeColumn
+			}
+
+			colLower := strings.ToLower(detectedCol)
+			isTimeColumn := strings.Contains(colLower, "date") || strings.Contains(colLower, "time")
+			primaryIsTime := discoveryResult.PrimaryRangeType == seeddata.RangeColumnTypeTime
+
+			if isTimeColumn != primaryIsTime {
+				return fmt.Errorf("cannot generate %s: range column type mismatch", extModel)
+			}
+
+			strategy = &seeddata.TableRangeStrategy{
+				Model:       extModel,
+				RangeColumn: detectedCol,
+				FromValue:   discoveryResult.FromValue,
+				ToValue:     discoveryResult.ToValue,
+			}
+		}
+
+		filename := seeddata.GetParquetFilename(model, extModel)
+		outputPath := fmt.Sprintf("./%s", filename)
+
+		// Check if we should skip existing
+		if upload && skipExisting && uploader != nil {
+			exists, existsErr := uploader.ObjectExists(ctx, network, spec, filename[:len(filename)-8])
+			if existsErr == nil && exists {
+				logInfo(fmt.Sprintf("Skipping %s (already exists)", extModel))
+
+				urls[extModel] = uploader.GetPublicURL(network, spec, filename[:len(filename)-8])
+
+				continue
+			}
+		}
+
+		logInfo(fmt.Sprintf("Generating %s (%s: %s → %s)", extModel, strategy.RangeColumn, strategy.FromValue, strategy.ToValue))
+
+		result, genErr := gen.Generate(ctx, seeddata.GenerateOptions{
+			Model:             extModel,
+			Network:           network,
+			Spec:              spec,
+			RangeColumn:       strategy.RangeColumn,
+			From:              strategy.FromValue,
+			To:                strategy.ToValue,
+			FilterSQL:         strategy.FilterSQL,
+			CorrelationFilter: strategy.CorrelationFilter,
+			Limit:             limit,
+			OutputPath:        outputPath,
+			SanitizeIPs:       sanitizeIPs,
+			Salt:              salt,
+		})
+		if genErr != nil {
+			return fmt.Errorf("failed to generate seed data for %s: %w", extModel, genErr)
+		}
+
+		// Upload if requested
+		if upload && uploader != nil {
+			logInfo(fmt.Sprintf("Uploading %s to S3", extModel))
+
+			uploadResult, uploadErr := uploader.Upload(ctx, seeddata.UploadOptions{
+				LocalPath: outputPath,
+				Network:   network,
+				Spec:      spec,
+				Model:     extModel,
+				Filename:  filename[:len(filename)-8],
+			})
+			if uploadErr != nil {
+				return fmt.Errorf("failed to upload %s: %w", extModel, uploadErr)
+			}
+
+			urls[extModel] = uploadResult.PublicURL
+
+			// Clean up local file
+			_ = os.Remove(outputPath)
+		} else {
+			urls[extModel] = fmt.Sprintf("https://%s/%s/%s/%s/%s",
+				seeddata.DefaultS3PublicDomain, seeddata.DefaultS3Prefix, network, spec, filename)
+		}
+
+		_ = result // Silence unused warning
+	}
+
+	// Generate assertions (default in batch mode)
+	var assertions []seeddata.Assertion
+
+	if aiAssertions {
+		assertions, err = generateAIAssertions(ctx, log, model, externalModels, labCfg.Repos.XatuCBT)
+		if err != nil {
+			assertions = seeddata.GetDefaultAssertions(model)
+		}
+	} else {
+		assertions = seeddata.GetDefaultAssertions(model)
+	}
+
+	// Generate test YAML
+	yamlContent, err := seeddata.GenerateTransformationTestYAML(seeddata.TransformationTemplateData{
+		Model:          model,
+		Network:        network,
+		Spec:           spec,
+		ExternalModels: externalModels,
+		URLs:           urls,
+		Assertions:     assertions,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to generate YAML: %w", err)
+	}
+
+	// Write YAML
+	yamlPath := filepath.Join(labCfg.Repos.XatuCBT, "tests", network, spec, "models", model+".yaml")
+
+	logInfo(fmt.Sprintf("Writing test YAML to %s", yamlPath))
+
+	if yamlWriteErr := writeTestYAML(yamlPath, yamlContent); yamlWriteErr != nil {
+		return yamlWriteErr
+	}
+
+	logInfo("Done")
+
+	return nil
 }
