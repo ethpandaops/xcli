@@ -16,11 +16,12 @@ const (
 
 // rangeColumnPatterns are regex patterns to detect range columns from external model SQL.
 // Order matters - more specific patterns should come first.
+// Note: patterns are lowercase since SQL content is lowercased before matching.
 var rangeColumnPatterns = []*regexp.Regexp{
-	// Pattern: toUnixTimestamp(min(column_name)) as min
-	regexp.MustCompile(`toUnixTimestamp\s*\(\s*min\s*\(\s*(\w+)\s*\)\s*\)`),
-	// Pattern: toUnixTimestamp(max(column_name)) as max
-	regexp.MustCompile(`toUnixTimestamp\s*\(\s*max\s*\(\s*(\w+)\s*\)\s*\)`),
+	// Pattern: tounixtimestamp(min(column_name)) as min
+	regexp.MustCompile(`tounixtimestamp\s*\(\s*min\s*\(\s*(\w+)\s*\)\s*\)`),
+	// Pattern: tounixtimestamp(max(column_name)) as max
+	regexp.MustCompile(`tounixtimestamp\s*\(\s*max\s*\(\s*(\w+)\s*\)\s*\)`),
 	// Pattern: min(column_name) as min
 	regexp.MustCompile(`(?:^|[^(])\bmin\s*\(\s*(\w+)\s*\)\s+as\s+min`),
 	// Pattern: max(column_name) as max
