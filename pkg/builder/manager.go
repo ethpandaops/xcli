@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ethpandaops/xcli/pkg/config"
+	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/ethpandaops/xcli/pkg/diagnostic"
 	executil "github.com/ethpandaops/xcli/pkg/exec"
 	"github.com/ethpandaops/xcli/pkg/ui"
@@ -342,7 +343,25 @@ func (m *Manager) GenerateXatuCBTProtosWithResult(ctx context.Context) *diagnost
 		m.log.WithError(err).Warn("failed to clean xatu-cbt protos, continuing anyway")
 	}
 
-	return m.runMakeWithResult(ctx, m.cfg.Repos.XatuCBT, "proto", diagnostic.PhaseProtoGen, "xatu-cbt")
+	// Build environment with xatu source configuration
+	// This allows proto generation to respect xcli's hybrid/external mode
+	env := os.Environ()
+
+	if m.cfg.Infrastructure.ClickHouse.Xatu.Mode == constants.InfraModeExternal {
+		env = append(env, "XATU_SOURCE=external")
+
+		if m.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL != "" {
+			env = append(env, fmt.Sprintf("XATU_URL=%s", m.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL))
+		}
+
+		m.log.WithField("xatu_source", "external").Debug("passing external mode to proto generation")
+	}
+
+	cmd := exec.CommandContext(ctx, "make", "proto")
+	cmd.Dir = m.cfg.Repos.XatuCBT
+	cmd.Env = env
+
+	return executil.RunCmdWithResult(cmd, m.verbose, diagnostic.PhaseProtoGen, "xatu-cbt")
 }
 
 // CleanXatuCBTProtos removes generated proto files from xatu-cbt.
