@@ -39,7 +39,8 @@ After switching modes, restart the stack for changes to take effect:
 Examples:
   xcli lab mode local        # Switch to fully local mode
   xcli lab mode hybrid       # Switch to hybrid mode (requires external ClickHouse config)`,
-		Args: cobra.ExactArgs(1),
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeModes(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mode := args[0]
 			if mode != constants.ModeLocal && mode != constants.ModeHybrid {

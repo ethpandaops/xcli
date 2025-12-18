@@ -26,7 +26,8 @@ Available services:
 Example:
   xcli lab stop lab-backend
   xcli lab stop cbt-mainnet`,
-		Args: cobra.ExactArgs(1),
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeServices(configPath),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			labCfg, cfgPath, err := config.LoadLabConfig(configPath)
 			if err != nil {

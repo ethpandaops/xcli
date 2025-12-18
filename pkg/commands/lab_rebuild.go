@@ -70,7 +70,8 @@ Examples:
   xcli lab rebuild grafana           # Reload custom dashboards
 
 Note: All rebuild commands automatically restart their respective services if running.`,
-		Args: cobra.ExactArgs(1),
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeRebuildProjects(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			project := args[0]
 
