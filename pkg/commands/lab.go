@@ -53,6 +53,7 @@ Use 'xcli lab [command] --help' for more information about a command.`,
 	cmd.AddCommand(NewLabRestartCommand(log, configPath))
 	cmd.AddCommand(NewLabModeCommand(log, configPath))
 	cmd.AddCommand(NewLabConfigCommand(log, configPath))
+	cmd.AddCommand(NewLabOverridesCommand(configPath))
 	cmd.AddCommand(NewLabTUICommand(log, configPath))
 	cmd.AddCommand(NewLabDiagnoseCommand(log, configPath))
 	cmd.AddCommand(NewLabReleaseCommand(log, configPath))
