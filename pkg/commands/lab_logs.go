@@ -14,9 +14,10 @@ func NewLabLogsCommand(log logrus.FieldLogger, configPath string) *cobra.Command
 	var follow bool
 
 	cmd := &cobra.Command{
-		Use:   "logs [service]",
-		Short: "Show lab service logs",
-		Long:  `Show logs for all lab services or a specific service.`,
+		Use:               "logs [service]",
+		Short:             "Show lab service logs",
+		Long:              `Show logs for all lab services or a specific service.`,
+		ValidArgsFunction: completeServices(configPath),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			labCfg, cfgPath, err := config.LoadLabConfig(configPath)
 			if err != nil {

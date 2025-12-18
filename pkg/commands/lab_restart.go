@@ -13,10 +13,11 @@ import (
 // NewLabRestartCommand creates the lab restart command.
 func NewLabRestartCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	return &cobra.Command{
-		Use:   "restart <service>",
-		Short: "Restart a lab service",
-		Long:  `Restart a specific lab service.`,
-		Args:  cobra.ExactArgs(1),
+		Use:               "restart <service>",
+		Short:             "Restart a lab service",
+		Long:              `Restart a specific lab service.`,
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeServices(configPath),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			labCfg, cfgPath, err := config.LoadLabConfig(configPath)
 			if err != nil {

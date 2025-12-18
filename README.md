@@ -26,6 +26,31 @@ make build      # Build from source
 make install    # Install globally (optional)
 ```
 
+## Shell Completion
+
+Enable tab completion for commands, services, and arguments:
+
+```bash
+# Bash
+source <(xcli completion bash)
+
+# To load completions for each session (Linux):
+xcli completion bash > /etc/bash_completion.d/xcli
+
+# To load completions for each session (macOS):
+xcli completion bash > $(brew --prefix)/etc/bash_completion.d/xcli
+
+# Zsh
+echo "autoload -U compinit; compinit" >> ~/.zshrc  # Enable completion (once)
+xcli completion zsh > "${fpath[1]}/_xcli"
+
+# Fish
+xcli completion fish | source
+
+# To load completions for each session:
+xcli completion fish > ~/.config/fish/completions/xcli.fish
+```
+
 ## Quick Start
 
 ```bash

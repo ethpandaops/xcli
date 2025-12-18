@@ -65,7 +65,8 @@ Options:
   xcli lab release xatu-cbt --no-deps       # Skip dependency prompts
 
 Note: Requires GitHub CLI (gh) to be installed and authenticated.`,
-		Args: cobra.ArbitraryArgs,
+		Args:              cobra.ArbitraryArgs,
+		ValidArgsFunction: completeReleasableProjects(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runRelease(cmd.Context(), log, args, stackFlag, bumpFlag,
 				yesFlag, !noWatchFlag, noDepsFlag, timeoutFlag)

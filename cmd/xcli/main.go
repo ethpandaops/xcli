@@ -98,6 +98,7 @@ func main() {
 	// Add root-level commands
 	rootCmd.AddCommand(commands.NewInitCommand(log, configPath))
 	rootCmd.AddCommand(commands.NewConfigCommand(log, configPath))
+	rootCmd.AddCommand(commands.NewCompletionCommand())
 
 	// Add stack commands
 	rootCmd.AddCommand(commands.NewLabCommand(log, configPath))
