@@ -159,6 +159,32 @@ func (m *Model) DisableAllInSection() {
 	}
 }
 
+// EnableAllModels enables all models in both external and transformation sections.
+func (m *Model) EnableAllModels() {
+	for i := range m.externalModels {
+		m.externalModels[i].Enabled = true
+	}
+
+	for i := range m.transformationModels {
+		m.transformationModels[i].Enabled = true
+	}
+
+	m.dirty = true
+}
+
+// DisableAllModels disables all models in both external and transformation sections.
+func (m *Model) DisableAllModels() {
+	for i := range m.externalModels {
+		m.externalModels[i].Enabled = false
+	}
+
+	for i := range m.transformationModels {
+		m.transformationModels[i].Enabled = false
+	}
+
+	m.dirty = true
+}
+
 // GetSectionLength returns the number of items in the current section.
 func (m *Model) GetSectionLength() int {
 	switch m.activeSection {

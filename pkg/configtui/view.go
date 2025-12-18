@@ -315,7 +315,7 @@ func (m Model) renderHelp() string {
 		case sectionEnv:
 			help = "[←/→] Switch section  [↑/↓] Navigate  [0-9] Type value  [Backspace] Delete  [s] Save  [q] Quit"
 		default:
-			help = "[←/→] Switch section  [↑/↓] Navigate  [Space] Toggle  [a] All on  [n] All off  [d] Enable deps  [s] Save  [q] Quit"
+			help = "[←/→] Switch section  [↑/↓] Navigate  [Space] Toggle  [a] Enable all  [n] Disable all  [d] Enable deps  [s] Save  [q] Quit"
 		}
 	}
 

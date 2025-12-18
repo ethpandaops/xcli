@@ -85,16 +85,16 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "a":
 		if m.activeSection != sectionEnv {
-			m.EnableAllInSection()
-			m.statusMsg = "Enabled all models in section"
+			m.EnableAllModels()
+			m.statusMsg = "Enabled all models"
 
 			return m, nil
 		}
 
 	case "n":
 		if m.activeSection != sectionEnv {
-			m.DisableAllInSection()
-			m.statusMsg = "Disabled all models in section"
+			m.DisableAllModels()
+			m.statusMsg = "Disabled all models"
 
 			return m, nil
 		}
