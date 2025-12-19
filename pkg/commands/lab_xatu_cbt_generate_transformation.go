@@ -674,7 +674,15 @@ func runGenerateTransformationTest(
 		}
 	}
 
-	// In non-interactive mode, upload flag already set via CLI
+	// Prompt for upload in interactive mode
+	if !yes && !upload {
+		var confirmErr error
+
+		upload, confirmErr = ui.Confirm("Upload files to S3?")
+		if confirmErr != nil {
+			return confirmErr
+		}
+	}
 
 	// S3 preflight check if uploading
 	var uploader *seeddata.S3Uploader
