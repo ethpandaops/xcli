@@ -16,7 +16,8 @@ type Service struct {
 // The headers are displayed in bold at the top of the table.
 // This is a general-purpose table function that can be used for any tabular data.
 func Table(headers []string, rows [][]string) {
-	data := [][]string{headers}
+	data := make([][]string, 0, 1+len(rows))
+	data = append(data, headers)
 	data = append(data, rows...)
 	_ = pterm.DefaultTable.WithHasHeader().WithData(data).Render()
 }
@@ -26,7 +27,7 @@ func Table(headers []string, rows [][]string) {
 // The table displays three columns: Service name, URL, and Status.
 func ServiceTable(services []Service) {
 	headers := []string{"Service", "URL", "Status"}
-	rows := [][]string{}
+	rows := make([][]string, 0, len(services))
 
 	for _, svc := range services {
 		var status string
@@ -53,7 +54,7 @@ type GitStatus struct {
 // Displays repository name, current branch, and status (up to date or behind/ahead commits).
 func GitStatusTable(statuses []GitStatus) {
 	headers := []string{"Repository", "Branch", "Status"}
-	rows := [][]string{}
+	rows := make([][]string, 0, len(statuses))
 
 	for _, status := range statuses {
 		rows = append(rows, []string{status.Repository, status.Branch, pterm.Yellow(status.Status)})

@@ -157,9 +157,7 @@ func loadDependencies(xatuCBTPath string, transformModels []string) map[string][
 		}
 
 		// Get all dependencies (external and intermediate).
-		allDeps := make([]string, 0)
-		allDeps = append(allDeps, tree.GetExternalDependencies()...)
-		allDeps = append(allDeps, tree.GetIntermediateDependencies()...)
+		allDeps := append(tree.GetExternalDependencies(), tree.GetIntermediateDependencies()...)
 		deps[model] = allDeps
 	}
 

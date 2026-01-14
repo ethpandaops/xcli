@@ -15,7 +15,7 @@ func (m Model) View() string {
 		return "Initializing..."
 	}
 
-	var sections []string
+	sections := make([]string, 0, 5)
 
 	// Title
 	title := StyleTitle.Render("xcli Lab Stack Dashboard")
