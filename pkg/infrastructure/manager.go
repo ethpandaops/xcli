@@ -101,6 +101,11 @@ func (m *Manager) Start(ctx context.Context) error {
 		args = append(args, "--xatu-url", m.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL)
 	}
 
+	// Add xatu ref if configured
+	if m.cfg.Dev.XatuRef != "" {
+		args = append(args, "--xatu-ref", m.cfg.Dev.XatuRef)
+	}
+
 	//nolint:gosec // xatuCBTPath is from config and validated during discovery
 	cmd := exec.CommandContext(ctx, m.xatuCBTPath, args...)
 	cmd.Dir = m.cfg.Repos.XatuCBT
