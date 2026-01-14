@@ -109,8 +109,9 @@ type LabPortsConfig struct {
 
 // LabDevConfig contains lab stack development features.
 type LabDevConfig struct {
-	LabRebuildOnChange bool `yaml:"labRebuildOnChange"`
-	HotReload          bool `yaml:"hotReload"`
+	LabRebuildOnChange bool   `yaml:"labRebuildOnChange"`
+	HotReload          bool   `yaml:"hotReload"`
+	XatuRef            string `yaml:"xatuRef,omitempty"` // Git ref (branch/tag/commit) for xatu repo, defaults to "master"
 }
 
 // TUIConfig contains TUI dashboard settings.

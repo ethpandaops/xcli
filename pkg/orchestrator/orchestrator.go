@@ -723,7 +723,7 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 		if obsErr != nil {
 			fmt.Printf("  Error getting observability status: %v\n", obsErr)
 		} else if len(obsStatus) > 0 {
-			obsServices := []ui.Service{}
+			obsServices := make([]ui.Service, 0, len(obsStatus))
 
 			for name, status := range obsStatus {
 				state := "down"
@@ -753,7 +753,7 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 	if len(processes) == 0 {
 		fmt.Println("  No services running")
 	} else {
-		services := []ui.Service{}
+		services := make([]ui.Service, 0, len(processes))
 
 		for _, p := range processes {
 			// Determine URL based on service name
@@ -1193,8 +1193,8 @@ func (o *Orchestrator) validatePrerequisites(ctx context.Context) error {
 
 // checkPortConflicts checks if any ports needed by services are already in use.
 func (o *Orchestrator) checkPortConflicts() []portutil.PortConflict {
-	portsToCheck := make([]int, 0)
 	enabledNetworks := o.cfg.EnabledNetworks()
+	portsToCheck := make([]int, 0, 2+4*len(enabledNetworks))
 
 	// Lab backend and frontend ports
 	portsToCheck = append(portsToCheck, o.cfg.Ports.LabBackend)
