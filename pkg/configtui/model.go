@@ -1,6 +1,8 @@
 package configtui
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -46,6 +48,12 @@ type Model struct {
 	// Dimensions.
 	width  int
 	height int
+
+	// Filter state (transformation panel only).
+	filterMode               bool   // Whether filter input is active
+	filterInput              string // Current filter input text
+	filterText               string // Applied filter (for substring matching)
+	filteredTransformIndices []int  // Maps filtered index -> original slice index
 
 	// Status.
 	dirty     bool   // Has unsaved changes
@@ -116,8 +124,9 @@ func (m *Model) ToggleCurrentModel() {
 			m.dirty = true
 		}
 	case sectionTransformation:
-		if m.selectedIndex < len(m.transformationModels) {
-			m.transformationModels[m.selectedIndex].Enabled = !m.transformationModels[m.selectedIndex].Enabled
+		originalIndex := m.GetOriginalTransformIndex(m.selectedIndex)
+		if originalIndex >= 0 && originalIndex < len(m.transformationModels) {
+			m.transformationModels[originalIndex].Enabled = !m.transformationModels[originalIndex].Enabled
 			m.dirty = true
 		}
 	}
@@ -193,10 +202,68 @@ func (m *Model) GetSectionLength() int {
 	case sectionExternal:
 		return len(m.externalModels)
 	case sectionTransformation:
-		return len(m.transformationModels)
+		return m.GetFilteredTransformLength()
 	default:
 		return 0
 	}
+}
+
+// ApplyTransformFilter applies the current filter input to transformation models.
+func (m *Model) ApplyTransformFilter() {
+	m.filterText = m.filterInput
+	m.filteredTransformIndices = m.filterModels(m.transformationModels, m.filterText)
+	m.selectedIndex = 0
+	m.transformScroll = 0
+}
+
+// filterModels returns indices of models matching the filter (case-insensitive substring).
+func (m *Model) filterModels(models []ModelEntry, filter string) []int {
+	if filter == "" {
+		return nil
+	}
+
+	filterLower := strings.ToLower(filter)
+	indices := make([]int, 0, len(models))
+
+	for i, model := range models {
+		if strings.Contains(strings.ToLower(model.Name), filterLower) {
+			indices = append(indices, i)
+		}
+	}
+
+	return indices
+}
+
+// GetFilteredTransformLength returns the length of the filtered transformation list.
+func (m *Model) GetFilteredTransformLength() int {
+	if m.filterText != "" && m.filteredTransformIndices != nil {
+		return len(m.filteredTransformIndices)
+	}
+
+	return len(m.transformationModels)
+}
+
+// GetOriginalTransformIndex translates a filtered index to the original slice index.
+func (m *Model) GetOriginalTransformIndex(filteredIndex int) int {
+	if m.filterText != "" && m.filteredTransformIndices != nil {
+		if filteredIndex >= 0 && filteredIndex < len(m.filteredTransformIndices) {
+			return m.filteredTransformIndices[filteredIndex]
+		}
+
+		return -1
+	}
+
+	return filteredIndex
+}
+
+// ClearFilter clears all filter state.
+func (m *Model) ClearFilter() {
+	m.filterMode = false
+	m.filterInput = ""
+	m.filterText = ""
+	m.filteredTransformIndices = nil
+	m.selectedIndex = 0
+	m.transformScroll = 0
 }
 
 // NextSection moves to the next section.

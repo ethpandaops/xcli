@@ -7,6 +7,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// Key constants.
+const keyEsc = "esc"
+
 // Update handles all messages and updates the model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -27,6 +30,11 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle confirm quit state.
 	if m.confirmQuit {
 		return m.handleConfirmQuit(msg)
+	}
+
+	// Handle filter input mode (transformation section only).
+	if m.filterMode {
+		return m.handleFilterInput(msg)
 	}
 
 	// Handle env section - direct typing for values.
@@ -125,9 +133,67 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		// Reload from file.
 		return m.reload()
+
+	case "/":
+		// Enter filter mode (transformation section only).
+		if m.activeSection == sectionTransformation {
+			m.filterMode = true
+			m.filterInput = ""
+
+			return m, nil
+		}
+
+	case keyEsc:
+		// Clear active filter (transformation section only).
+		if m.activeSection == sectionTransformation && m.filterText != "" {
+			m.ClearFilter()
+
+			return m, nil
+		}
 	}
 
 	return m, nil
+}
+
+// handleFilterInput handles keyboard input during filter mode.
+func (m Model) handleFilterInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case keyEsc:
+		// Cancel filter mode without applying.
+		m.filterMode = false
+		m.filterInput = ""
+
+		return m, nil
+
+	case "enter":
+		// Apply filter (or clear if empty).
+		m.filterMode = false
+		if m.filterInput == "" {
+			m.ClearFilter()
+		} else {
+			m.ApplyTransformFilter()
+		}
+
+		return m, nil
+
+	case "backspace":
+		// Delete last character.
+		if len(m.filterInput) > 0 {
+			m.filterInput = m.filterInput[:len(m.filterInput)-1]
+		}
+
+		return m, nil
+
+	default:
+		// Append printable characters.
+		for _, r := range msg.String() {
+			if r >= 32 && r < 127 {
+				m.filterInput += string(r)
+			}
+		}
+
+		return m, nil
+	}
 }
 
 // handleConfirmQuit handles the confirm quit dialog.
@@ -137,7 +203,7 @@ func (m Model) handleConfirmQuit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 
 		return m, tea.Quit
-	case "n", "N", "esc":
+	case "n", "N", keyEsc:
 		m.confirmQuit = false
 
 		return m, nil

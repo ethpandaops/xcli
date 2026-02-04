@@ -208,9 +208,9 @@ func (m Model) renderModelPanels() string {
 	}
 
 	// Render transformation models panel.
-	transformContent := m.renderModelList(m.transformationModels, m.transformScroll, visibleHeight,
-		m.activeSection == sectionTransformation, panelWidth-4)
-	transformHeader := fmt.Sprintf("TRANSFORMATION MODELS (%d)", len(m.transformationModels))
+	isTransformActive := m.activeSection == sectionTransformation
+	transformContent := m.renderTransformationList(visibleHeight, isTransformActive, panelWidth-4)
+	transformHeader := m.renderTransformHeader()
 
 	var transformPanel string
 	if m.activeSection == sectionTransformation {
@@ -310,10 +310,19 @@ func (m Model) renderHelp() string {
 
 	if m.confirmQuit {
 		help = "[y] Confirm quit  [n] Cancel"
+	} else if m.filterMode {
+		help = "[Enter] Apply  [Esc] Cancel"
 	} else {
 		switch m.activeSection {
 		case sectionEnv:
 			help = "[←/→] Switch section  [↑/↓] Navigate  [0-9] Type value  [Backspace] Delete  [s] Save  [q] Quit"
+		case sectionTransformation:
+			help = "[←/→] Switch  [↑/↓] Navigate  [Space] Toggle  [/] Filter"
+			if m.filterText != "" {
+				help += "  [Esc] Clear"
+			}
+
+			help += "  [a] All  [n] None  [d] Deps  [s] Save  [q] Quit"
 		default:
 			help = "[←/→] Switch section  [↑/↓] Navigate  [Space] Toggle  [a] Enable all  [n] Disable all  [d] Enable deps  [s] Save  [q] Quit"
 		}
@@ -345,4 +354,90 @@ func (m Model) renderStatusBar() string {
 	}
 
 	return styleStatusBar.Width(width).Render(status)
+}
+
+// renderTransformHeader renders the transformation panel header with filter info.
+func (m Model) renderTransformHeader() string {
+	total := len(m.transformationModels)
+	header := fmt.Sprintf("TRANSFORMATION MODELS (%d)", total)
+
+	if m.filterText != "" {
+		matches := len(m.filteredTransformIndices)
+		header += fmt.Sprintf(" [filter: %s] (%d matches)", m.filterText, matches)
+	}
+
+	return header
+}
+
+// renderTransformationList renders the transformation models list with filter support.
+func (m Model) renderTransformationList(visibleHeight int, isActive bool, width int) string {
+	// Show filter input bar when in filter mode.
+	var filterBar string
+
+	if m.filterMode && isActive {
+		filterBar = styleSelected.Render("Filter: "+m.filterInput+"_") + "\n"
+		visibleHeight-- // Account for filter bar.
+	}
+
+	// Determine which models to show.
+	var models []ModelEntry
+
+	var indices []int
+
+	if m.filterText != "" && m.filteredTransformIndices != nil {
+		// Show filtered models.
+		models = make([]ModelEntry, len(m.filteredTransformIndices))
+		indices = m.filteredTransformIndices
+
+		for i, origIdx := range m.filteredTransformIndices {
+			models[i] = m.transformationModels[origIdx]
+		}
+	} else {
+		// Show all models.
+		models = m.transformationModels
+		indices = nil
+	}
+
+	if len(models) == 0 {
+		if m.filterText != "" {
+			return filterBar + styleEnvLabel.Render("(no matches)")
+		}
+
+		return filterBar + styleEnvLabel.Render("(no models found)")
+	}
+
+	var lines []string
+
+	// Determine visible range.
+	start := m.transformScroll
+	end := m.transformScroll + visibleHeight
+
+	if end > len(models) {
+		end = len(models)
+	}
+
+	for i := start; i < end; i++ {
+		model := models[i]
+		// Use original index for selection if we have filtered indices.
+		displayIndex := i
+		if indices != nil {
+			displayIndex = i // Use filtered index for selection highlighting.
+		}
+
+		line := m.renderModelEntry(model, displayIndex, isActive, width)
+		lines = append(lines, line)
+	}
+
+	// Add scroll indicators if needed.
+	result := strings.Join(lines, "\n")
+
+	if m.transformScroll > 0 {
+		result = styleEnvLabel.Render("▲ (more above)") + "\n" + result
+	}
+
+	if end < len(models) {
+		result = result + "\n" + styleEnvLabel.Render("▼ (more below)")
+	}
+
+	return filterBar + result
 }
