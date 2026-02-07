@@ -144,8 +144,10 @@ func (g *Generator) generateAutoDefaults(network string) (map[string]interface{}
 
 	// Set sane default for mainnet
 	externalModelMinBlock := 0
+	shanghaiBlockNumber := 0
 	if network == "mainnet" {
 		externalModelMinBlock = 23800000
+		shanghaiBlockNumber = 17353000
 	}
 
 	// Build models section with env
@@ -154,6 +156,7 @@ func (g *Generator) generateAutoDefaults(network string) (map[string]interface{}
 			"NETWORK":                      network,
 			"EXTERNAL_MODEL_MIN_TIMESTAMP": fmt.Sprintf("%d", externalModelMinTimestamp),
 			"EXTERNAL_MODEL_MIN_BLOCK":     fmt.Sprintf("%d", externalModelMinBlock),
+			"SHANGHAI_BLOCK_NUMBER":        fmt.Sprintf("%d", shanghaiBlockNumber),
 			"MODELS_SCRIPTS_PATH":          "../xatu-cbt/models/scripts",
 		},
 	}
