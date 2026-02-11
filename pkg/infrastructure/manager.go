@@ -140,9 +140,14 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	// Auto-seed bounds from production if in hybrid mode (external xatu, local xatu-cbt)
 	if xatuSource == constants.InfraModeExternal {
-		if err := m.autoSeedBoundsIfNeeded(ctx); err != nil {
-			m.log.WithError(err).Warn("⚠️  Failed to seed bounds from production, CBT will run full scans")
+		boundsSpinner := ui.NewSpinner("Checking bounds tables")
+
+		if err := m.autoSeedBoundsIfNeeded(ctx, boundsSpinner); err != nil {
+			boundsSpinner.Fail("Failed to seed bounds from production")
+			m.log.WithError(err).Warn("Failed to seed bounds from production, CBT will run full scans")
 			// Non-fatal - CBT can still function with full scans
+		} else {
+			boundsSpinner.Success("Bounds seeding complete")
 		}
 	}
 
@@ -704,7 +709,7 @@ func (m *Manager) RestartObservabilityService(ctx context.Context, service strin
 }
 
 // autoSeedBoundsIfNeeded checks if xatu-cbt admin tables are empty and seeds them from production.
-func (m *Manager) autoSeedBoundsIfNeeded(ctx context.Context) error {
+func (m *Manager) autoSeedBoundsIfNeeded(ctx context.Context, spinner *ui.Spinner) error {
 	// Only seed in hybrid mode (external xatu + local xatu-cbt)
 	if !m.mode.NeedsExternalClickHouse() {
 		return nil
@@ -726,7 +731,12 @@ func (m *Manager) autoSeedBoundsIfNeeded(ctx context.Context) error {
 		return nil
 	}
 
+	seededCount := 0
+	skippedCount := 0
+
 	for _, network := range enabledNetworks {
+		spinner.UpdateText(fmt.Sprintf("Checking bounds for %s", network.Name))
+
 		m.log.WithField("network", network.Name).Debug("Checking if bounds seeding is needed for network")
 
 		needsSeeding, err := m.checkNeedsBoundsSeeding(ctx, network.Name)
@@ -740,8 +750,12 @@ func (m *Manager) autoSeedBoundsIfNeeded(ctx context.Context) error {
 		if !needsSeeding {
 			m.log.WithField("network", network.Name).Debug("Bounds already seeded, skipping")
 
+			skippedCount++
+
 			continue
 		}
+
+		spinner.UpdateText(fmt.Sprintf("Seeding bounds for %s", network.Name))
 
 		m.log.WithField("network", network.Name).Info("Auto-seeding bounds from production")
 
@@ -753,6 +767,15 @@ func (m *Manager) autoSeedBoundsIfNeeded(ctx context.Context) error {
 		}
 
 		m.log.WithField("network", network.Name).Info("Bounds seeded successfully")
+
+		seededCount++
+	}
+
+	// Update spinner with final result
+	if seededCount > 0 {
+		spinner.UpdateText(fmt.Sprintf("Seeded %d network(s)", seededCount))
+	} else if skippedCount > 0 {
+		spinner.UpdateText(fmt.Sprintf("Bounds already exist for %d network(s)", skippedCount))
 	}
 
 	return nil
