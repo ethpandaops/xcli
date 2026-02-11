@@ -92,7 +92,7 @@ func (s *BoundsSeeder) SeedFromProduction(ctx context.Context, network string, c
 
 // checkKubectl verifies kubectl is available.
 func (s *BoundsSeeder) checkKubectl(ctx context.Context) error {
-	cmd := exec.CommandContext(ctx, "kubectl", "version", "--client", "--short")
+	cmd := exec.CommandContext(ctx, "kubectl", "version", "--client")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("kubectl command failed: %w", err)
 	}
@@ -246,31 +246,22 @@ func (s *BoundsSeeder) insertScheduledBounds(
 	return nil
 }
 
-// execLocalClickHouseQuery executes a query on local ClickHouse.
+// execLocalClickHouseQuery executes a query on local ClickHouse via docker.
 func (s *BoundsSeeder) execLocalClickHouseQuery(ctx context.Context, clickhouseURL string, query string) error {
-	// Use clickhouse-client to connect to local ClickHouse
-	// Extract host:port from URL
-	url := strings.Replace(clickhouseURL, "clickhouse://", "", 1)
-	parts := strings.Split(url, "@")
-
-	var hostPort string
-	if len(parts) > 1 {
-		hostPort = parts[1]
-	} else {
-		hostPort = parts[0]
-	}
-
+	// Use docker exec to run clickhouse-client in the xatu-cbt container
+	// xatu-cbt-clickhouse-02 is the second node (port 9001)
 	args := []string{
-		"--host", strings.Split(hostPort, ":")[0],
-		"--port", "9000",
+		"exec",
+		"xatu-cbt-clickhouse-02",
+		"clickhouse-client",
 		"--query", query,
 	}
 
-	cmd := exec.CommandContext(ctx, "clickhouse-client", args...)
+	cmd := exec.CommandContext(ctx, "docker", args...)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("clickhouse-client failed: %w\nOutput: %s", err, string(output))
+		return fmt.Errorf("docker exec clickhouse-client failed: %w\nOutput: %s", err, string(output))
 	}
 
 	return nil
