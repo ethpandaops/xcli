@@ -743,7 +743,7 @@ func (m *Manager) autoSeedBoundsIfNeeded(ctx context.Context) error {
 			continue
 		}
 
-		m.log.WithField("network", network.Name).Info("🚀 Auto-seeding bounds from production (saves ~5min of full scans)")
+		m.log.WithField("network", network.Name).Info("Auto-seeding bounds from production")
 
 		if err := seeder.SeedFromProduction(ctx, network.Name, clickhouseURL); err != nil {
 			m.log.WithError(err).WithField("network", network.Name).
@@ -752,7 +752,7 @@ func (m *Manager) autoSeedBoundsIfNeeded(ctx context.Context) error {
 			continue
 		}
 
-		m.log.WithField("network", network.Name).Info("✅ Bounds seeded successfully")
+		m.log.WithField("network", network.Name).Info("Bounds seeded successfully")
 	}
 
 	return nil

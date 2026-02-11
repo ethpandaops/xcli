@@ -49,7 +49,7 @@ func NewBoundsSeeder(cfg *config.LabConfig, log logrus.FieldLogger) *BoundsSeede
 
 // SeedFromProduction fetches bounds from production and inserts into local ClickHouse.
 func (s *BoundsSeeder) SeedFromProduction(ctx context.Context, network string, clickhouseURL string) error {
-	s.log.Info("📡 Fetching bounds from production xatu-cbt...")
+	s.log.Info("Fetching bounds from production xatu-cbt")
 
 	// Check kubectl is available
 	if err := s.checkKubectl(ctx); err != nil {
@@ -85,7 +85,7 @@ func (s *BoundsSeeder) SeedFromProduction(ctx context.Context, network string, c
 		return fmt.Errorf("inserting scheduled bounds: %w", err)
 	}
 
-	s.log.Info("✅ Bounds seeded from production")
+	s.log.Info("Bounds seeded from production")
 
 	return nil
 }
