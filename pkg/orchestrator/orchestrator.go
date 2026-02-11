@@ -281,6 +281,16 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 
 	spinner.Success("Networks configured")
 
+	// Seed bounds from production after networks are configured (admin tables now exist)
+	boundsSpinner := ui.NewSpinner("Checking bounds tables")
+
+	if err := o.infra.AutoSeedBoundsIfNeeded(ctx, boundsSpinner); err != nil {
+		boundsSpinner.Fail("Failed to seed bounds from production")
+		o.log.WithError(err).Warn("Failed to seed bounds from production, CBT will run full scans")
+	} else {
+		boundsSpinner.Success("Bounds seeding complete")
+	}
+
 	// Check for cancellation
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("cancelled: %w", err)

@@ -694,3 +694,73 @@ func (m *Manager) RestartObservabilityService(ctx context.Context, service strin
 
 	return m.observability.RestartService(ctx, service)
 }
+
+// AutoSeedBoundsIfNeeded checks if local Redis has external model bounds and seeds them
+// from production if missing. External bounds tell CBT the min/max range of data available
+// on the external ClickHouse, avoiding slow initial full scans.
+func (m *Manager) AutoSeedBoundsIfNeeded(ctx context.Context, spinner *ui.Spinner) error {
+	// Only seed in hybrid mode (external xatu + local xatu-cbt)
+	if !m.mode.NeedsExternalClickHouse() {
+		return nil
+	}
+
+	m.log.Debug("Checking if external bounds seeding is needed...")
+
+	seeder := NewBoundsSeeder(m.log)
+
+	enabledNetworks := m.cfg.EnabledNetworks()
+	if len(enabledNetworks) == 0 {
+		m.log.Warn("No networks enabled, skipping bounds seeding")
+
+		return nil
+	}
+
+	seededCount := 0
+	skippedCount := 0
+
+	for i, network := range enabledNetworks {
+		redisDB := i // mainnet=0, sepolia=1, hoodi=2, etc.
+
+		spinner.UpdateText(fmt.Sprintf("Checking external bounds for %s", network.Name))
+
+		needsSeeding, err := seeder.CheckNeedsSeeding(ctx, redisDB)
+		if err != nil {
+			m.log.WithError(err).WithField("network", network.Name).
+				Warn("Failed to check external bounds status (non-fatal)")
+
+			continue
+		}
+
+		if !needsSeeding {
+			m.log.WithField("network", network.Name).Debug("External bounds already seeded, skipping")
+
+			skippedCount++
+
+			continue
+		}
+
+		spinner.UpdateText(fmt.Sprintf("Seeding external bounds for %s", network.Name))
+
+		m.log.WithField("network", network.Name).Info("Auto-seeding external bounds from production")
+
+		if err := seeder.SeedFromProduction(ctx, network.Name, redisDB); err != nil {
+			m.log.WithError(err).WithField("network", network.Name).
+				Warn("Failed to seed external bounds from production (non-fatal)")
+
+			continue
+		}
+
+		m.log.WithField("network", network.Name).Info("External bounds seeded successfully")
+
+		seededCount++
+	}
+
+	// Update spinner with final result
+	if seededCount > 0 {
+		spinner.UpdateText(fmt.Sprintf("Seeded external bounds for %d network(s)", seededCount))
+	} else if skippedCount > 0 {
+		spinner.UpdateText(fmt.Sprintf("External bounds already exist for %d network(s)", skippedCount))
+	}
+
+	return nil
+}
