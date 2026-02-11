@@ -712,45 +712,61 @@ func (m *Manager) autoSeedBoundsIfNeeded(ctx context.Context) error {
 
 	m.log.Debug("Checking if bounds seeding is needed...")
 
-	// Check if admin tables are empty
-	needsSeeding, err := m.checkNeedsBoundsSeeding(ctx)
-	if err != nil {
-		return fmt.Errorf("checking if bounds seeding needed: %w", err)
-	}
+	// Create bounds seeder
+	seeder := NewBoundsSeeder(m.cfg, m.log)
 
-	if !needsSeeding {
-		m.log.Debug("Bounds already seeded, skipping")
+	// xatu-cbt ClickHouse runs on localhost:9001 (second node's native protocol port)
+	clickhouseURL := "clickhouse://localhost:9001"
+
+	// Seed bounds for all enabled networks
+	enabledNetworks := m.cfg.EnabledNetworks()
+	if len(enabledNetworks) == 0 {
+		m.log.Warn("No networks enabled, skipping bounds seeding")
 
 		return nil
 	}
 
-	m.log.Info("🚀 Auto-seeding bounds from production (saves ~5min of full scans)")
+	for _, network := range enabledNetworks {
+		m.log.WithField("network", network.Name).Debug("Checking if bounds seeding is needed for network")
 
-	// Create bounds seeder and seed from production
-	seeder := NewBoundsSeeder(m.cfg, m.log)
+		needsSeeding, err := m.checkNeedsBoundsSeeding(ctx, network.Name)
+		if err != nil {
+			m.log.WithError(err).WithField("network", network.Name).
+				Warn("Failed to check bounds seeding status (non-fatal)")
 
-	network := "mainnet" // TODO: make this configurable if we support other networks
-	// xatu-cbt ClickHouse runs on localhost:9001
-	clickhouseURL := "clickhouse://localhost:9001"
+			continue
+		}
 
-	if err := seeder.SeedFromProduction(ctx, network, clickhouseURL); err != nil {
-		return fmt.Errorf("seeding bounds from production: %w", err)
+		if !needsSeeding {
+			m.log.WithField("network", network.Name).Debug("Bounds already seeded, skipping")
+
+			continue
+		}
+
+		m.log.WithField("network", network.Name).Info("🚀 Auto-seeding bounds from production (saves ~5min of full scans)")
+
+		if err := seeder.SeedFromProduction(ctx, network.Name, clickhouseURL); err != nil {
+			m.log.WithError(err).WithField("network", network.Name).
+				Warn("Failed to seed bounds from production (non-fatal)")
+
+			continue
+		}
+
+		m.log.WithField("network", network.Name).Info("✅ Bounds seeded successfully")
 	}
-
-	m.log.Info("✅ Bounds seeded successfully")
 
 	return nil
 }
 
-// checkNeedsBoundsSeeding checks if the xatu-cbt admin tables are empty.
-func (m *Manager) checkNeedsBoundsSeeding(ctx context.Context) (bool, error) {
+// checkNeedsBoundsSeeding checks if the xatu-cbt admin tables are empty for a specific network.
+func (m *Manager) checkNeedsBoundsSeeding(ctx context.Context, network string) (bool, error) {
 	// Use clickhouse-client to check if admin tables have data
 	// We check the incremental table - if it's empty, we need to seed
-	query := "SELECT count() FROM mainnet.admin_cbt_incremental_local LIMIT 1"
+	query := fmt.Sprintf("SELECT count() FROM %s.admin_cbt_incremental_local LIMIT 1", network)
 
 	args := []string{
 		"--host", "localhost",
-		"--port", "9001", // xatu-cbt clickhouse port
+		"--port", "9001", // xatu-cbt clickhouse port (second node's native protocol)
 		"--query", query,
 	}
 
@@ -759,7 +775,8 @@ func (m *Manager) checkNeedsBoundsSeeding(ctx context.Context) (bool, error) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// Table might not exist yet, which is fine - we'll seed after it's created
-		m.log.WithError(err).Debug("Could not query admin table (table may not exist yet)")
+		m.log.WithError(err).WithField("network", network).
+			Debug("Could not query admin table (table may not exist yet)")
 
 		return false, nil
 	}
