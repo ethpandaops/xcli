@@ -138,6 +138,14 @@ func (m *Manager) Start(ctx context.Context) error {
 		m.log.Info("xatu migrations completed successfully")
 	}
 
+	// Auto-seed bounds from production if in hybrid mode (external xatu, local xatu-cbt)
+	if xatuSource == constants.InfraModeExternal {
+		if err := m.autoSeedBoundsIfNeeded(ctx); err != nil {
+			m.log.WithError(err).Warn("⚠️  Failed to seed bounds from production, CBT will run full scans")
+			// Non-fatal - CBT can still function with full scans
+		}
+	}
+
 	// Start observability stack if enabled
 	if m.cfg.Infrastructure.Observability.Enabled {
 		if err := m.startObservability(ctx); err != nil {
@@ -693,4 +701,71 @@ func (m *Manager) RestartObservabilityService(ctx context.Context, service strin
 	}
 
 	return m.observability.RestartService(ctx, service)
+}
+
+// autoSeedBoundsIfNeeded checks if xatu-cbt admin tables are empty and seeds them from production.
+func (m *Manager) autoSeedBoundsIfNeeded(ctx context.Context) error {
+	// Only seed in hybrid mode (external xatu + local xatu-cbt)
+	if !m.mode.NeedsExternalClickHouse() {
+		return nil
+	}
+
+	m.log.Debug("Checking if bounds seeding is needed...")
+
+	// Check if admin tables are empty
+	needsSeeding, err := m.checkNeedsBoundsSeeding(ctx)
+	if err != nil {
+		return fmt.Errorf("checking if bounds seeding needed: %w", err)
+	}
+
+	if !needsSeeding {
+		m.log.Debug("Bounds already seeded, skipping")
+
+		return nil
+	}
+
+	m.log.Info("🚀 Auto-seeding bounds from production (saves ~5min of full scans)")
+
+	// Create bounds seeder and seed from production
+	seeder := NewBoundsSeeder(m.cfg, m.log)
+
+	network := "mainnet" // TODO: make this configurable if we support other networks
+	// xatu-cbt ClickHouse runs on localhost:9001
+	clickhouseURL := "clickhouse://localhost:9001"
+
+	if err := seeder.SeedFromProduction(ctx, network, clickhouseURL); err != nil {
+		return fmt.Errorf("seeding bounds from production: %w", err)
+	}
+
+	m.log.Info("✅ Bounds seeded successfully")
+
+	return nil
+}
+
+// checkNeedsBoundsSeeding checks if the xatu-cbt admin tables are empty.
+func (m *Manager) checkNeedsBoundsSeeding(ctx context.Context) (bool, error) {
+	// Use clickhouse-client to check if admin tables have data
+	// We check the incremental table - if it's empty, we need to seed
+	query := "SELECT count() FROM mainnet.admin_cbt_incremental_local LIMIT 1"
+
+	args := []string{
+		"--host", "localhost",
+		"--port", "9001", // xatu-cbt clickhouse port
+		"--query", query,
+	}
+
+	cmd := exec.CommandContext(ctx, "clickhouse-client", args...)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Table might not exist yet, which is fine - we'll seed after it's created
+		m.log.WithError(err).Debug("Could not query admin table (table may not exist yet)")
+
+		return false, nil
+	}
+
+	count := strings.TrimSpace(string(output))
+
+	// If count is 0, we need seeding
+	return count == "0", nil
 }
