@@ -138,19 +138,6 @@ func (m *Manager) Start(ctx context.Context) error {
 		m.log.Info("xatu migrations completed successfully")
 	}
 
-	// Auto-seed bounds from production if in hybrid mode (external xatu, local xatu-cbt)
-	if xatuSource == constants.InfraModeExternal {
-		boundsSpinner := ui.NewSpinner("Checking bounds tables")
-
-		if err := m.autoSeedBoundsIfNeeded(ctx, boundsSpinner); err != nil {
-			boundsSpinner.Fail("Failed to seed bounds from production")
-			m.log.WithError(err).Warn("Failed to seed bounds from production, CBT will run full scans")
-			// Non-fatal - CBT can still function with full scans
-		} else {
-			boundsSpinner.Success("Bounds seeding complete")
-		}
-	}
-
 	// Start observability stack if enabled
 	if m.cfg.Infrastructure.Observability.Enabled {
 		if err := m.startObservability(ctx); err != nil {
@@ -708,8 +695,8 @@ func (m *Manager) RestartObservabilityService(ctx context.Context, service strin
 	return m.observability.RestartService(ctx, service)
 }
 
-// autoSeedBoundsIfNeeded checks if xatu-cbt admin tables are empty and seeds them from production.
-func (m *Manager) autoSeedBoundsIfNeeded(ctx context.Context, spinner *ui.Spinner) error {
+// AutoSeedBoundsIfNeeded checks if xatu-cbt admin tables are empty and seeds them from production.
+func (m *Manager) AutoSeedBoundsIfNeeded(ctx context.Context, spinner *ui.Spinner) error {
 	// Only seed in hybrid mode (external xatu + local xatu-cbt)
 	if !m.mode.NeedsExternalClickHouse() {
 		return nil
@@ -783,17 +770,17 @@ func (m *Manager) autoSeedBoundsIfNeeded(ctx context.Context, spinner *ui.Spinne
 
 // checkNeedsBoundsSeeding checks if the xatu-cbt admin tables are empty for a specific network.
 func (m *Manager) checkNeedsBoundsSeeding(ctx context.Context, network string) (bool, error) {
-	// Use clickhouse-client to check if admin tables have data
-	// We check the incremental table - if it's empty, we need to seed
+	// Use docker exec to run clickhouse-client inside the container
+	// (clickhouse-client is not available on the host)
 	query := fmt.Sprintf("SELECT count() FROM %s.admin_cbt_incremental_local LIMIT 1", network)
 
 	args := []string{
-		"--host", "localhost",
-		"--port", "9001", // xatu-cbt clickhouse port (second node's native protocol)
+		"exec", localCBTClickHouseContainer,
+		"clickhouse-client",
 		"--query", query,
 	}
 
-	cmd := exec.CommandContext(ctx, "clickhouse-client", args...)
+	cmd := exec.CommandContext(ctx, "docker", args...)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

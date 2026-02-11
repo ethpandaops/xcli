@@ -16,6 +16,9 @@ const (
 	prodK8sContext    = "platform-analytics-hel1-production"
 	prodNamespace     = "xatu"
 	prodClickHousePod = "chi-xatu-cbt-clickhouse-replicated-0-0-0"
+
+	// localCBTClickHouseContainer is the local Docker container name for xatu-cbt ClickHouse.
+	localCBTClickHouseContainer = "xatu-cbt-clickhouse-01"
 )
 
 // BoundsSeeder handles seeding CBT bounds from production ClickHouse.
@@ -248,11 +251,10 @@ func (s *BoundsSeeder) insertScheduledBounds(
 
 // execLocalClickHouseQuery executes a query on local ClickHouse via docker.
 func (s *BoundsSeeder) execLocalClickHouseQuery(ctx context.Context, clickhouseURL string, query string) error {
-	// Use docker exec to run clickhouse-client in the xatu-cbt container
-	// xatu-cbt-clickhouse-02 is the second node (port 9001)
+	// Use docker exec to run clickhouse-client in the local xatu-cbt ClickHouse container.
 	args := []string{
 		"exec",
-		"xatu-cbt-clickhouse-02",
+		localCBTClickHouseContainer,
 		"clickhouse-client",
 		"--query", query,
 	}
