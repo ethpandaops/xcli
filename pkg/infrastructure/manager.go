@@ -695,22 +695,19 @@ func (m *Manager) RestartObservabilityService(ctx context.Context, service strin
 	return m.observability.RestartService(ctx, service)
 }
 
-// AutoSeedBoundsIfNeeded checks if xatu-cbt admin tables are empty and seeds them from production.
+// AutoSeedBoundsIfNeeded checks if local Redis has external model bounds and seeds them
+// from production if missing. External bounds tell CBT the min/max range of data available
+// on the external ClickHouse, avoiding slow initial full scans.
 func (m *Manager) AutoSeedBoundsIfNeeded(ctx context.Context, spinner *ui.Spinner) error {
 	// Only seed in hybrid mode (external xatu + local xatu-cbt)
 	if !m.mode.NeedsExternalClickHouse() {
 		return nil
 	}
 
-	m.log.Debug("Checking if bounds seeding is needed...")
+	m.log.Debug("Checking if external bounds seeding is needed...")
 
-	// Create bounds seeder
 	seeder := NewBoundsSeeder(m.cfg, m.log)
 
-	// xatu-cbt ClickHouse runs on localhost:9001 (second node's native protocol port)
-	clickhouseURL := "clickhouse://localhost:9001"
-
-	// Seed bounds for all enabled networks
 	enabledNetworks := m.cfg.EnabledNetworks()
 	if len(enabledNetworks) == 0 {
 		m.log.Warn("No networks enabled, skipping bounds seeding")
@@ -721,78 +718,49 @@ func (m *Manager) AutoSeedBoundsIfNeeded(ctx context.Context, spinner *ui.Spinne
 	seededCount := 0
 	skippedCount := 0
 
-	for _, network := range enabledNetworks {
-		spinner.UpdateText(fmt.Sprintf("Checking bounds for %s", network.Name))
+	for i, network := range enabledNetworks {
+		redisDB := i // mainnet=0, sepolia=1, hoodi=2, etc.
 
-		m.log.WithField("network", network.Name).Debug("Checking if bounds seeding is needed for network")
+		spinner.UpdateText(fmt.Sprintf("Checking external bounds for %s", network.Name))
 
-		needsSeeding, err := m.checkNeedsBoundsSeeding(ctx, network.Name)
+		needsSeeding, err := seeder.CheckNeedsSeeding(ctx, redisDB)
 		if err != nil {
 			m.log.WithError(err).WithField("network", network.Name).
-				Warn("Failed to check bounds seeding status (non-fatal)")
+				Warn("Failed to check external bounds status (non-fatal)")
 
 			continue
 		}
 
 		if !needsSeeding {
-			m.log.WithField("network", network.Name).Debug("Bounds already seeded, skipping")
+			m.log.WithField("network", network.Name).Debug("External bounds already seeded, skipping")
 
 			skippedCount++
 
 			continue
 		}
 
-		spinner.UpdateText(fmt.Sprintf("Seeding bounds for %s", network.Name))
+		spinner.UpdateText(fmt.Sprintf("Seeding external bounds for %s", network.Name))
 
-		m.log.WithField("network", network.Name).Info("Auto-seeding bounds from production")
+		m.log.WithField("network", network.Name).Info("Auto-seeding external bounds from production")
 
-		if err := seeder.SeedFromProduction(ctx, network.Name, clickhouseURL); err != nil {
+		if err := seeder.SeedFromProduction(ctx, network.Name, redisDB); err != nil {
 			m.log.WithError(err).WithField("network", network.Name).
-				Warn("Failed to seed bounds from production (non-fatal)")
+				Warn("Failed to seed external bounds from production (non-fatal)")
 
 			continue
 		}
 
-		m.log.WithField("network", network.Name).Info("Bounds seeded successfully")
+		m.log.WithField("network", network.Name).Info("External bounds seeded successfully")
 
 		seededCount++
 	}
 
 	// Update spinner with final result
 	if seededCount > 0 {
-		spinner.UpdateText(fmt.Sprintf("Seeded %d network(s)", seededCount))
+		spinner.UpdateText(fmt.Sprintf("Seeded external bounds for %d network(s)", seededCount))
 	} else if skippedCount > 0 {
-		spinner.UpdateText(fmt.Sprintf("Bounds already exist for %d network(s)", skippedCount))
+		spinner.UpdateText(fmt.Sprintf("External bounds already exist for %d network(s)", skippedCount))
 	}
 
 	return nil
-}
-
-// checkNeedsBoundsSeeding checks if the xatu-cbt admin tables are empty for a specific network.
-func (m *Manager) checkNeedsBoundsSeeding(ctx context.Context, network string) (bool, error) {
-	// Use docker exec to run clickhouse-client inside the container
-	// (clickhouse-client is not available on the host)
-	query := fmt.Sprintf("SELECT count() FROM %s.admin_cbt_incremental_local LIMIT 1", network)
-
-	args := []string{
-		"exec", localCBTClickHouseContainer,
-		"clickhouse-client",
-		"--query", query,
-	}
-
-	cmd := exec.CommandContext(ctx, "docker", args...)
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		// Table might not exist yet, which is fine - we'll seed after it's created
-		m.log.WithError(err).WithField("network", network).
-			Debug("Could not query admin table (table may not exist yet)")
-
-		return false, nil
-	}
-
-	count := strings.TrimSpace(string(output))
-
-	// If count is 0, we need seeding
-	return count == "0", nil
 }

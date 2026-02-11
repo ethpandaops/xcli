@@ -1,8 +1,8 @@
 package infrastructure
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -13,33 +13,30 @@ import (
 
 const (
 	// Production cluster hardcoded details.
-	prodK8sContext    = "platform-analytics-hel1-production"
-	prodNamespace     = "xatu"
-	prodClickHousePod = "chi-xatu-cbt-clickhouse-replicated-0-0-0"
+	prodK8sContext = "platform-analytics-hel1-production"
+	prodNamespace  = "xatu"
 
-	// localCBTClickHouseContainer is the local Docker container name for xatu-cbt ClickHouse.
-	localCBTClickHouseContainer = "xatu-cbt-clickhouse-01"
+	// localRedisContainer is the local Docker container name for xatu-cbt Redis.
+	localRedisContainer = "xatu-cbt-redis"
+
+	// redisBoundsKeyPrefix is the Redis key prefix for external model bounds.
+	redisBoundsKeyPrefix = "cbt:external:"
+
+	// luaDumpExternalBounds is a Lua script that fetches all external bounds keys and values
+	// in a single Redis round trip. Returns alternating key/value pairs.
+	luaDumpExternalBounds = `local keys = redis.call('KEYS', ARGV[1]) local result = {} for i, key in ipairs(keys) do result[#result + 1] = key result[#result + 1] = redis.call('GET', key) end return result`
 )
 
-// BoundsSeeder handles seeding CBT bounds from production ClickHouse.
+// prodRedisDetails returns the production Redis pod name and password k8s secret name for a network.
+func prodRedisDetails(network string) (podName, secretName string) {
+	return fmt.Sprintf("%s-xatu-cbt-redis-node-0", network),
+		fmt.Sprintf("%s-xatu-cbt-redis", network)
+}
+
+// BoundsSeeder handles seeding CBT external bounds from production Redis.
 type BoundsSeeder struct {
 	cfg *config.LabConfig
 	log logrus.FieldLogger
-}
-
-// IncrementalBound represents a single incremental model bound.
-type IncrementalBound struct {
-	Database string `json:"database"`
-	Table    string `json:"table"`
-	Position uint64 `json:"position,string"`
-	Interval uint64 `json:"interval,string"`
-}
-
-// ScheduledBound represents a single scheduled model bound.
-type ScheduledBound struct {
-	Database      string `json:"database"`
-	Table         string `json:"table"`
-	StartDateTime string `json:"startDateTime"`
 }
 
 // NewBoundsSeeder creates a new bounds seeder.
@@ -50,45 +47,55 @@ func NewBoundsSeeder(cfg *config.LabConfig, log logrus.FieldLogger) *BoundsSeede
 	}
 }
 
-// SeedFromProduction fetches bounds from production and inserts into local ClickHouse.
-func (s *BoundsSeeder) SeedFromProduction(ctx context.Context, network string, clickhouseURL string) error {
-	s.log.Info("Fetching bounds from production xatu-cbt")
+// redisBound represents a key-value pair from Redis.
+type redisBound struct {
+	Key   string
+	Value string
+}
+
+// SeedFromProduction fetches external model bounds from production Redis
+// and inserts them into local Redis. This avoids slow initial full scans
+// of external tables on the remote ClickHouse cluster.
+//
+// Uses a single Lua EVAL to bulk-fetch all bounds in one round trip,
+// then pipes them into local Redis via --pipe for efficient insertion.
+func (s *BoundsSeeder) SeedFromProduction(ctx context.Context, network string, redisDB int) error {
+	s.log.WithField("network", network).Info("Fetching external bounds from production Redis")
 
 	// Check kubectl is available
 	if err := s.checkKubectl(ctx); err != nil {
 		return fmt.Errorf("kubectl not available: %w", err)
 	}
 
-	// Seed incremental bounds
-	s.log.Debug("Fetching incremental bounds...")
+	// Get production Redis password
+	_, secretName := prodRedisDetails(network)
 
-	incrementalBounds, err := s.fetchIncrementalBounds(ctx, network)
+	password, err := s.getRedisPassword(ctx, secretName)
 	if err != nil {
-		return fmt.Errorf("fetching incremental bounds: %w", err)
+		return fmt.Errorf("getting Redis password for %s: %w", network, err)
 	}
 
-	s.log.WithField("count", len(incrementalBounds)).Info("Fetched incremental bounds")
-
-	// Seed scheduled bounds
-	s.log.Debug("Fetching scheduled bounds...")
-
-	scheduledBounds, err := s.fetchScheduledBounds(ctx, network)
+	// Bulk-fetch all external bounds in a single Lua EVAL call
+	bounds, err := s.fetchAllBounds(ctx, network, password)
 	if err != nil {
-		return fmt.Errorf("fetching scheduled bounds: %w", err)
+		return fmt.Errorf("fetching bounds for %s: %w", network, err)
 	}
 
-	s.log.WithField("count", len(scheduledBounds)).Info("Fetched scheduled bounds")
+	if len(bounds) == 0 {
+		s.log.WithField("network", network).Warn("No external bounds found in production Redis")
 
-	// Insert into local ClickHouse
-	if err := s.insertIncrementalBounds(ctx, network, clickhouseURL, incrementalBounds); err != nil {
-		return fmt.Errorf("inserting incremental bounds: %w", err)
+		return nil
 	}
 
-	if err := s.insertScheduledBounds(ctx, network, clickhouseURL, scheduledBounds); err != nil {
-		return fmt.Errorf("inserting scheduled bounds: %w", err)
+	// Bulk-insert into local Redis via --pipe
+	if err := s.bulkInsertLocal(ctx, redisDB, bounds); err != nil {
+		return fmt.Errorf("inserting bounds for %s: %w", network, err)
 	}
 
-	s.log.Info("Bounds seeded from production")
+	s.log.WithFields(logrus.Fields{
+		"network": network,
+		"count":   len(bounds),
+	}).Info("External bounds seeded from production")
 
 	return nil
 }
@@ -103,168 +110,187 @@ func (s *BoundsSeeder) checkKubectl(ctx context.Context) error {
 	return nil
 }
 
-// fetchIncrementalBounds queries production for incremental bounds.
-func (s *BoundsSeeder) fetchIncrementalBounds(ctx context.Context, network string) ([]IncrementalBound, error) {
-	query := fmt.Sprintf(`
-		SELECT
-			database,
-			table,
-			argMax(position, updated_date_time) as position,
-			argMax(interval, updated_date_time) as interval
-		FROM %s.admin_cbt_incremental
-		GROUP BY database, table
-		FORMAT JSON
-	`, network)
-
-	output, err := s.execClickHouseQuery(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	var result struct {
-		Data []IncrementalBound `json:"data"`
-	}
-
-	if err := json.Unmarshal(output, &result); err != nil {
-		return nil, fmt.Errorf("parsing JSON response: %w", err)
-	}
-
-	return result.Data, nil
-}
-
-// fetchScheduledBounds queries production for scheduled bounds.
-func (s *BoundsSeeder) fetchScheduledBounds(ctx context.Context, network string) ([]ScheduledBound, error) {
-	query := fmt.Sprintf(`
-		SELECT
-			database,
-			table,
-			max(start_date_time) as start_date_time
-		FROM %s.admin_cbt_scheduled
-		GROUP BY database, table
-		FORMAT JSON
-	`, network)
-
-	output, err := s.execClickHouseQuery(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	var result struct {
-		Data []ScheduledBound `json:"data"`
-	}
-
-	if err := json.Unmarshal(output, &result); err != nil {
-		return nil, fmt.Errorf("parsing JSON response: %w", err)
-	}
-
-	return result.Data, nil
-}
-
-// execClickHouseQuery executes a query on production ClickHouse via kubectl.
-func (s *BoundsSeeder) execClickHouseQuery(ctx context.Context, query string) ([]byte, error) {
+// getRedisPassword retrieves the Redis password from a k8s secret.
+func (s *BoundsSeeder) getRedisPassword(ctx context.Context, secretName string) (string, error) {
 	args := []string{
 		"--context", prodK8sContext,
 		"-n", prodNamespace,
-		"exec", prodClickHousePod,
-		"--",
-		"clickhouse-client",
-		"--query", query,
+		"get", "secret", secretName,
+		"-o", "jsonpath={.data.redis-password}",
 	}
 
 	cmd := exec.CommandContext(ctx, "kubectl", args...)
 
-	s.log.WithField("query", strings.Split(query, "\n")[1:3]).Debug("Executing kubectl query")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("kubectl get secret failed: %w\nOutput: %s", err, string(output))
+	}
+
+	// The password is base64 encoded in the jsonpath output
+	decoded, err := s.base64Decode(ctx, strings.TrimSpace(string(output)))
+	if err != nil {
+		return "", fmt.Errorf("decoding password: %w", err)
+	}
+
+	return strings.TrimSpace(decoded), nil
+}
+
+// base64Decode decodes a base64 string using the system base64 command.
+func (s *BoundsSeeder) base64Decode(ctx context.Context, encoded string) (string, error) {
+	cmd := exec.CommandContext(ctx, "base64", "-d")
+	cmd.Stdin = strings.NewReader(encoded)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("kubectl exec failed: %w\nOutput: %s", err, string(output))
+		return "", fmt.Errorf("base64 decode failed: %w", err)
 	}
 
-	return output, nil
+	return string(output), nil
 }
 
-// insertIncrementalBounds inserts bounds into local ClickHouse.
-func (s *BoundsSeeder) insertIncrementalBounds(
-	ctx context.Context,
-	network string,
-	clickhouseURL string,
-	bounds []IncrementalBound,
-) error {
-	if len(bounds) == 0 {
-		s.log.Debug("No incremental bounds to insert")
+// fetchAllBounds uses a single Lua EVAL to get all external bounds keys and values
+// from production Redis in one round trip.
+func (s *BoundsSeeder) fetchAllBounds(ctx context.Context, network, password string) ([]redisBound, error) {
+	podName, _ := prodRedisDetails(network)
 
-		return nil
-	}
-
-	s.log.WithField("count", len(bounds)).Debug("Inserting incremental bounds")
-
-	for _, b := range bounds {
-		insertSQL := fmt.Sprintf(`
-			INSERT INTO %s.admin_cbt_incremental_local
-			(updated_date_time, database, table, position, interval)
-			VALUES (now(), '%s', '%s', %d, %d)
-		`, network, b.Database, b.Table, b.Position, b.Interval)
-
-		if err := s.execLocalClickHouseQuery(ctx, clickhouseURL, insertSQL); err != nil {
-			s.log.WithError(err).WithFields(logrus.Fields{
-				"database": b.Database,
-				"table":    b.Table,
-			}).Warn("Failed to insert incremental bound (non-fatal)")
-		}
-	}
-
-	return nil
-}
-
-// insertScheduledBounds inserts bounds into local ClickHouse.
-func (s *BoundsSeeder) insertScheduledBounds(
-	ctx context.Context,
-	network string,
-	clickhouseURL string,
-	bounds []ScheduledBound,
-) error {
-	if len(bounds) == 0 {
-		s.log.Debug("No scheduled bounds to insert")
-
-		return nil
-	}
-
-	s.log.WithField("count", len(bounds)).Debug("Inserting scheduled bounds")
-
-	for _, b := range bounds {
-		insertSQL := fmt.Sprintf(`
-			INSERT INTO %s.admin_cbt_scheduled_local
-			(updated_date_time, database, table, start_date_time)
-			VALUES (now(), '%s', '%s', '%s')
-		`, network, b.Database, b.Table, b.StartDateTime)
-
-		if err := s.execLocalClickHouseQuery(ctx, clickhouseURL, insertSQL); err != nil {
-			s.log.WithError(err).WithFields(logrus.Fields{
-				"database": b.Database,
-				"table":    b.Table,
-			}).Warn("Failed to insert scheduled bound (non-fatal)")
-		}
-	}
-
-	return nil
-}
-
-// execLocalClickHouseQuery executes a query on local ClickHouse via docker.
-func (s *BoundsSeeder) execLocalClickHouseQuery(ctx context.Context, clickhouseURL string, query string) error {
-	// Use docker exec to run clickhouse-client in the local xatu-cbt ClickHouse container.
 	args := []string{
-		"exec",
-		localCBTClickHouseContainer,
-		"clickhouse-client",
-		"--query", query,
+		"--context", prodK8sContext,
+		"-n", prodNamespace,
+		"exec", podName,
+		"-c", "redis",
+		"--",
+		"redis-cli",
+		"-a", password,
+		"--no-auth-warning",
+		"EVAL", luaDumpExternalBounds,
+		"0", // numkeys
+		redisBoundsKeyPrefix + "*",
+	}
+
+	cmd := exec.CommandContext(ctx, "kubectl", args...)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("redis EVAL failed: %w\nOutput: %s", err, string(output))
+	}
+
+	return s.parseLuaEvalOutput(string(output))
+}
+
+// parseLuaEvalOutput parses redis-cli output from Lua EVAL that returns
+// alternating key/value pairs. redis-cli prints each array element on its own line.
+func (s *BoundsSeeder) parseLuaEvalOutput(output string) ([]redisBound, error) {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+
+	if len(lines) == 0 || (len(lines) == 1 && strings.TrimSpace(lines[0]) == "") {
+		return nil, nil
+	}
+
+	// Filter out empty lines
+	filtered := make([]string, 0, len(lines))
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" && line != "(empty array)" && line != "(empty list or set)" {
+			filtered = append(filtered, line)
+		}
+	}
+
+	if len(filtered)%2 != 0 {
+		return nil, fmt.Errorf("unexpected odd number of lines in EVAL output (%d)", len(filtered))
+	}
+
+	bounds := make([]redisBound, 0, len(filtered)/2)
+
+	for i := 0; i < len(filtered); i += 2 {
+		key := filtered[i]
+		value := filtered[i+1]
+
+		// redis-cli may prefix array elements with "N) " numbering
+		key = stripRedisPrefix(key)
+		value = stripRedisPrefix(value)
+
+		bounds = append(bounds, redisBound{Key: key, Value: value})
+	}
+
+	return bounds, nil
+}
+
+// stripRedisPrefix removes the "N) " prefix that redis-cli adds to array elements.
+func stripRedisPrefix(s string) string {
+	// Look for pattern like "1) " or "42) "
+	idx := strings.Index(s, ") ")
+	if idx > 0 && idx < 6 {
+		// Verify everything before ") " is digits
+		prefix := s[:idx]
+		allDigits := true
+
+		for _, c := range prefix {
+			if c < '0' || c > '9' {
+				allDigits = false
+
+				break
+			}
+		}
+
+		if allDigits {
+			return s[idx+2:]
+		}
+	}
+
+	return s
+}
+
+// bulkInsertLocal inserts all bounds into local Redis using --pipe for efficiency.
+// This sends all SET commands in a single docker exec call.
+func (s *BoundsSeeder) bulkInsertLocal(ctx context.Context, redisDB int, bounds []redisBound) error {
+	// Build Redis protocol for all SET commands
+	var protocol bytes.Buffer
+
+	for _, b := range bounds {
+		// RESP protocol: *3\r\n$3\r\nSET\r\n${keyLen}\r\n{key}\r\n${valLen}\r\n{value}\r\n
+		fmt.Fprintf(&protocol, "*3\r\n$3\r\nSET\r\n$%d\r\n%s\r\n$%d\r\n%s\r\n",
+			len(b.Key), b.Key, len(b.Value), b.Value)
+	}
+
+	args := []string{
+		"exec", "-i", localRedisContainer,
+		"redis-cli",
+		"-n", fmt.Sprintf("%d", redisDB),
+		"--pipe",
+	}
+
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd.Stdin = &protocol
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("redis --pipe failed: %w\nOutput: %s", err, string(output))
+	}
+
+	s.log.WithField("output", strings.TrimSpace(string(output))).Debug("Redis pipe output")
+
+	return nil
+}
+
+// CheckNeedsSeeding checks if local Redis has any external bounds for the given network.
+func (s *BoundsSeeder) CheckNeedsSeeding(ctx context.Context, redisDB int) (bool, error) {
+	args := []string{
+		"exec", localRedisContainer,
+		"redis-cli",
+		"-n", fmt.Sprintf("%d", redisDB),
+		"KEYS", redisBoundsKeyPrefix + "*",
 	}
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("docker exec clickhouse-client failed: %w\nOutput: %s", err, string(output))
+		return false, fmt.Errorf("redis KEYS failed: %w\nOutput: %s", err, string(output))
 	}
 
-	return nil
+	result := strings.TrimSpace(string(output))
+
+	// Empty result or "(empty array)" means no keys exist
+	return result == "" || strings.Contains(result, "empty"), nil
 }
