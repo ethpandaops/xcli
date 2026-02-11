@@ -706,7 +706,7 @@ func (m *Manager) AutoSeedBoundsIfNeeded(ctx context.Context, spinner *ui.Spinne
 
 	m.log.Debug("Checking if external bounds seeding is needed...")
 
-	seeder := NewBoundsSeeder(m.cfg, m.log)
+	seeder := NewBoundsSeeder(m.log)
 
 	enabledNetworks := m.cfg.EnabledNetworks()
 	if len(enabledNetworks) == 0 {

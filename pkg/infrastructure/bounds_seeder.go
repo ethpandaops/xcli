@@ -3,11 +3,11 @@ package infrastructure
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os/exec"
 	"strings"
 
-	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/sirupsen/logrus"
 )
 
@@ -35,14 +35,12 @@ func prodRedisDetails(network string) (podName, secretName string) {
 
 // BoundsSeeder handles seeding CBT external bounds from production Redis.
 type BoundsSeeder struct {
-	cfg *config.LabConfig
 	log logrus.FieldLogger
 }
 
 // NewBoundsSeeder creates a new bounds seeder.
-func NewBoundsSeeder(cfg *config.LabConfig, log logrus.FieldLogger) *BoundsSeeder {
+func NewBoundsSeeder(log logrus.FieldLogger) *BoundsSeeder {
 	return &BoundsSeeder{
-		cfg: cfg,
 		log: log.WithField("component", "bounds_seeder"),
 	}
 }
@@ -127,25 +125,12 @@ func (s *BoundsSeeder) getRedisPassword(ctx context.Context, secretName string) 
 	}
 
 	// The password is base64 encoded in the jsonpath output
-	decoded, err := s.base64Decode(ctx, strings.TrimSpace(string(output)))
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(output)))
 	if err != nil {
 		return "", fmt.Errorf("decoding password: %w", err)
 	}
 
-	return strings.TrimSpace(decoded), nil
-}
-
-// base64Decode decodes a base64 string using the system base64 command.
-func (s *BoundsSeeder) base64Decode(ctx context.Context, encoded string) (string, error) {
-	cmd := exec.CommandContext(ctx, "base64", "-d")
-	cmd.Stdin = strings.NewReader(encoded)
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("base64 decode failed: %w", err)
-	}
-
-	return string(output), nil
+	return strings.TrimSpace(string(decoded)), nil
 }
 
 // fetchAllBounds uses a single Lua EVAL to get all external bounds keys and values
