@@ -59,9 +59,31 @@ type intervalConfig struct {
 
 // sqlFrontmatter represents the YAML frontmatter in SQL files.
 type sqlFrontmatter struct {
+	Database     string         `yaml:"database"`
 	Table        string         `yaml:"table"`
 	Dependencies []string       `yaml:"dependencies"`
 	Interval     intervalConfig `yaml:"interval"`
+}
+
+// ResolveExternalTableRef returns the fully qualified "database.table" for an external model.
+// If the model's frontmatter specifies a database, it uses "database.table".
+// Otherwise it falls back to "default.modelName" for backward compatibility.
+func ResolveExternalTableRef(model, xatuCBTPath string) string {
+	modelPath := findModelFile(xatuCBTPath, "external", model)
+	if modelPath == "" {
+		return "default." + model
+	}
+
+	fm, err := parseFrontmatter(modelPath)
+	if err != nil {
+		return "default." + model
+	}
+
+	if fm.Database != "" && fm.Table != "" {
+		return fm.Database + "." + fm.Table
+	}
+
+	return "default." + model
 }
 
 // ParseDependencies parses the dependencies from a SQL file's YAML frontmatter.

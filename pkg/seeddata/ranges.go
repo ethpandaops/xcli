@@ -24,15 +24,17 @@ type ModelRange struct {
 // QueryModelRange queries external ClickHouse for a model's available data range.
 // Uses ORDER BY ... LIMIT 1 instead of MIN/MAX for better performance on large tables.
 func (g *Generator) QueryModelRange(ctx context.Context, model, network, rangeColumn string) (*ModelRange, error) {
+	tableRef := g.resolveTableRef(model)
+
 	// Query for minimum value (oldest data)
 	minQuery := fmt.Sprintf(`
 		SELECT %s as val
-		FROM default.%s
+		FROM %s
 		WHERE meta_network_name = '%s'
 		ORDER BY %s ASC
 		LIMIT 1
 		FORMAT JSON
-	`, rangeColumn, model, network, rangeColumn)
+	`, rangeColumn, tableRef, network, rangeColumn)
 
 	g.log.WithField("query", minQuery).Debug("querying model min range")
 
@@ -44,12 +46,12 @@ func (g *Generator) QueryModelRange(ctx context.Context, model, network, rangeCo
 	// Query for maximum value (newest data)
 	maxQuery := fmt.Sprintf(`
 		SELECT %s as val
-		FROM default.%s
+		FROM %s
 		WHERE meta_network_name = '%s'
 		ORDER BY %s DESC
 		LIMIT 1
 		FORMAT JSON
-	`, rangeColumn, model, network, rangeColumn)
+	`, rangeColumn, tableRef, network, rangeColumn)
 
 	g.log.WithField("query", maxQuery).Debug("querying model max range")
 

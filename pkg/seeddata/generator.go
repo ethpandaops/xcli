@@ -140,16 +140,18 @@ func (g *Generator) Generate(ctx context.Context, opts GenerateOptions) (*Genera
 func (g *Generator) buildQuery(opts GenerateOptions) string {
 	var sb strings.Builder
 
+	tableRef := g.resolveTableRef(opts.Model)
+
 	// Use sanitized column list if available, otherwise SELECT *
 	if opts.sanitizedColumns != "" {
 		sb.WriteString("SELECT ")
 		sb.WriteString(opts.sanitizedColumns)
-		sb.WriteString(" FROM default.")
+		sb.WriteString(" FROM ")
 	} else {
-		sb.WriteString("SELECT * FROM default.")
+		sb.WriteString("SELECT * FROM ")
 	}
 
-	sb.WriteString(opts.Model)
+	sb.WriteString(tableRef)
 	sb.WriteString("\nWHERE meta_network_name = '")
 	sb.WriteString(opts.Network)
 	sb.WriteString("'")
@@ -421,6 +423,13 @@ func (g *Generator) buildClickHouseHTTPURL() (string, error) {
 	httpURL.RawQuery = query.Encode()
 
 	return httpURL.String(), nil
+}
+
+// resolveTableRef returns the fully qualified "database.table" reference for an external model.
+// If the model's frontmatter specifies a database and table, it uses those.
+// Otherwise it falls back to "default.modelName" for backward compatibility.
+func (g *Generator) resolveTableRef(model string) string {
+	return ResolveExternalTableRef(model, g.cfg.Repos.XatuCBT)
 }
 
 // ListExternalModels returns a list of available external models from the xatu-cbt repo.
