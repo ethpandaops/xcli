@@ -38,7 +38,8 @@ type ColumnInfo struct {
 
 // DescribeTable queries ClickHouse to get the schema for a table.
 func (g *Generator) DescribeTable(ctx context.Context, model string) ([]ColumnInfo, error) {
-	query := fmt.Sprintf("DESCRIBE TABLE default.%s FORMAT JSON", model)
+	tableRef := g.resolveTableRef(model)
+	query := fmt.Sprintf("DESCRIBE TABLE %s FORMAT JSON", tableRef)
 
 	chURL, err := g.buildClickHouseHTTPURL()
 	if err != nil {

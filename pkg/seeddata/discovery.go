@@ -702,14 +702,15 @@ func (g *Generator) QueryTableSample(
 	network string,
 	limit int,
 ) ([]map[string]any, error) {
+	tableRef := g.resolveTableRef(model)
 	query := fmt.Sprintf(`
 		SELECT *
-		FROM default.%s
+		FROM %s
 		WHERE meta_network_name = '%s'
 		ORDER BY rand()
 		LIMIT %d
 		FORMAT JSON
-	`, model, network, limit)
+	`, tableRef, network, limit)
 
 	g.log.WithFields(logrus.Fields{
 		"model":   model,
@@ -1231,16 +1232,18 @@ func (g *Generator) QueryRowCount(
 		filterClause += fmt.Sprintf("\n			  AND %s", correlationFilter)
 	}
 
+	tableRef := g.resolveTableRef(model)
+
 	var query string
 
 	// Handle dimension tables (no range column)
 	if rangeColumn == "" {
 		query = fmt.Sprintf(`
 			SELECT COUNT(*) as cnt
-			FROM default.%s
+			FROM %s
 			WHERE meta_network_name = '%s'%s
 			FORMAT JSON
-		`, model, network, filterClause)
+		`, tableRef, network, filterClause)
 	} else {
 		// Determine if this is a numeric or time-based column
 		isNumeric := !strings.Contains(strings.ToLower(rangeColumn), "date") &&
@@ -1249,21 +1252,21 @@ func (g *Generator) QueryRowCount(
 		if isNumeric {
 			query = fmt.Sprintf(`
 			SELECT COUNT(*) as cnt
-			FROM default.%s
+			FROM %s
 			WHERE meta_network_name = '%s'
 			  AND %s >= %s
 			  AND %s <= %s%s
 			FORMAT JSON
-		`, model, network, rangeColumn, fromValue, rangeColumn, toValue, filterClause)
+		`, tableRef, network, rangeColumn, fromValue, rangeColumn, toValue, filterClause)
 		} else {
 			query = fmt.Sprintf(`
 			SELECT COUNT(*) as cnt
-			FROM default.%s
+			FROM %s
 			WHERE meta_network_name = '%s'
 			  AND %s >= toDateTime('%s')
 			  AND %s <= toDateTime('%s')%s
 			FORMAT JSON
-		`, model, network, rangeColumn, fromValue, rangeColumn, toValue, filterClause)
+		`, tableRef, network, rangeColumn, fromValue, rangeColumn, toValue, filterClause)
 		}
 	}
 
