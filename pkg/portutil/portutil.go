@@ -1,5 +1,7 @@
 // Package portutil provides utilities for port conflict detection
 // and process identification on macOS and Linux systems.
+//
+//nolint:staticcheck // QF1012: WriteString(Sprintf) pattern used for incremental string building
 package portutil
 
 import (

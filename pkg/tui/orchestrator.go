@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -14,6 +15,11 @@ import (
 // OrchestratorWrapper wraps the orchestrator for TUI access.
 type OrchestratorWrapper struct {
 	orch *orchestrator.Orchestrator
+}
+
+// SetOrchestrator replaces the underlying orchestrator (e.g. after config reload).
+func (w *OrchestratorWrapper) SetOrchestrator(orch *orchestrator.Orchestrator) {
+	w.orch = orch
 }
 
 // NewOrchestratorWrapper creates a wrapper.
@@ -41,7 +47,11 @@ type InfraInfo struct {
 }
 
 // GetServices returns current service statuses.
+// Re-scans PID files each call to discover externally started processes.
 func (w *OrchestratorWrapper) GetServices() []ServiceInfo {
+	// Re-scan PID directory to pick up processes started after CC launched
+	w.orch.ProcessManager().ReloadPIDs()
+
 	validServices := w.orch.GetValidServices()
 	processes := w.orch.ProcessManager().List()
 
@@ -101,14 +111,24 @@ func (w *OrchestratorWrapper) GetServices() []ServiceInfo {
 	return services
 }
 
-// GetInfrastructure returns infrastructure statuses.
+// GetInfrastructure returns infrastructure statuses in stable order.
 func (w *OrchestratorWrapper) GetInfrastructure() []InfraInfo {
 	infraMgr := w.orch.InfrastructureManager()
 	statuses := infraMgr.Status()
 
-	infra := make([]InfraInfo, 0, len(statuses))
+	// Sort by name for stable display order.
+	names := make([]string, 0, len(statuses))
+	for name := range statuses {
+		names = append(names, name)
+	}
 
-	for name, running := range statuses {
+	sort.Strings(names)
+
+	infra := make([]InfraInfo, 0, len(names))
+
+	for _, name := range names {
+		running := statuses[name]
+
 		status := "stopped"
 		if running {
 			status = "running"
@@ -142,12 +162,10 @@ func (w *OrchestratorWrapper) StopService(ctx context.Context, name string) erro
 }
 
 // RestartService restarts a service.
+// Delegates to the orchestrator's Restart which handles both process-managed
+// services and Docker-based observability services (prometheus, grafana).
 func (w *OrchestratorWrapper) RestartService(ctx context.Context, name string) error {
-	if err := w.orch.StopService(ctx, name); err != nil {
-		return err
-	}
-
-	return w.orch.StartService(ctx, name)
+	return w.orch.Restart(ctx, name)
 }
 
 // RebuildService rebuilds the binary for a service and restarts it.

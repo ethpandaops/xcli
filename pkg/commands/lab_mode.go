@@ -132,11 +132,11 @@ Examples:
 				}
 				// Tear down infrastructure completely
 				// This is necessary because local vs hybrid mode use different infrastructure
-				if err := orch.Down(cmd.Context()); err != nil {
+				if err := orch.Down(cmd.Context(), nil); err != nil {
 					return fmt.Errorf("failed to tear down: %w", err)
 				}
 				// Restart with auto-build enabled, no force rebuild
-				if err := orch.Up(cmd.Context(), false, false); err != nil {
+				if err := orch.Up(cmd.Context(), false, false, nil); err != nil {
 					return fmt.Errorf("failed to start services: %w", err)
 				}
 

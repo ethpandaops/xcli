@@ -1,4 +1,6 @@
 // Package configtui provides a TUI for managing CBT model overrides.
+//
+//nolint:staticcheck // QF1012: WriteString(Sprintf) pattern used for YAML building
 package configtui
 
 import (
@@ -68,6 +70,31 @@ func LoadOverrides(path string) (*CBTOverrides, bool, error) {
 // Only writes models that are disabled (enabled: false).
 // Preserves existing config blocks for models.
 func SaveOverrides(path string, m *Model, existingOverrides *CBTOverrides) error {
+	return SaveOverridesFromEntries(
+		path,
+		m.externalModels,
+		m.transformationModels,
+		m.envMinTimestamp,
+		m.envTimestampEnabled,
+		m.envMinBlock,
+		m.envBlockEnabled,
+		existingOverrides,
+	)
+}
+
+// SaveOverridesFromEntries writes the configuration to .cbt-overrides.yaml
+// from plain data (no TUI dependency). Only writes models that are disabled.
+// Preserves existing config blocks for models.
+func SaveOverridesFromEntries(
+	path string,
+	externalModels []ModelEntry,
+	transformationModels []ModelEntry,
+	envMinTimestamp string,
+	envTimestampEnabled bool,
+	envMinBlock string,
+	envBlockEnabled bool,
+	existingOverrides *CBTOverrides,
+) error {
 	// Ensure the directory exists.
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -86,10 +113,10 @@ func SaveOverrides(path string, m *Model, existingOverrides *CBTOverrides) error
 	sb.WriteString("  env:\n")
 
 	// Write EXTERNAL_MODEL_MIN_TIMESTAMP.
-	if m.envTimestampEnabled && m.envMinTimestamp != "" {
-		fmt.Fprintf(&sb, "    EXTERNAL_MODEL_MIN_TIMESTAMP: \"%s\"\n", m.envMinTimestamp)
+	if envTimestampEnabled && envMinTimestamp != "" {
+		fmt.Fprintf(&sb, "    EXTERNAL_MODEL_MIN_TIMESTAMP: \"%s\"\n", envMinTimestamp)
 	} else {
-		value := m.envMinTimestamp
+		value := envMinTimestamp
 		if value == "" {
 			value = "0"
 		}
@@ -98,10 +125,10 @@ func SaveOverrides(path string, m *Model, existingOverrides *CBTOverrides) error
 	}
 
 	// Write EXTERNAL_MODEL_MIN_BLOCK.
-	if m.envBlockEnabled && m.envMinBlock != "" {
-		fmt.Fprintf(&sb, "    EXTERNAL_MODEL_MIN_BLOCK: \"%s\"\n", m.envMinBlock)
+	if envBlockEnabled && envMinBlock != "" {
+		fmt.Fprintf(&sb, "    EXTERNAL_MODEL_MIN_BLOCK: \"%s\"\n", envMinBlock)
 	} else {
-		value := m.envMinBlock
+		value := envMinBlock
 		if value == "" {
 			value = "0"
 		}
@@ -112,13 +139,13 @@ func SaveOverrides(path string, m *Model, existingOverrides *CBTOverrides) error
 	// Collect all disabled models.
 	disabledModels := make([]string, 0)
 
-	for _, model := range m.externalModels {
+	for _, model := range externalModels {
 		if !model.Enabled {
 			disabledModels = append(disabledModels, model.OverrideKey)
 		}
 	}
 
-	for _, model := range m.transformationModels {
+	for _, model := range transformationModels {
 		if !model.Enabled {
 			disabledModels = append(disabledModels, model.OverrideKey)
 		}

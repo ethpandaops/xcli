@@ -97,6 +97,9 @@ func (m *Manager) Start(ctx context.Context, name string, cmd *exec.Cmd, healthC
 	cmd.Stdout = logFd
 	cmd.Stderr = logFd
 
+	// Put child in its own process group so it survives parent (CC server) dying
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
 	// Start the process
 	if err := cmd.Start(); err != nil {
 		logFd.Close()
@@ -170,9 +173,14 @@ func (m *Manager) Stop(ctx context.Context, name string) error {
 		return fmt.Errorf("failed to find process: %w", err)
 	}
 
-	// Send SIGTERM for graceful shutdown
-	if err := process.Signal(syscall.SIGTERM); err != nil {
-		return fmt.Errorf("failed to send SIGTERM: %w", err)
+	// Send SIGTERM to the process group for graceful shutdown.
+	// Negative PID signals the entire process group (created via Setpgid).
+	if err := syscall.Kill(-p.PID, syscall.SIGTERM); err != nil {
+		// Fall back to signaling just the process (e.g. PID-loaded processes
+		// from a previous session that weren't started with Setpgid)
+		if sigErr := process.Signal(syscall.SIGTERM); sigErr != nil {
+			return fmt.Errorf("failed to send SIGTERM: %w", sigErr)
+		}
 	}
 
 	// Wait for graceful shutdown with context cancellation support
@@ -187,6 +195,8 @@ func (m *Manager) Stop(ctx context.Context, name string) error {
 			// Context cancelled - force kill immediately
 			m.log.WithField("name", name).Warn("Context cancelled, sending SIGKILL")
 
+			_ = syscall.Kill(-p.PID, syscall.SIGKILL)
+
 			if err := process.Kill(); err != nil {
 				m.log.WithError(err).Warn("failed to kill process")
 			}
@@ -198,6 +208,8 @@ func (m *Manager) Stop(ctx context.Context, name string) error {
 		case <-timeout:
 			// Graceful shutdown timeout - force kill
 			m.log.WithField("name", name).Warn("Process did not stop gracefully, sending SIGKILL")
+
+			_ = syscall.Kill(-p.PID, syscall.SIGKILL)
 
 			if err := process.Kill(); err != nil {
 				return fmt.Errorf("failed to kill process: %w", err)
@@ -346,15 +358,23 @@ func (m *Manager) Get(name string) (*Process, bool) {
 }
 
 // isRunning checks if a process is actually running.
+// Handles both manager-started processes (Cmd != nil) and PID-loaded processes (Cmd == nil).
 func (m *Manager) isRunning(p *Process) bool {
-	if p.Cmd == nil || p.Cmd.Process == nil {
+	if p.Cmd != nil && p.Cmd.Process != nil {
+		return p.Cmd.Process.Signal(syscall.Signal(0)) == nil
+	}
+
+	// PID-loaded process (Cmd is nil) — check via PID directly
+	if p.PID <= 0 {
 		return false
 	}
 
-	// Try to send signal 0 (doesn't actually send signal, just checks)
-	err := p.Cmd.Process.Signal(syscall.Signal(0))
+	proc, err := os.FindProcess(p.PID)
+	if err != nil {
+		return false
+	}
 
-	return err == nil
+	return proc.Signal(syscall.Signal(0)) == nil
 }
 
 // IsRunning checks if a process with the given name is running.
@@ -544,8 +564,24 @@ func (m *Manager) removePID(name string) {
 	os.Remove(pidFile)
 }
 
+// ReloadPIDs re-scans the PID directory for new or changed PID files.
+// Safe to call concurrently. Discovers processes started externally (e.g. by `xcli lab up`)
+// and removes stale entries for processes that have exited.
+func (m *Manager) ReloadPIDs() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.loadPIDsLocked()
+}
+
 // loadPIDs loads PIDs from disk and checks if processes are still running.
 func (m *Manager) loadPIDs() {
+	m.loadPIDsLocked()
+}
+
+// loadPIDsLocked scans the PID directory and updates the process map.
+// Caller must hold m.mu (or be in a context where no concurrent access occurs).
+func (m *Manager) loadPIDsLocked() {
 	pidDir := filepath.Join(m.stateDir, constants.DirPIDs)
 
 	entries, err := os.ReadDir(pidDir)
@@ -554,9 +590,30 @@ func (m *Manager) loadPIDs() {
 	}
 
 	for _, entry := range entries {
-		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".pid" {
-			name := entry.Name()[:len(entry.Name())-4] // Remove .pid extension
-			m.loadPID(name)
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".pid" {
+			continue
 		}
+
+		name := entry.Name()[:len(entry.Name())-4] // Remove .pid extension
+
+		// Skip processes started by this manager (Cmd != nil) — don't overwrite them
+		if existing, exists := m.processes[name]; exists && existing.Cmd != nil {
+			continue
+		}
+
+		// For existing PID-loaded processes, re-verify they're still alive
+		if existing, exists := m.processes[name]; exists && existing.Cmd == nil {
+			if !m.isRunning(existing) {
+				delete(m.processes, name)
+				m.removePID(name)
+
+				m.log.WithField("name", name).Debug("removed stale PID-loaded process")
+			}
+
+			continue
+		}
+
+		// New PID file not yet in m.processes — load it
+		m.loadPID(name)
 	}
 }

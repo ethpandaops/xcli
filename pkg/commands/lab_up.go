@@ -66,7 +66,7 @@ Examples:
 			orch.SetVerbose(verbose)
 
 			// Always rebuild (skipBuild=false, forceBuild=true)
-			err = orch.Up(cmd.Context(), false, true)
+			err = orch.Up(cmd.Context(), false, true, nil)
 
 			// Handle cancellation gracefully
 			if err != nil && errors.Is(err, context.Canceled) {
@@ -76,7 +76,7 @@ Examples:
 				cleanupCtx := context.Background()
 
 				// Stop all services that may have been started
-				if stopErr := orch.StopServices(cleanupCtx); stopErr != nil {
+				if stopErr := orch.StopServices(cleanupCtx, nil); stopErr != nil {
 					log.WithError(stopErr).Error("failed to stop services gracefully")
 				} else {
 					ui.Success("All services stopped")

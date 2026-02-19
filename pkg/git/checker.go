@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 )
@@ -125,13 +126,40 @@ func (c *Checker) CheckRepository(ctx context.Context, repoPath string, repoName
 }
 
 // CheckRepositories checks multiple repositories for their git status.
-// Returns a slice of RepoStatus for each repository.
+// Checks are performed concurrently to avoid sequential network latency
+// from git fetch operations.
 func (c *Checker) CheckRepositories(ctx context.Context, repos map[string]string) []RepoStatus {
-	statuses := make([]RepoStatus, 0, len(repos))
+	type result struct {
+		name   string
+		status RepoStatus
+	}
+
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		results = make([]result, 0, len(repos))
+	)
 
 	for name, path := range repos {
-		status := c.CheckRepository(ctx, path, name)
-		statuses = append(statuses, status)
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			status := c.CheckRepository(ctx, path, name)
+
+			mu.Lock()
+
+			results = append(results, result{name: name, status: status})
+			mu.Unlock()
+		}()
+	}
+
+	wg.Wait()
+
+	statuses := make([]RepoStatus, 0, len(results))
+	for _, r := range results {
+		statuses = append(statuses, r.status)
 	}
 
 	return statuses

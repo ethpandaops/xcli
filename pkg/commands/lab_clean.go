@@ -88,7 +88,7 @@ func runLabClean(ctx context.Context, log logrus.FieldLogger, configPath string)
 		return fmt.Errorf("failed to create orchestrator: %w", err)
 	}
 
-	if err := orch.Down(ctx); err != nil {
+	if err := orch.Down(ctx, nil); err != nil {
 		ui.Warning(fmt.Sprintf("Failed to stop services: %v", err))
 		ui.Info("Continuing with cleanup...")
 	}

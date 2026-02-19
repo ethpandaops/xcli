@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/acarl005/stripansi"
@@ -22,6 +23,7 @@ type LogLine struct {
 
 // LogStreamer streams logs from multiple services.
 type LogStreamer struct {
+	mu       sync.Mutex
 	services map[string]context.CancelFunc
 	output   chan LogLine
 }
@@ -36,6 +38,9 @@ func NewLogStreamer() *LogStreamer {
 
 // Start begins tailing logs for a service.
 func (ls *LogStreamer) Start(serviceName, logFile string) error {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+
 	// Check if already tailing this service
 	if _, exists := ls.services[serviceName]; exists {
 		return nil // Already streaming
@@ -61,14 +66,27 @@ func (ls *LogStreamer) Start(serviceName, logFile string) error {
 	// Store cancel function for cleanup
 	ls.services[serviceName] = cancel
 
-	// Parse logs in background
+	// Parse logs in background — removes itself from map when done
 	go ls.streamLogs(ctx, serviceName, stdout)
 
 	return nil
 }
 
 func (ls *LogStreamer) streamLogs(ctx context.Context, serviceName string, stdout any) {
-	reader, ok := stdout.(interface{ Read([]byte) (int, error) })
+	defer func() {
+		// Remove from map so the service can be re-tailed after restart
+		ls.mu.Lock()
+		delete(ls.services, serviceName)
+		ls.mu.Unlock()
+	}()
+
+	ls.streamPipe(ctx, serviceName, stdout)
+}
+
+// streamPipe reads lines from a pipe and sends them to the output channel.
+// Does not manage the services map — caller is responsible for cleanup.
+func (ls *LogStreamer) streamPipe(ctx context.Context, serviceName string, pipe any) {
+	reader, ok := pipe.(interface{ Read([]byte) (int, error) })
 	if !ok {
 		return
 	}
@@ -104,6 +122,98 @@ func (ls *LogStreamer) streamLogs(ctx context.Context, serviceName string, stdou
 	}
 }
 
+// StartDocker begins tailing Docker container logs for a service.
+func (ls *LogStreamer) StartDocker(serviceName, containerName string) error {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+
+	// Check if already tailing this service
+	if _, exists := ls.services[serviceName]; exists {
+		return nil // Already streaming
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	cmd := exec.CommandContext(ctx, "docker", "logs", "-f", "--tail", "100", containerName)
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		cancel()
+
+		return err
+	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		cancel()
+
+		return err
+	}
+
+	if err := cmd.Start(); err != nil {
+		cancel()
+
+		return err
+	}
+
+	// Store cancel function for cleanup
+	ls.services[serviceName] = cancel
+
+	// Stream stdout and stderr concurrently — Docker containers may write to
+	// either, and a sequential reader would block on the first until EOF.
+	go func() {
+		var wg sync.WaitGroup
+
+		wg.Add(2) //nolint:mnd // stdout + stderr
+
+		go func() {
+			defer wg.Done()
+
+			ls.streamPipe(ctx, serviceName, stdout)
+		}()
+
+		go func() {
+			defer wg.Done()
+
+			ls.streamPipe(ctx, serviceName, stderr)
+		}()
+
+		wg.Wait()
+
+		// Both pipes done — remove from map so the service can be re-tailed
+		ls.mu.Lock()
+		delete(ls.services, serviceName)
+		ls.mu.Unlock()
+	}()
+
+	return nil
+}
+
+// StopService stops log streaming for a single service.
+// This kills the tail process and removes the entry so it can be re-started later.
+func (ls *LogStreamer) StopService(serviceName string) {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+
+	if cancel, exists := ls.services[serviceName]; exists {
+		cancel()
+		delete(ls.services, serviceName)
+	}
+}
+
+// ActiveServices returns the names of services currently being tailed.
+func (ls *LogStreamer) ActiveServices() []string {
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
+
+	names := make([]string, 0, len(ls.services))
+	for name := range ls.services {
+		names = append(names, name)
+	}
+
+	return names
+}
+
 // Output returns the log line channel.
 func (ls *LogStreamer) Output() <-chan LogLine {
 	return ls.output
@@ -111,10 +221,13 @@ func (ls *LogStreamer) Output() <-chan LogLine {
 
 // Stop stops all log streaming.
 func (ls *LogStreamer) Stop() {
+	ls.mu.Lock()
 	// Cancel all service contexts, which will kill the tail processes
-	for _, cancel := range ls.services {
+	for name, cancel := range ls.services {
 		cancel()
+		delete(ls.services, name)
 	}
+	ls.mu.Unlock()
 
 	close(ls.output)
 }

@@ -25,6 +25,9 @@ go.work
 .xcli.yaml
 .cbt-overrides.yaml
 
+# Command Center frontend
+pkg/cc/frontend/node_modules/
+
 # OS
 .DS_Store
 Thumbs.db

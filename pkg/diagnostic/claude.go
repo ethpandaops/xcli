@@ -1,3 +1,4 @@
+//nolint:staticcheck // QF1012: WriteString(Sprintf) pattern is used consistently for prompt building readability
 package diagnostic
 
 import (
@@ -364,7 +365,7 @@ func findClaudeBinary() (string, error) {
 	}
 
 	for _, path := range searchPaths {
-		if info, err := os.Stat(path); err == nil && !info.IsDir() { // #nosec G703 -- paths are hardcoded
+		if info, err := os.Stat(path); err == nil && !info.IsDir() { //nolint:gosec // paths are hardcoded search locations, not user input
 			return path, nil
 		}
 	}

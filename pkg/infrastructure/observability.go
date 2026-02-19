@@ -151,6 +151,42 @@ func (m *ObservabilityManager) Stop(ctx context.Context) error {
 	return nil
 }
 
+// StartService starts a specific observability container.
+func (m *ObservabilityManager) StartService(ctx context.Context, service string) error {
+	switch service {
+	case constants.ServicePrometheus:
+		m.log.Info("starting Prometheus")
+
+		return m.startPrometheus(ctx)
+
+	case constants.ServiceGrafana:
+		m.log.Info("starting Grafana")
+
+		return m.startGrafana(ctx)
+
+	default:
+		return fmt.Errorf("unknown observability service: %s", service)
+	}
+}
+
+// StopService stops a specific observability container.
+func (m *ObservabilityManager) StopService(ctx context.Context, service string) error {
+	switch service {
+	case constants.ServicePrometheus:
+		m.log.Info("stopping Prometheus")
+
+		return m.stopContainer(ctx, constants.ContainerPrometheus)
+
+	case constants.ServiceGrafana:
+		m.log.Info("stopping Grafana")
+
+		return m.stopContainer(ctx, constants.ContainerGrafana)
+
+	default:
+		return fmt.Errorf("unknown observability service: %s", service)
+	}
+}
+
 // RestartService restarts a specific observability service (prometheus or grafana).
 func (m *ObservabilityManager) RestartService(ctx context.Context, service string) error {
 	switch service {

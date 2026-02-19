@@ -20,7 +20,7 @@ func Run(xatuCBTPath, overridesPath string) error {
 	}
 
 	// Discover models.
-	externalModels, transformModels, err := discoverModels(xatuCBTPath)
+	externalModels, transformModels, err := DiscoverModels(xatuCBTPath)
 	if err != nil {
 		return fmt.Errorf("failed to discover models: %w", err)
 	}
@@ -71,7 +71,7 @@ func Run(xatuCBTPath, overridesPath string) error {
 	m.envBlockEnabled = m.envMinBlock != ""
 
 	// Load model dependencies for dependency warnings.
-	m.dependencies = loadDependencies(xatuCBTPath, transformModels)
+	m.dependencies = LoadDependencies(xatuCBTPath, transformModels)
 
 	// Run the TUI.
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
@@ -94,8 +94,8 @@ func isatty() bool {
 	return (fileInfo.Mode() & os.ModeCharDevice) != 0
 }
 
-// discoverModels discovers external and transformation models from the xatu-cbt repo.
-func discoverModels(xatuCBTPath string) (external []string, transformation []string, err error) {
+// DiscoverModels discovers external and transformation models from the xatu-cbt repo.
+func DiscoverModels(xatuCBTPath string) (external []string, transformation []string, err error) {
 	// Discover external models.
 	externalDir := filepath.Join(xatuCBTPath, "models", "external")
 
@@ -151,9 +151,9 @@ func discoverModels(xatuCBTPath string) (external []string, transformation []str
 	return external, transformation, nil
 }
 
-// loadDependencies loads the dependency graph for all transformation models.
+// LoadDependencies loads the dependency graph for all transformation models.
 // Returns a map of model name -> list of all dependencies (recursive, flattened).
-func loadDependencies(xatuCBTPath string, transformModels []string) map[string][]string {
+func LoadDependencies(xatuCBTPath string, transformModels []string) map[string][]string {
 	deps := make(map[string][]string, len(transformModels))
 
 	for _, model := range transformModels {
