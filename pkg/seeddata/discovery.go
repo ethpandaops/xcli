@@ -1,3 +1,4 @@
+//nolint:staticcheck // QF1012: WriteString(Sprintf) pattern is used consistently for prompt building readability
 package seeddata
 
 import (
@@ -291,8 +292,8 @@ func (c *ClaudeDiscoveryClient) buildDiscoveryPrompt(input DiscoveryInput) strin
 	sb.WriteString("Analyze the following ClickHouse tables and determine the best strategy for extracting correlated seed data across all tables for testing.\n\n")
 
 	sb.WriteString("## Context\n")
-	fmt.Fprintf(&sb, "- Transformation Model: %s\n", input.TransformationModel)
-	fmt.Fprintf(&sb, "- Network: %s\n", input.Network)
+	sb.WriteString(fmt.Sprintf("- Transformation Model: %s\n", input.TransformationModel))
+	sb.WriteString(fmt.Sprintf("- Network: %s\n", input.Network))
 	sb.WriteString(fmt.Sprintf("- Requested Duration: %s\n", input.Duration))
 	sb.WriteString("- Goal: Extract a consistent slice of data from all external models that can be used together for testing the transformation\n\n")
 
@@ -734,7 +735,7 @@ func (g *Generator) QueryTableSample(
 		Timeout: 30 * time.Second,
 	}
 
-	resp, err := client.Do(req) //nolint:gosec // URL is constructed from trusted config, not user input
+	resp, err := client.Do(req) //nolint:gosec // URL is from trusted config
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -1293,7 +1294,7 @@ func (g *Generator) QueryRowCount(
 		Timeout: 2 * time.Minute, // Row count queries on large tables can take time
 	}
 
-	resp, err := client.Do(req) //nolint:gosec // URL is constructed from trusted config, not user input
+	resp, err := client.Do(req) //nolint:gosec // URL is from trusted config
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute request: %w", err)
 	}

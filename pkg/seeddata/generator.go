@@ -1,5 +1,7 @@
 // Package seeddata provides functionality to generate seed data parquet files
 // for xatu-cbt tests by extracting data from external ClickHouse.
+//
+//nolint:staticcheck // QF1012: WriteString(Sprintf) pattern is used consistently for query building readability
 package seeddata
 
 import (
