@@ -35,7 +35,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Check if any services transitioned to running state
 		// and start log streaming for them
 		if m.logStreamer != nil {
-			oldRunning := make(map[string]bool)
+			oldRunning := make(map[string]bool, len(oldServices))
 
 			for _, svc := range oldServices {
 				if svc.Status == statusRunning {

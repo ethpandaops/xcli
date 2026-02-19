@@ -9,18 +9,21 @@ import (
 // Compile-time interface check.
 var _ Checker = (*checker)(nil)
 
-// PrerequisiteType represents the type of prerequisite.
-type PrerequisiteType string
+// Type represents the type of prerequisite.
+type Type string
 
 const (
-	PrerequisiteTypeFileCopy       PrerequisiteType = "file_copy"
-	PrerequisiteTypeCommand        PrerequisiteType = "command"
-	PrerequisiteTypeDirectoryCheck PrerequisiteType = "directory_check"
+	// TypeFileCopy copies a file from source to destination.
+	TypeFileCopy Type = "file_copy"
+	// TypeCommand executes a shell command.
+	TypeCommand Type = "command"
+	// TypeDirectoryCheck validates directory existence.
+	TypeDirectoryCheck Type = "directory_check"
 )
 
 // Prerequisite represents a single setup step.
 type Prerequisite struct {
-	Type        PrerequisiteType
+	Type        Type
 	Description string
 
 	// For file_copy type
@@ -40,8 +43,8 @@ type Prerequisite struct {
 	SkipIfExists string // Skip if this path exists
 }
 
-// RepoPrerequisites defines all prerequisites for a repository.
-type RepoPrerequisites struct {
+// Repo defines all prerequisites for a repository.
+type Repo struct {
 	RepoName      string
 	Prerequisites []Prerequisite
 }
@@ -61,5 +64,5 @@ type Checker interface {
 // checker implements the Checker interface.
 type checker struct {
 	log  logrus.FieldLogger
-	defs map[string]RepoPrerequisites
+	defs map[string]Repo
 }

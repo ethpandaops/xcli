@@ -45,14 +45,18 @@ type Orchestrator struct {
 	cfg      *config.LabConfig
 	mode     mode.Mode
 	infra    *infrastructure.Manager
-	proc     *process.Manager
+	proc     process.Manager
 	builder  *builder.Manager
 	stateDir string
 	verbose  bool
 }
 
 // NewOrchestrator creates a new Orchestrator instance.
-func NewOrchestrator(log logrus.FieldLogger, cfg *config.LabConfig, configPath string) (*Orchestrator, error) {
+func NewOrchestrator(
+	log logrus.FieldLogger,
+	cfg *config.LabConfig,
+	configPath string,
+) (*Orchestrator, error) {
 	// Get absolute path of config file
 	absConfigPath, err := filepath.Abs(configPath)
 	if err != nil {
@@ -118,7 +122,7 @@ func (o *Orchestrator) Config() *config.LabConfig {
 }
 
 // ProcessManager returns the process manager for external access.
-func (o *Orchestrator) ProcessManager() *process.Manager {
+func (o *Orchestrator) ProcessManager() process.Manager {
 	return o.proc
 }
 
@@ -142,7 +146,12 @@ func (o *Orchestrator) GetServicePorts(service string) []int {
 // Pass nil to disable progress reporting (e.g. from CLI callers).
 //
 //nolint:gocyclo // Complexity is from context cancellation checks between phases for proper Ctrl+C handling
-func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool, progress ProgressFunc) error {
+func (o *Orchestrator) Up(
+	ctx context.Context,
+	skipBuild bool,
+	forceBuild bool,
+	progress ProgressFunc,
+) error {
 	// Display startup banner
 	ui.Banner("Starting Lab Stack")
 
@@ -153,7 +162,10 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool, 
 	reportProgress(progress, "prerequisites", "Validating prerequisites...")
 
 	if err := o.validatePrerequisites(ctx); err != nil {
-		return fmt.Errorf("prerequisites not satisfied: %w\n\nRun 'xcli lab init' to satisfy prerequisites", err)
+		return fmt.Errorf(
+			"prerequisites not satisfied: %w\n\n"+
+				"Run 'xcli lab init' to satisfy prerequisites", err,
+		)
 	}
 
 	// Check for cancellation
@@ -169,7 +181,10 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool, 
 			return fmt.Errorf("external ClickHouse URL is required when using hybrid mode")
 		}
 
-		o.log.WithField("url", o.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL).Info("testing external ClickHouse connection")
+		chURL := o.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL
+		o.log.WithField("url", chURL).Info(
+			"testing external ClickHouse connection",
+		)
 
 		spinner := ui.NewSpinner("Testing external ClickHouse DSN")
 
@@ -212,7 +227,11 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool, 
 			fmt.Print(portutil.FormatConflicts(portConflicts))
 		}
 
-		return fmt.Errorf("cannot start stack: %d processes running and %d port conflicts detected", len(runningProcesses), len(portConflicts))
+		return fmt.Errorf(
+			"cannot start stack: %d processes running and "+
+				"%d port conflicts detected",
+			len(runningProcesses), len(portConflicts),
+		)
 	}
 
 	// Check for cancellation
@@ -335,7 +354,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool, 
 
 	configSpinner := ui.NewSpinner("Generating service configurations")
 
-	if err := o.GenerateConfigs(); err != nil {
+	if err := o.GenerateConfigs(ctx); err != nil {
 		configSpinner.Fail("Failed to generate configurations")
 
 		return fmt.Errorf("failed to generate configs: %w", err)
@@ -753,7 +772,7 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 	// Show infrastructure status
 	ui.Header("Infrastructure")
 
-	infraStatus := o.infra.Status()
+	infraStatus := o.infra.Status(ctx)
 
 	// Use mode interface to determine if external ClickHouse is used
 	needsExternal := o.mode.NeedsExternalClickHouse()
@@ -872,7 +891,7 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 
 // GenerateConfigs generates configuration files for all services.
 // Public method so it can be called by rebuild commands.
-func (o *Orchestrator) GenerateConfigs() error {
+func (o *Orchestrator) GenerateConfigs(ctx context.Context) error {
 	configsDir := filepath.Join(o.stateDir, "configs")
 	if err := os.MkdirAll(configsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create configs directory: %w", err)
@@ -1571,7 +1590,11 @@ func (o *Orchestrator) startCBTEngine(ctx context.Context, network string) error
 		return fmt.Errorf("cbt binary not found at %s - please run 'make build' in cbt repo", cbtBinary)
 	}
 
-	configPath, err := filepath.Abs(filepath.Join(o.stateDir, constants.DirConfigs, fmt.Sprintf(constants.ConfigFileCBT, network)))
+	cfgFile := fmt.Sprintf(constants.ConfigFileCBT, network)
+
+	configPath, err := filepath.Abs(
+		filepath.Join(o.stateDir, constants.DirConfigs, cfgFile),
+	)
 	if err != nil {
 		return err
 	}
@@ -1588,10 +1611,18 @@ func (o *Orchestrator) startCBTEngine(ctx context.Context, network string) error
 func (o *Orchestrator) startCBTAPI(ctx context.Context, network string) error {
 	apiBinary := filepath.Join(o.cfg.Repos.CBTAPI, constants.DirBin, constants.BinaryCBTAPI)
 	if _, err := os.Stat(apiBinary); os.IsNotExist(err) {
-		return fmt.Errorf("cbt-api binary not found at %s - please run 'make build' in cbt-api repo", apiBinary)
+		return fmt.Errorf(
+			"cbt-api binary not found at %s"+
+				" - please run 'make build' in cbt-api repo",
+			apiBinary,
+		)
 	}
 
-	configPath, err := filepath.Abs(filepath.Join(o.stateDir, constants.DirConfigs, fmt.Sprintf(constants.ConfigFileCBTAPI, network)))
+	cfgFile := fmt.Sprintf(constants.ConfigFileCBTAPI, network)
+
+	configPath, err := filepath.Abs(
+		filepath.Join(o.stateDir, constants.DirConfigs, cfgFile),
+	)
 	if err != nil {
 		return err
 	}
@@ -1604,12 +1635,25 @@ func (o *Orchestrator) startCBTAPI(ctx context.Context, network string) error {
 
 // startLabBackend starts lab-backend.
 func (o *Orchestrator) startLabBackend(ctx context.Context) error {
-	backendBinary := filepath.Join(o.cfg.Repos.LabBackend, constants.DirBin, constants.BinaryLabBackend)
+	backendBinary := filepath.Join(
+		o.cfg.Repos.LabBackend, constants.DirBin,
+		constants.BinaryLabBackend,
+	)
+
 	if _, err := os.Stat(backendBinary); os.IsNotExist(err) {
-		return fmt.Errorf("lab-backend binary not found at %s - please run 'make build' in lab-backend repo", backendBinary)
+		return fmt.Errorf(
+			"lab-backend binary not found at %s"+
+				" - please run 'make build' in lab-backend repo",
+			backendBinary,
+		)
 	}
 
-	configPath, err := filepath.Abs(filepath.Join(o.stateDir, constants.DirConfigs, constants.ConfigFileLabBackend))
+	configPath, err := filepath.Abs(
+		filepath.Join(
+			o.stateDir, constants.DirConfigs,
+			constants.ConfigFileLabBackend,
+		),
+	)
 	if err != nil {
 		return err
 	}

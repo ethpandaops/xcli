@@ -64,7 +64,10 @@ func (g *Generator) GenerateCBTConfig(network string, userOverridesPath string) 
 	// - If Xatu mode is "local", use "default" (local Xatu cluster uses default database)
 	// - If Xatu mode is "external", use configured ExternalDatabase (or "default" if not set)
 	externalDatabase := "default"
-	if g.cfg.Infrastructure.ClickHouse.Xatu.Mode == constants.InfraModeExternal && g.cfg.Infrastructure.ClickHouse.Xatu.ExternalDatabase != "" {
+
+	xatuCfg := g.cfg.Infrastructure.ClickHouse.Xatu
+	if xatuCfg.Mode == constants.InfraModeExternal &&
+		xatuCfg.ExternalDatabase != "" {
 		externalDatabase = g.cfg.Infrastructure.ClickHouse.Xatu.ExternalDatabase
 	}
 
@@ -75,7 +78,7 @@ func (g *Generator) GenerateCBTConfig(network string, userOverridesPath string) 
 		genesisTimestamp = timestamp
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Network":                    network,
 		"MetricsPort":                metricsPort,
 		"RedisDB":                    redisDB,
@@ -97,7 +100,7 @@ func (g *Generator) GenerateCBTConfig(network string, userOverridesPath string) 
 	}
 
 	// Parse base config to map for merging
-	var baseConfig map[string]interface{}
+	var baseConfig map[string]any
 
 	err = yaml.Unmarshal(buf.Bytes(), &baseConfig)
 	if err != nil {
@@ -142,7 +145,7 @@ func (g *Generator) GenerateCBTConfig(network string, userOverridesPath string) 
 }
 
 // generateAutoDefaults creates xcli-generated defaults for models (env, overrides).
-func (g *Generator) generateAutoDefaults(network string) (map[string]interface{}, error) {
+func (g *Generator) generateAutoDefaults(network string) (map[string]any, error) {
 	externalModelMinTimestamp := time.Now().Add(-1 * time.Hour).Unix()
 
 	// Set sane default for mainnet
@@ -152,8 +155,8 @@ func (g *Generator) generateAutoDefaults(network string) (map[string]interface{}
 	}
 
 	// Build models section with env
-	modelsSection := map[string]interface{}{
-		"env": map[string]interface{}{
+	modelsSection := map[string]any{
+		"env": map[string]any{
 			"NETWORK":                      network,
 			"EXTERNAL_MODEL_MIN_TIMESTAMP": fmt.Sprintf("%d", externalModelMinTimestamp),
 			"EXTERNAL_MODEL_MIN_BLOCK":     fmt.Sprintf("%d", externalModelMinBlock),
@@ -161,24 +164,24 @@ func (g *Generator) generateAutoDefaults(network string) (map[string]interface{}
 		},
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"models": modelsSection,
 	}, nil
 }
 
 // loadYAMLFile loads a YAML file as a generic map.
 // Returns an empty map if the file doesn't exist.
-func loadYAMLFile(path string) (map[string]interface{}, error) {
+func loadYAMLFile(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return make(map[string]interface{}), nil
+			return make(map[string]any), nil
 		}
 
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	var result map[string]interface{}
+	var result map[string]any
 	if err := yaml.Unmarshal(data, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
@@ -199,7 +202,7 @@ func (g *Generator) GenerateCBTAPIConfig(network string) (string, error) {
 		}
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Network":     network,
 		"Port":        port,
 		"MetricsPort": metricsPort,
@@ -241,10 +244,10 @@ func (g *Generator) GenerateLabBackendConfig(
 		}
 	}
 
-	networks := make([]map[string]interface{}, 0, len(g.cfg.Networks))
+	networks := make([]map[string]any, 0, len(g.cfg.Networks))
 
 	for _, net := range g.cfg.Networks {
-		entry := map[string]interface{}{
+		entry := map[string]any{
 			"Name":    net.Name,
 			"Port":    g.cfg.GetCBTAPIPort(net.Name),
 			"Enabled": net.Enabled,
@@ -263,7 +266,7 @@ func (g *Generator) GenerateLabBackendConfig(
 		networks = append(networks, entry)
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Networks":     networks,
 		"Port":         g.cfg.Ports.LabBackend,
 		"FrontendPort": g.cfg.Ports.LabFrontend,
@@ -383,7 +386,7 @@ func loadDisabledModels(overridesPath string) (map[string]bool, error) {
 	data, err := os.ReadFile(overridesPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return make(map[string]bool, 0), nil
+			return make(map[string]bool), nil
 		}
 
 		return nil, fmt.Errorf("failed to read overrides: %w", err)

@@ -258,7 +258,9 @@ func (m *ObservabilityManager) startPrometheus(ctx context.Context) error {
 	}
 
 	// Remove existing container if it exists (might be stopped)
-	_ = m.stopContainer(ctx, containerName)
+	if err := m.stopContainer(ctx, containerName); err != nil {
+		m.log.WithError(err).Debug("failed to remove existing Prometheus container")
+	}
 
 	// Pull image if needed
 	if err := m.pullImageIfNeeded(ctx, constants.PrometheusImage); err != nil {
@@ -338,7 +340,9 @@ func (m *ObservabilityManager) startGrafana(ctx context.Context) error {
 	}
 
 	// Remove existing container if it exists (might be stopped)
-	_ = m.stopContainer(ctx, containerName)
+	if err := m.stopContainer(ctx, containerName); err != nil {
+		m.log.WithError(err).Debug("failed to remove existing Grafana container")
+	}
 
 	// Pull image if needed
 	if err := m.pullImageIfNeeded(ctx, constants.GrafanaImage); err != nil {

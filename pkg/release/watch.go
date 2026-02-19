@@ -263,7 +263,10 @@ func (s *service) WatchMultiple(
 		})
 	}
 
-	_ = g.Wait()
+	if err := g.Wait(); err != nil {
+		s.log.WithError(err).Warn("error waiting for watch group")
+	}
+
 	result.EndTime = time.Now()
 
 	return result, nil

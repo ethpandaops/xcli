@@ -45,18 +45,27 @@ type WatchResult struct {
 type BumpType string
 
 const (
+	// BumpPatch represents a patch version bump (x.y.Z).
 	BumpPatch BumpType = "patch"
+	// BumpMinor represents a minor version bump (x.Y.z).
 	BumpMinor BumpType = "minor"
+	// BumpMajor represents a major version bump (X.y.z).
 	BumpMajor BumpType = "major"
 )
 
 // Status constants for workflow runs and releases.
 const (
-	StatusSuccess  = "success"
-	StatusFailed   = "failed"
+	// StatusSuccess indicates a successful workflow or release.
+	StatusSuccess = "success"
+	// StatusFailed indicates a failed workflow or release.
+	StatusFailed = "failed"
+	// StatusTimedOut indicates the workflow exceeded its timeout.
 	StatusTimedOut = "timed_out"
-	StatusSkipped  = "skipped"
-	StatusPending  = "pending"
+	// StatusSkipped indicates the release was skipped.
+	StatusSkipped = "skipped"
+	// StatusPending indicates the workflow is still running.
+	StatusPending = "pending"
+	// StatusReleased indicates the release was published.
 	StatusReleased = "released"
 )
 

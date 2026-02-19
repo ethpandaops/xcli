@@ -28,8 +28,8 @@ func AnalyzeDependencies(selected []string) (ordered []string, deps map[string]*
 	for _, project := range selected {
 		deps[project] = &DependencyInfo{
 			Project:    project,
-			DependsOn:  make([]string, 0),
-			RequiredBy: make([]string, 0),
+			DependsOn:  make([]string, 0, 2),
+			RequiredBy: make([]string, 0, 2),
 		}
 	}
 
@@ -88,7 +88,7 @@ func topologicalSort(projects []string, deps map[string]*DependencyInfo) []strin
 // a project that is NOT selected. Returns info for prompting user.
 // Returns: map of dependent project -> missing dependencies.
 func CheckMissingDependencies(selected []string) map[string][]string {
-	missing := make(map[string][]string)
+	missing := make(map[string][]string, len(selected))
 
 	for _, project := range selected {
 		projectDeps := constants.GetDependencies(project)
@@ -114,9 +114,9 @@ func SplitByDependencyPhase(
 	ordered []string,
 	deps map[string]*DependencyInfo,
 ) (phase1, phase2, phase3 []string) {
-	phase1 = make([]string, 0)
-	phase2 = make([]string, 0)
-	phase3 = make([]string, 0)
+	phase1 = make([]string, 0, len(ordered))
+	phase2 = make([]string, 0, len(ordered))
+	phase3 = make([]string, 0, len(ordered))
 
 	for _, project := range ordered {
 		info := deps[project]
