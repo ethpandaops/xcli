@@ -1,9 +1,18 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { LogLine } from '@/types';
 
 interface LogViewerProps {
   logs: LogLine[];
-  selectedService: string | null;
+  activeTab: string | null;
+  openTabs: string[];
+  onSelectTab: (tab: string | null) => void;
+  onCloseTab: (tab: string) => void;
+}
+
+interface TabState {
+  levelFilter: string;
+  textFilter: string;
+  follow: boolean;
 }
 
 const levelColors: Record<string, string> = {
@@ -16,61 +25,138 @@ const levelColors: Record<string, string> = {
 
 const levels = ['ALL', 'ERROR', 'WARN', 'INFO', 'DEBUG'] as const;
 
-export default function LogViewer({ logs, selectedService }: LogViewerProps) {
-  const [levelFilter, setLevelFilter] = useState<string>('ALL');
-  const [textFilter, setTextFilter] = useState('');
-  const [follow, setFollow] = useState(true);
+function getDefaultTabState(): TabState {
+  return { levelFilter: 'ALL', textFilter: '', follow: true };
+}
+
+export default function LogViewer({ logs, activeTab, openTabs, onSelectTab, onCloseTab }: LogViewerProps) {
+  const [tabStates, setTabStates] = useState<Map<string, TabState>>(() => new Map());
   const containerRef = useRef<HTMLDivElement>(null);
+  const tabBarRef = useRef<HTMLDivElement>(null);
 
-  const filteredLogs = logs.filter(line => {
-    if (selectedService && line.Service !== selectedService) return false;
-    if (levelFilter !== 'ALL' && line.Level !== levelFilter) return false;
-    if (textFilter && !line.Message.toLowerCase().includes(textFilter.toLowerCase())) return false;
+  // Key for the current tab ("__all__" for All Services, or the service name)
+  const tabKey = activeTab ?? '__all__';
 
-    return true;
-  });
+  const currentState = tabStates.get(tabKey) ?? getDefaultTabState();
+
+  const updateCurrentState = useCallback(
+    (updater: (prev: TabState) => TabState) => {
+      setTabStates(prev => {
+        const next = new Map(prev);
+        next.set(tabKey, updater(next.get(tabKey) ?? getDefaultTabState()));
+        return next;
+      });
+    },
+    [tabKey]
+  );
+
+  const setLevelFilter = useCallback(
+    (level: string) => updateCurrentState(s => ({ ...s, levelFilter: level })),
+    [updateCurrentState]
+  );
+
+  const setTextFilter = useCallback(
+    (text: string) => updateCurrentState(s => ({ ...s, textFilter: text })),
+    [updateCurrentState]
+  );
+
+  const setFollow = useCallback((follow: boolean) => updateCurrentState(s => ({ ...s, follow })), [updateCurrentState]);
+
+  // Clean up tab states for closed tabs
+  useEffect(() => {
+    setTabStates(prev => {
+      const validKeys = new Set(['__all__', ...openTabs]);
+      let changed = false;
+      const next = new Map(prev);
+      for (const key of next.keys()) {
+        if (!validKeys.has(key)) {
+          next.delete(key);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [openTabs]);
+
+  const filteredLogs = useMemo(() => {
+    const { levelFilter, textFilter } = currentState;
+    const lowerTextFilter = textFilter.toLowerCase();
+    return logs.filter(line => {
+      if (activeTab && line.Service !== activeTab) return false;
+      if (levelFilter !== 'ALL' && line.Level !== levelFilter) return false;
+      if (lowerTextFilter && !line.Message.toLowerCase().includes(lowerTextFilter)) return false;
+      return true;
+    });
+  }, [logs, activeTab, currentState]);
 
   // Auto-scroll when following
   useEffect(() => {
-    if (follow && containerRef.current) {
+    if (currentState.follow && containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
-  }, [filteredLogs.length, follow]);
+  }, [filteredLogs.length, currentState.follow]);
 
   // Detect manual scroll to disable follow
   const onScroll = useCallback(() => {
     if (!containerRef.current) return;
-
     const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
     const atBottom = scrollHeight - scrollTop - clientHeight < 40;
+    if (atBottom !== currentState.follow) {
+      setFollow(atBottom);
+    }
+  }, [currentState.follow, setFollow]);
 
-    setFollow(atBottom);
-  }, []);
+  const { levelFilter, textFilter, follow } = currentState;
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-sm border border-border bg-surface">
+      {/* Tab bar */}
+      <div className="flex items-center border-b border-border">
+        <div ref={tabBarRef} className="flex min-w-0 flex-1 items-center overflow-x-auto">
+          {/* All Services tab — always present */}
+          <button
+            onClick={() => onSelectTab(null)}
+            className={`shrink-0 border-r border-border px-3 py-1.5 text-xs/4 font-medium transition-colors ${
+              activeTab === null
+                ? 'bg-surface-light text-text-primary'
+                : 'text-text-muted hover:bg-surface-light/50 hover:text-text-secondary'
+            }`}
+          >
+            All Services
+          </button>
+
+          {/* Service tabs */}
+          {openTabs.map(tab => (
+            <div
+              key={tab}
+              className={`group flex shrink-0 items-center border-r border-border transition-colors ${
+                activeTab === tab
+                  ? 'bg-surface-light text-text-primary'
+                  : 'text-text-muted hover:bg-surface-light/50 hover:text-text-secondary'
+              }`}
+            >
+              <button onClick={() => onSelectTab(tab)} className="py-1.5 pr-1 pl-3 text-xs/4 font-medium">
+                {tab}
+              </button>
+              <button
+                onClick={e => {
+                  e.stopPropagation();
+                  onCloseTab(tab);
+                }}
+                className="mr-1 rounded-xs p-0.5 text-text-disabled transition-colors hover:bg-white/10 hover:text-text-secondary"
+                title="Close tab"
+              >
+                <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Toolbar */}
       <div className="flex items-center gap-3 border-b border-border px-3 py-2">
-        {/* Source badge */}
-        <div className="flex items-center gap-2">
-          <svg
-            className="size-3.5 text-text-disabled"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"
-            />
-          </svg>
-          <span className="text-xs/4 font-medium text-text-secondary">{selectedService ?? 'All services'}</span>
-        </div>
-
-        <div className="mx-1 h-4 w-px bg-border" />
-
         {/* Level filter */}
         <div className="flex items-center gap-0.5">
           {levels.map(level => (
@@ -152,7 +238,7 @@ export default function LogViewer({ logs, selectedService }: LogViewerProps) {
               />
             </svg>
             <span className="text-xs/4 text-border">
-              {selectedService ? 'No logs matching filters' : 'Waiting for logs...'}
+              {activeTab ? 'No logs matching filters' : 'Waiting for logs...'}
             </span>
           </div>
         ) : (

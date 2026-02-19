@@ -19,6 +19,12 @@ import (
 
 const logHistorySize = 1000
 
+// dockerContainerNames maps observability service names to Docker container names.
+var dockerContainerNames = map[string]string{
+	constants.ServicePrometheus: constants.ContainerPrometheus,
+	constants.ServiceGrafana:    constants.ContainerGrafana,
+}
+
 // Server is the Command Center HTTP server.
 type Server struct {
 	log     logrus.FieldLogger
@@ -211,12 +217,6 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	// SPA - must be last (catch-all)
 	mux.Handle("/", newSPAHandler())
-}
-
-// dockerContainerNames maps observability service names to Docker container names.
-var dockerContainerNames = map[string]string{
-	constants.ServicePrometheus: constants.ContainerPrometheus,
-	constants.ServiceGrafana:    constants.ContainerGrafana,
 }
 
 // startLogStreaming starts tailing logs for running services and stops

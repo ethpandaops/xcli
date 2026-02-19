@@ -60,21 +60,6 @@ type apiHandler struct {
 	mu       sync.RWMutex
 }
 
-// recreateOrchestrator rebuilds the orchestrator with the current config.
-// This is needed after config changes (e.g. mode switch) so the orchestrator
-// picks up the new mode, ports, etc. Must be called with a.mu held for writing.
-func (a *apiHandler) recreateOrchestrator() error {
-	newOrch, err := orchestrator.NewOrchestrator(a.log, a.labCfg, a.cfgPath)
-	if err != nil {
-		return fmt.Errorf("failed to recreate orchestrator: %w", err)
-	}
-
-	a.orch = newOrch
-	a.wrapper.SetOrchestrator(newOrch)
-
-	return nil
-}
-
 // statusResponse is the full dashboard snapshot.
 type statusResponse struct {
 	Services       []serviceResponse `json:"services"`
@@ -146,6 +131,21 @@ type repoInfo struct {
 	CommitsSinceTag  int    `json:"commitsSinceTag"`
 	IsUpToDate       bool   `json:"isUpToDate"`
 	Error            string `json:"error,omitempty"`
+}
+
+// recreateOrchestrator rebuilds the orchestrator with the current config.
+// This is needed after config changes (e.g. mode switch) so the orchestrator
+// picks up the new mode, ports, etc. Must be called with a.mu held for writing.
+func (a *apiHandler) recreateOrchestrator() error {
+	newOrch, err := orchestrator.NewOrchestrator(a.log, a.labCfg, a.cfgPath)
+	if err != nil {
+		return fmt.Errorf("failed to recreate orchestrator: %w", err)
+	}
+
+	a.orch = newOrch
+	a.wrapper.SetOrchestrator(newOrch)
+
+	return nil
 }
 
 // handleGetStatus returns the full dashboard snapshot.
