@@ -291,9 +291,9 @@ func (c *ClaudeDiscoveryClient) buildDiscoveryPrompt(input DiscoveryInput) strin
 	sb.WriteString("Analyze the following ClickHouse tables and determine the best strategy for extracting correlated seed data across all tables for testing.\n\n")
 
 	sb.WriteString("## Context\n")
-	sb.WriteString(fmt.Sprintf("- Transformation Model: %s\n", input.TransformationModel))
-	sb.WriteString(fmt.Sprintf("- Network: %s\n", input.Network))
-	sb.WriteString(fmt.Sprintf("- Requested Duration: %s\n", input.Duration))
+	fmt.Fprintf(&sb, "- Transformation Model: %s\n", input.TransformationModel)
+	fmt.Fprintf(&sb, "- Network: %s\n", input.Network)
+	fmt.Fprintf(&sb, "- Requested Duration: %s\n", input.Duration)
 	sb.WriteString("- Goal: Extract a consistent slice of data from all external models that can be used together for testing the transformation\n\n")
 
 	sb.WriteString("## Problem\n")
@@ -320,27 +320,27 @@ func (c *ClaudeDiscoveryClient) buildDiscoveryPrompt(input DiscoveryInput) strin
 	sb.WriteString("## External Models and Their Schemas\n\n")
 
 	for _, schema := range input.ExternalModels {
-		sb.WriteString(fmt.Sprintf("### %s\n", schema.Model))
+		fmt.Fprintf(&sb, "### %s\n", schema.Model)
 
 		// Show interval type from frontmatter (informational context for Claude)
 		if schema.IntervalType != "" {
-			sb.WriteString(fmt.Sprintf("Interval Type: %s\n", schema.IntervalType))
+			fmt.Fprintf(&sb, "Interval Type: %s\n", schema.IntervalType)
 		}
 
 		if schema.RangeInfo != nil {
-			sb.WriteString(fmt.Sprintf("Detected Range Column: %s (type: %s)\n",
-				schema.RangeInfo.Column, schema.RangeInfo.ColumnType))
+			fmt.Fprintf(&sb, "Detected Range Column: %s (type: %s)\n",
+				schema.RangeInfo.Column, schema.RangeInfo.ColumnType)
 
 			if schema.RangeInfo.MinValue != "" && schema.RangeInfo.MaxValue != "" {
-				sb.WriteString(fmt.Sprintf("Available Range: %s to %s\n",
-					schema.RangeInfo.MinValue, schema.RangeInfo.MaxValue))
+				fmt.Fprintf(&sb, "Available Range: %s to %s\n",
+					schema.RangeInfo.MinValue, schema.RangeInfo.MaxValue)
 			}
 		}
 
 		sb.WriteString("\nColumns:\n")
 
 		for _, col := range schema.Columns {
-			sb.WriteString(fmt.Sprintf("- %s: %s\n", col.Name, col.Type))
+			fmt.Fprintf(&sb, "- %s: %s\n", col.Name, col.Type)
 		}
 
 		if len(schema.SampleData) > 0 {
@@ -367,7 +367,7 @@ func (c *ClaudeDiscoveryClient) buildDiscoveryPrompt(input DiscoveryInput) strin
 		sb.WriteString("The transformation depends on these intermediate models. Their WHERE clauses affect which seed data is usable:\n\n")
 
 		for _, intermediate := range input.IntermediateModels {
-			sb.WriteString(fmt.Sprintf("### %s\n```sql\n%s\n```\n\n", intermediate.Model, intermediate.SQL))
+			fmt.Fprintf(&sb, "### %s\n```sql\n%s\n```\n\n", intermediate.Model, intermediate.SQL)
 		}
 	}
 
@@ -378,7 +378,7 @@ func (c *ClaudeDiscoveryClient) buildDiscoveryPrompt(input DiscoveryInput) strin
 	sb.WriteString("   - Bridge table (e.g., canonical_beacon_block has both slot and execution block info)\n")
 	sb.WriteString("   - Shared columns in the data itself\n")
 	sb.WriteString("3. Recommend a primary range specification (type + column + from/to values)\n")
-	sb.WriteString(fmt.Sprintf("4. Use a %s time range (as requested by the user)\n", input.Duration))
+	fmt.Fprintf(&sb, "4. Use a %s time range (as requested by the user)\n", input.Duration)
 	sb.WriteString("5. For each table, specify exactly how to filter it\n")
 	sb.WriteString("6. **CRITICAL**: Analyze ALL WHERE clauses in the transformation and intermediate SQL.\n")
 	sb.WriteString("   For each external model, identify any column filters that must be applied to get usable data.\n")
@@ -734,7 +734,7 @@ func (g *Generator) QueryTableSample(
 		Timeout: 30 * time.Second,
 	}
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // URL is from user-configured ClickHouse endpoint
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -1293,7 +1293,7 @@ func (g *Generator) QueryRowCount(
 		Timeout: 2 * time.Minute, // Row count queries on large tables can take time
 	}
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // URL is from user-configured ClickHouse endpoint
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute request: %w", err)
 	}

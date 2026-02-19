@@ -87,26 +87,26 @@ func SaveOverrides(path string, m *Model, existingOverrides *CBTOverrides) error
 
 	// Write EXTERNAL_MODEL_MIN_TIMESTAMP.
 	if m.envTimestampEnabled && m.envMinTimestamp != "" {
-		sb.WriteString(fmt.Sprintf("    EXTERNAL_MODEL_MIN_TIMESTAMP: \"%s\"\n", m.envMinTimestamp))
+		fmt.Fprintf(&sb, "    EXTERNAL_MODEL_MIN_TIMESTAMP: \"%s\"\n", m.envMinTimestamp)
 	} else {
 		value := m.envMinTimestamp
 		if value == "" {
 			value = "0"
 		}
 
-		sb.WriteString(fmt.Sprintf("    # EXTERNAL_MODEL_MIN_TIMESTAMP: \"%s\"\n", value))
+		fmt.Fprintf(&sb, "    # EXTERNAL_MODEL_MIN_TIMESTAMP: \"%s\"\n", value)
 	}
 
 	// Write EXTERNAL_MODEL_MIN_BLOCK.
 	if m.envBlockEnabled && m.envMinBlock != "" {
-		sb.WriteString(fmt.Sprintf("    EXTERNAL_MODEL_MIN_BLOCK: \"%s\"\n", m.envMinBlock))
+		fmt.Fprintf(&sb, "    EXTERNAL_MODEL_MIN_BLOCK: \"%s\"\n", m.envMinBlock)
 	} else {
 		value := m.envMinBlock
 		if value == "" {
 			value = "0"
 		}
 
-		sb.WriteString(fmt.Sprintf("    # EXTERNAL_MODEL_MIN_BLOCK: \"%s\"\n", value))
+		fmt.Fprintf(&sb, "    # EXTERNAL_MODEL_MIN_BLOCK: \"%s\"\n", value)
 	}
 
 	// Collect all disabled models.
@@ -134,7 +134,7 @@ func SaveOverrides(path string, m *Model, existingOverrides *CBTOverrides) error
 		sb.WriteString("    {} # No disabled models\n")
 	} else {
 		for _, name := range disabledModels {
-			sb.WriteString(fmt.Sprintf("    %s:\n", name))
+			fmt.Fprintf(&sb, "    %s:\n", name)
 			sb.WriteString("      enabled: false\n")
 
 			// Preserve any existing config for this model.
@@ -145,7 +145,7 @@ func SaveOverrides(path string, m *Model, existingOverrides *CBTOverrides) error
 						// Indent and add the config section.
 						lines := strings.Split(strings.TrimSpace(string(configYAML)), "\n")
 						for _, line := range lines {
-							sb.WriteString(fmt.Sprintf("      %s\n", line))
+							fmt.Fprintf(&sb, "      %s\n", line)
 						}
 					}
 				}

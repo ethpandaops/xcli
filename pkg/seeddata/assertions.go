@@ -290,7 +290,7 @@ func findClaudeBinaryPath() (string, error) {
 	}
 
 	for _, path := range searchPaths {
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+		if info, err := os.Stat(path); err == nil && !info.IsDir() { //nolint:gosec // paths are hardcoded
 			return path, nil
 		}
 	}

@@ -141,7 +141,7 @@ func checkHTTP(url string) error {
 		return err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec // G704 - URL is from trusted service configuration
 	if err != nil {
 		return err
 	}

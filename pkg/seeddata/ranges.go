@@ -95,7 +95,7 @@ func (g *Generator) executeSingleValueQuery(ctx context.Context, query string) (
 		Timeout: 30 * time.Second, // Shorter timeout for indexed queries
 	}
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // G704 - URL is from trusted internal configuration
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
