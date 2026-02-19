@@ -289,29 +289,24 @@ func (m *Manager) checkPort(addr string) bool {
 	return true
 }
 
-// Status returns the status of infrastructure components.
+// Status returns the status of infrastructure components relevant to the current mode.
+// Hybrid mode shows ClickHouse CBT + Redis; local mode adds ClickHouse Xatu.
 func (m *Manager) Status() map[string]bool {
-	// Get ports from mode (instead of hard-coded ports)
-	ports := m.mode.GetHealthCheckPorts()
-
-	status := make(map[string]bool, len(ports))
-
-	// Map port numbers to service names based on configuration
+	// Map ports to display names for mode-relevant infrastructure only.
 	portNames := map[int]string{
-		m.cfg.Infrastructure.ClickHouseCBTPort:  "ClickHouse CBT",
-		m.cfg.Infrastructure.ClickHouseXatuPort: "ClickHouse Xatu",
-		m.cfg.Infrastructure.RedisPort:          "Redis",
+		m.cfg.Infrastructure.ClickHouseCBTPort: "ClickHouse CBT",
+		m.cfg.Infrastructure.RedisPort:         "Redis",
 	}
 
-	for _, port := range ports {
+	// Local mode also runs a local ClickHouse Xatu instance.
+	if !m.mode.NeedsExternalClickHouse() {
+		portNames[m.cfg.Infrastructure.ClickHouseXatuPort] = "ClickHouse Xatu"
+	}
+
+	status := make(map[string]bool, len(portNames))
+
+	for port, name := range portNames {
 		addr := fmt.Sprintf("localhost:%d", port)
-
-		name := portNames[port]
-
-		if name == "" {
-			name = fmt.Sprintf("Port %d", port)
-		}
-
 		status[name] = m.checkPort(addr)
 	}
 

@@ -57,8 +57,8 @@ xcli completion fish > ~/.config/fish/completions/xcli.fish
 xcli lab init     # Initialize config (creates .xcli.yaml)
 xcli lab check    # Verify environment is ready
 xcli lab up       # Start the stack
-xcli lab tui      # Launch interactive dashboard
-xcli lab status   # Check status
+xcli cc           # Launch web dashboard (Command Center)
+xcli lab status   # Check status (CLI)
 ```
 
 Services:
@@ -67,9 +67,50 @@ Services:
 - Lab Backend: <http://localhost:8080>
 - cbt-api: <http://localhost:8091> (mainnet)
 
-## Interactive Dashboard
+## Command Center (Web Dashboard)
 
-Launch a real-time TUI dashboard to monitor and control all services:
+Launch a web-based dashboard for monitoring and controlling the lab stack:
+
+```bash
+xcli cc           # Opens http://localhost:19280 in your browser
+xcli cc -p 8888   # Custom port
+xcli cc --no-open # Don't auto-open browser
+```
+
+Features:
+
+- Real-time service status and health monitoring via SSE
+- Live log streaming from all services
+- Stack controls: boot, stop, restart the entire stack
+- Per-service controls: start, stop, restart, rebuild
+- Lab config editor with save and restart
+- Service config viewer with per-file override support
+- CBT model overrides editor
+- Infrastructure and observability status
+- Git status for all repositories
+- Service links that open directly to the right URL (CBT API opens `/docs`, ClickHouse opens `/play`)
+
+The Command Center runs as a single binary with an embedded SPA frontend. The stack can be booted, stopped, and fully managed without leaving the browser.
+
+### Developing the CC Frontend
+
+The frontend lives in `pkg/cc/frontend/` (React + Vite + Tailwind). For development with hot module replacement:
+
+```bash
+make cc-dev
+```
+
+This runs the Go backend (`xcli cc --no-open`) and Vite dev server in parallel. Open `http://localhost:5173` for live reloading — the Vite dev server proxies API requests to the Go backend.
+
+To rebuild the embedded frontend assets (required before `make build`):
+
+```bash
+make cc-frontend
+```
+
+## Interactive TUI Dashboard
+
+Launch a terminal-based dashboard (alternative to the web UI):
 
 ```bash
 xcli lab tui

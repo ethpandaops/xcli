@@ -32,6 +32,9 @@ type ProcessManager interface {
 	// IsRunning checks if a process is running.
 	IsRunning(name string) bool
 
+	// ReloadPIDs re-scans the PID directory for new or removed processes.
+	ReloadPIDs()
+
 	// TailLogs tails logs for a process.
 	TailLogs(ctx context.Context, name string, follow bool) error
 
