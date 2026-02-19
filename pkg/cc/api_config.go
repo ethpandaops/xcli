@@ -70,16 +70,6 @@ type cbtOverridesRequest struct {
 	EnvBlockEnabled      bool                 `json:"envBlockEnabled"`
 }
 
-// sanitizeConfigFileName validates and cleans a config file name from user input.
-// Returns the cleaned base name and true if valid, or empty string and false.
-func sanitizeConfigFileName(name string) (string, bool) {
-	if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") {
-		return "", false
-	}
-
-	return filepath.Base(filepath.Clean(name)), true
-}
-
 // handleGetLabConfig returns the editable lab config with passwords masked.
 func (a *apiHandler) handleGetLabConfig(w http.ResponseWriter, _ *http.Request) {
 	a.mu.RLock()
@@ -614,4 +604,14 @@ func (a *apiHandler) handlePostRegenerate(
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status": "ok",
 	})
+}
+
+// sanitizeConfigFileName validates and cleans a config file name from user input.
+// Returns the cleaned base name and true if valid, or empty string and false.
+func sanitizeConfigFileName(name string) (string, bool) {
+	if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") {
+		return "", false
+	}
+
+	return filepath.Base(filepath.Clean(name)), true
 }

@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
+import { fn } from 'storybook/test';
 import LogViewer from './LogViewer';
 import { mockLogs } from '@/stories/fixtures';
 
@@ -12,6 +13,10 @@ const meta = {
       </div>
     ),
   ],
+  args: {
+    onSelectTab: fn(),
+    onCloseTab: fn(),
+  },
 } satisfies Meta<typeof LogViewer>;
 
 export default meta;
@@ -20,27 +25,31 @@ type Story = StoryObj<typeof meta>;
 export const AllServices: Story = {
   args: {
     logs: mockLogs,
-    selectedService: null,
+    activeTab: null,
+    openTabs: [],
   },
 };
 
-export const FilteredToService: Story = {
+export const WithServiceTab: Story = {
   args: {
     logs: mockLogs,
-    selectedService: 'lab-backend',
+    activeTab: 'lab-backend',
+    openTabs: ['lab-backend'],
   },
 };
 
-export const MixedLevels: Story = {
+export const MultipleTabs: Story = {
   args: {
     logs: mockLogs,
-    selectedService: 'xatu-cbt-mainnet',
+    activeTab: 'lab-backend',
+    openTabs: ['lab-backend', 'cbt-mainnet', 'xatu-cbt-mainnet'],
   },
 };
 
 export const Empty: Story = {
   args: {
     logs: [],
-    selectedService: null,
+    activeTab: null,
+    openTabs: [],
   },
 };

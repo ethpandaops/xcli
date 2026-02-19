@@ -44,7 +44,8 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
   const [infrastructure, setInfrastructure] = useState<InfraInfo[]>([]);
   const [config, setConfig] = useState<ConfigInfo | null>(null);
   const [repos, setRepos] = useState<RepoInfo[]>([]);
-  const [selectedService, setSelectedService] = useState<string | null>(null);
+  const [openTabs, setOpenTabs] = useState<string[]>([]);
+  const [activeTab, setActiveTab] = useState<string | null>(null);
   const logsRef = useRef<LogLine[]>([]);
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [stackStatus, setStackStatus] = useState<string | null>(null);
@@ -218,22 +219,47 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
   useSSE(handleSSE, loadAllData);
   useFavicon(stackStatus, !!stackError);
 
-  // Fetch log file from disk when a stopped service with a log file is selected
+  // Track which stopped-service logs we've already fetched to avoid duplicate requests
+  const fetchedStoppedLogs = useRef<Set<string>>(new Set());
+
+  // Fetch log file from disk when a stopped service tab is opened
   useEffect(() => {
-    if (!selectedService) return;
+    for (const tab of openTabs) {
+      if (fetchedStoppedLogs.current.has(tab)) continue;
 
-    const svc = services.find(s => s.name === selectedService);
-    if (!svc || svc.status === 'running' || !svc.logFile) return;
+      const svc = services.find(s => s.name === tab);
+      if (!svc || svc.status === 'running' || !svc.logFile) continue;
 
-    fetchJSON<LogLine[]>(`/api/services/${encodeURIComponent(selectedService)}/logs`)
-      .then(data => {
-        if (data.length > 0) {
-          logsRef.current = [...logsRef.current.filter(l => l.Service !== selectedService), ...data];
-          setLogs(logsRef.current);
-        }
-      })
-      .catch(console.error);
-  }, [selectedService, services, fetchJSON]);
+      fetchedStoppedLogs.current.add(tab);
+      fetchJSON<LogLine[]>(`/api/services/${encodeURIComponent(tab)}/logs`)
+        .then(data => {
+          if (data.length > 0) {
+            logsRef.current = [...logsRef.current.filter(l => l.Service !== tab), ...data];
+            setLogs(logsRef.current);
+          }
+        })
+        .catch(console.error);
+    }
+  }, [openTabs, services, fetchJSON]);
+
+  const handleSelectService = useCallback(
+    (name: string) => {
+      if (activeTab === name) {
+        // Clicking active tab deselects — go back to "All"
+        setActiveTab(null);
+      } else {
+        // Open tab if not already open, and make it active
+        setOpenTabs(prev => (prev.includes(name) ? prev : [...prev, name]));
+        setActiveTab(name);
+      }
+    },
+    [activeTab]
+  );
+
+  const handleCloseTab = useCallback((name: string) => {
+    setOpenTabs(prev => prev.filter(t => t !== name));
+    setActiveTab(prev => (prev === name ? null : prev));
+  }, []);
 
   const handleCancelBoot = useCallback(() => {
     postJSON<{ status: string }>('/api/stack/cancel').catch(console.error);
@@ -272,8 +298,8 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
               <ServiceCard
                 key={svc.name}
                 service={svc}
-                selected={selectedService === svc.name}
-                onSelect={() => setSelectedService(selectedService === svc.name ? null : svc.name)}
+                selected={activeTab === svc.name}
+                onSelect={() => handleSelectService(svc.name)}
               />
             ))}
 
@@ -370,8 +396,14 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
                 </button>
               </div>
             )
-          ) : services.some(s => s.status === 'running') || selectedService ? (
-            <LogViewer logs={logs} selectedService={selectedService} />
+          ) : services.some(s => s.status === 'running') || openTabs.length > 0 ? (
+            <LogViewer
+              logs={logs}
+              activeTab={activeTab}
+              openTabs={openTabs}
+              onSelectTab={setActiveTab}
+              onCloseTab={handleCloseTab}
+            />
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-4 text-text-muted">
               <svg
