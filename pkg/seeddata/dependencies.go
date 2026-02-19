@@ -40,6 +40,9 @@ type DependencyTree struct {
 // dependencyPattern matches dependency strings like "{{transformation}}.model_name" or "{{external}}.model_name".
 var dependencyPattern = regexp.MustCompile(`^\{\{(transformation|external)\}\}\.(.+)$`)
 
+// crossDBPattern matches cross-database dependency strings like "database.table_name".
+var crossDBPattern = regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)$`)
+
 // IntervalType represents the interval type from external model frontmatter.
 type IntervalType string
 
@@ -438,6 +441,22 @@ func GetExternalModelIntervalType(model, xatuCBTPath string) (IntervalType, erro
 	return fm.Interval.Type, nil
 }
 
+// GetExternalModelDatabase returns the database field from an external model's
+// frontmatter. Returns an empty string if the model has no custom database set.
+func GetExternalModelDatabase(model, xatuCBTPath string) string {
+	modelPath := findModelFile(xatuCBTPath, "external", model)
+	if modelPath == "" {
+		return ""
+	}
+
+	fm, err := parseFrontmatter(modelPath)
+	if err != nil {
+		return ""
+	}
+
+	return fm.Database
+}
+
 // IsEntityModel checks if an external model is an entity/dimension table.
 func IsEntityModel(model, xatuCBTPath string) bool {
 	intervalType, err := GetExternalModelIntervalType(model, xatuCBTPath)
@@ -464,20 +483,37 @@ func GetExternalModelIntervalTypes(models []string, xatuCBTPath string) (map[str
 	return result, nil
 }
 
-// parseDependencyString parses a dependency string like "{{transformation}}.model_name".
+// parseDependencyString parses a dependency string.
+// Supported formats:
+//   - "{{transformation}}.model_name" or "{{external}}.model_name" (standard)
+//   - "database.table_name" (cross-database external dependency)
 func parseDependencyString(depStr string) (Dependency, error) {
+	// Try standard format first: {{type}}.name
 	matches := dependencyPattern.FindStringSubmatch(depStr)
-	if matches == nil {
-		return Dependency{}, fmt.Errorf("does not match expected pattern {{type}}.name")
+	if matches != nil {
+		depType := DependencyType(matches[1])
+		if depType != DependencyTypeExternal && depType != DependencyTypeTransformation {
+			return Dependency{}, fmt.Errorf("unknown dependency type: %s", matches[1])
+		}
+
+		return Dependency{
+			Type: depType,
+			Name: matches[2],
+		}, nil
 	}
 
-	depType := DependencyType(matches[1])
-	if depType != DependencyTypeExternal && depType != DependencyTypeTransformation {
-		return Dependency{}, fmt.Errorf("unknown dependency type: %s", matches[1])
+	// Try cross-database format: database.table (e.g. "observoor.disk_bytes").
+	// These are always external dependencies referencing a non-default database.
+	crossDBMatches := crossDBPattern.FindStringSubmatch(depStr)
+	if crossDBMatches != nil {
+		// Store as "database_table" to match the external model filename convention.
+		modelName := crossDBMatches[1] + "_" + crossDBMatches[2]
+
+		return Dependency{
+			Type: DependencyTypeExternal,
+			Name: modelName,
+		}, nil
 	}
 
-	return Dependency{
-		Type: depType,
-		Name: matches[2],
-	}, nil
+	return Dependency{}, fmt.Errorf("does not match expected pattern {{type}}.name or database.table")
 }

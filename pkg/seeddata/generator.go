@@ -1,7 +1,5 @@
 // Package seeddata provides functionality to generate seed data parquet files
 // for xatu-cbt tests by extracting data from external ClickHouse.
-//
-//nolint:staticcheck // QF1012: WriteString(Sprintf) pattern is used consistently for query building readability
 package seeddata
 
 import (
@@ -211,7 +209,7 @@ func (g *Generator) buildQuery(opts GenerateOptions) string {
 		sb.WriteString(" >= ")
 
 		if isTimeColumn {
-			sb.WriteString(fmt.Sprintf("toDateTime('%s')", opts.From))
+			fmt.Fprintf(&sb, "toDateTime('%s')", opts.From)
 		} else {
 			sb.WriteString(opts.From) // Numeric value as-is
 		}
@@ -221,7 +219,7 @@ func (g *Generator) buildQuery(opts GenerateOptions) string {
 		sb.WriteString(" <= ")
 
 		if isTimeColumn {
-			sb.WriteString(fmt.Sprintf("toDateTime('%s')", opts.To))
+			fmt.Fprintf(&sb, "toDateTime('%s')", opts.To)
 		} else {
 			sb.WriteString(opts.To) // Numeric value as-is
 		}
@@ -251,7 +249,7 @@ func (g *Generator) buildQuery(opts GenerateOptions) string {
 
 	// Add limit if specified
 	if opts.Limit > 0 {
-		sb.WriteString(fmt.Sprintf("\nLIMIT %d", opts.Limit))
+		fmt.Fprintf(&sb, "\nLIMIT %d", opts.Limit)
 	}
 
 	sb.WriteString("\nFORMAT Parquet")

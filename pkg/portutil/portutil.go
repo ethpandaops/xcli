@@ -1,7 +1,5 @@
 // Package portutil provides utilities for port conflict detection
 // and process identification on macOS and Linux systems.
-//
-//nolint:staticcheck // QF1012: WriteString(Sprintf) pattern used for incremental string building
 package portutil
 
 import (
@@ -57,13 +55,13 @@ func FormatConflicts(conflicts []PortConflict) string {
 	sb.WriteString("Port conflicts detected:\n")
 
 	for _, c := range conflicts {
-		sb.WriteString(fmt.Sprintf("  Port %d: in use", c.Port))
+		fmt.Fprintf(&sb, "  Port %d: in use", c.Port)
 
 		if c.PID > 0 {
-			sb.WriteString(fmt.Sprintf(" by PID %d", c.PID))
+			fmt.Fprintf(&sb, " by PID %d", c.PID)
 
 			if c.Process != "" {
-				sb.WriteString(fmt.Sprintf(" (%s)", c.Process))
+				fmt.Fprintf(&sb, " (%s)", c.Process)
 			}
 		}
 
@@ -84,7 +82,7 @@ func FormatConflicts(conflicts []PortConflict) string {
 		}
 
 		if len(pids) > 0 {
-			sb.WriteString(fmt.Sprintf("kill %s\n", strings.Join(pids, " ")))
+			fmt.Fprintf(&sb, "kill %s\n", strings.Join(pids, " "))
 		}
 	}
 

@@ -39,10 +39,16 @@ func Run(xatuCBTPath, overridesPath string) error {
 	// If no overrides file exists, default all models to disabled.
 	m.externalModels = make([]ModelEntry, 0, len(externalModels))
 	for _, name := range externalModels {
-		enabled := fileExists && !IsModelDisabled(overrides, name)
+		overrideKey := name
+		if db := seeddata.GetExternalModelDatabase(name, xatuCBTPath); db != "" {
+			overrideKey = db + "." + name
+		}
+
+		enabled := fileExists && !IsModelDisabled(overrides, overrideKey)
 		m.externalModels = append(m.externalModels, ModelEntry{
-			Name:    name,
-			Enabled: enabled,
+			Name:        name,
+			OverrideKey: overrideKey,
+			Enabled:     enabled,
 		})
 	}
 
@@ -52,8 +58,9 @@ func Run(xatuCBTPath, overridesPath string) error {
 	for _, name := range transformModels {
 		enabled := fileExists && !IsModelDisabled(overrides, name)
 		m.transformationModels = append(m.transformationModels, ModelEntry{
-			Name:    name,
-			Enabled: enabled,
+			Name:        name,
+			OverrideKey: name,
+			Enabled:     enabled,
 		})
 	}
 

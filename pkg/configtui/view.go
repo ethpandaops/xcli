@@ -275,8 +275,13 @@ func (m Model) renderModelEntry(model ModelEntry, index int, isActive bool, maxW
 		checkStyle = styleNeeded
 	}
 
-	// Truncate name if too long (account for warning indicator).
+	// Build display name, showing database prefix when set.
 	name := model.Name
+	if model.OverrideKey != "" && model.OverrideKey != model.Name {
+		name = styleEnvLabel.Render(strings.SplitN(model.OverrideKey, ".", 2)[0]+".") + model.Name
+	}
+
+	// Truncate raw name if too long (account for warning indicator).
 	maxNameLen := maxWidth - 5 // Account for checkbox and spacing
 
 	if isNeeded {
@@ -287,8 +292,8 @@ func (m Model) renderModelEntry(model ModelEntry, index int, isActive bool, maxW
 		maxNameLen = 10
 	}
 
-	if len(name) > maxNameLen {
-		name = name[:maxNameLen-2] + ".."
+	if len(model.Name) > maxNameLen {
+		name = model.Name[:maxNameLen-2] + ".."
 	}
 
 	// Add warning indicator for needed but disabled models.

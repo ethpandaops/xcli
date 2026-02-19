@@ -1,6 +1,4 @@
 // Package configtui provides a TUI for managing CBT model overrides.
-//
-//nolint:staticcheck // QF1012: WriteString(Sprintf) pattern used for YAML building
 package configtui
 
 import (
@@ -141,13 +139,13 @@ func SaveOverridesFromEntries(
 
 	for _, model := range externalModels {
 		if !model.Enabled {
-			disabledModels = append(disabledModels, model.Name)
+			disabledModels = append(disabledModels, model.OverrideKey)
 		}
 	}
 
 	for _, model := range transformationModels {
 		if !model.Enabled {
-			disabledModels = append(disabledModels, model.Name)
+			disabledModels = append(disabledModels, model.OverrideKey)
 		}
 	}
 
@@ -161,7 +159,7 @@ func SaveOverridesFromEntries(
 		sb.WriteString("    {} # No disabled models\n")
 	} else {
 		for _, name := range disabledModels {
-			sb.WriteString(fmt.Sprintf("    %s:\n", name))
+			fmt.Fprintf(&sb, "    %s:\n", name)
 			sb.WriteString("      enabled: false\n")
 
 			// Preserve any existing config for this model.
@@ -172,7 +170,7 @@ func SaveOverridesFromEntries(
 						// Indent and add the config section.
 						lines := strings.Split(strings.TrimSpace(string(configYAML)), "\n")
 						for _, line := range lines {
-							sb.WriteString(fmt.Sprintf("      %s\n", line))
+							fmt.Fprintf(&sb, "      %s\n", line)
 						}
 					}
 				}

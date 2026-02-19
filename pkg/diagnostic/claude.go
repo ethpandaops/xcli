@@ -1,4 +1,3 @@
-//nolint:staticcheck // QF1012: WriteString(Sprintf) pattern is used consistently for prompt building readability
 package diagnostic
 
 import (
@@ -142,11 +141,11 @@ func (c *ClaudeClient) buildPrompt(report *RebuildReport) string {
 	sb.WriteString("## Failed Build Steps\n\n")
 
 	for i, result := range failed {
-		sb.WriteString(fmt.Sprintf("### Failure %d: %s - %s\n\n", i+1, result.Service, result.Phase))
-		sb.WriteString(fmt.Sprintf("- **Command**: `%s`\n", sanitizeOutput(result.Command)))
-		sb.WriteString(fmt.Sprintf("- **Working Directory**: `%s`\n", sanitizeOutput(result.WorkDir)))
-		sb.WriteString(fmt.Sprintf("- **Exit Code**: %d\n", result.ExitCode))
-		sb.WriteString(fmt.Sprintf("- **Duration**: %s\n\n", result.Duration.Round(time.Millisecond)))
+		fmt.Fprintf(&sb, "### Failure %d: %s - %s\n\n", i+1, result.Service, result.Phase)
+		fmt.Fprintf(&sb, "- **Command**: `%s`\n", sanitizeOutput(result.Command))
+		fmt.Fprintf(&sb, "- **Working Directory**: `%s`\n", sanitizeOutput(result.WorkDir))
+		fmt.Fprintf(&sb, "- **Exit Code**: %d\n", result.ExitCode)
+		fmt.Fprintf(&sb, "- **Duration**: %s\n\n", result.Duration.Round(time.Millisecond))
 
 		// Include stderr (truncated)
 		stderr := sanitizeOutput(result.Stderr)
@@ -179,8 +178,8 @@ func (c *ClaudeClient) buildPrompt(report *RebuildReport) string {
 		sb.WriteString("## Successful Build Steps (for context)\n\n")
 
 		for _, result := range succeeded {
-			sb.WriteString(fmt.Sprintf("- %s - %s (%s)\n",
-				result.Service, result.Phase, result.Duration.Round(time.Millisecond)))
+			fmt.Fprintf(&sb, "- %s - %s (%s)\n",
+				result.Service, result.Phase, result.Duration.Round(time.Millisecond))
 		}
 
 		sb.WriteString("\n")
@@ -321,8 +320,7 @@ func extractCommands(text string) []string {
 
 	for _, match := range codeMatches {
 		if len(match) > 1 {
-			lines := strings.Split(match[1], "\n")
-			for _, line := range lines {
+			for line := range strings.SplitSeq(match[1], "\n") {
 				line = strings.TrimSpace(line)
 				// Remove $ prefix if present
 				line = strings.TrimPrefix(line, "$ ")
