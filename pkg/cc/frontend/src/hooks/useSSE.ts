@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback } from 'react';
 
 type SSEHandler = (event: string, data: unknown) => void;
 
@@ -7,7 +7,7 @@ export function useSSE(handler: SSEHandler) {
   handlerRef.current = handler;
 
   const connect = useCallback(() => {
-    const es = new EventSource("/api/events");
+    const es = new EventSource('/api/events');
 
     const onEvent = (eventName: string) => (e: MessageEvent) => {
       try {
@@ -18,16 +18,16 @@ export function useSSE(handler: SSEHandler) {
       }
     };
 
-    es.addEventListener("services", onEvent("services"));
-    es.addEventListener("infrastructure", onEvent("infrastructure"));
-    es.addEventListener("health", onEvent("health"));
-    es.addEventListener("log", onEvent("log"));
-    es.addEventListener("stack_progress", onEvent("stack_progress"));
-    es.addEventListener("stack_starting", onEvent("stack_starting"));
-    es.addEventListener("stack_started", onEvent("stack_started"));
-    es.addEventListener("stack_stopped", onEvent("stack_stopped"));
-    es.addEventListener("stack_error", onEvent("stack_error"));
-    es.addEventListener("stack_stopping", onEvent("stack_stopping"));
+    es.addEventListener('services', onEvent('services'));
+    es.addEventListener('infrastructure', onEvent('infrastructure'));
+    es.addEventListener('health', onEvent('health'));
+    es.addEventListener('log', onEvent('log'));
+    es.addEventListener('stack_progress', onEvent('stack_progress'));
+    es.addEventListener('stack_starting', onEvent('stack_starting'));
+    es.addEventListener('stack_started', onEvent('stack_started'));
+    es.addEventListener('stack_stopped', onEvent('stack_stopped'));
+    es.addEventListener('stack_error', onEvent('stack_error'));
+    es.addEventListener('stack_stopping', onEvent('stack_stopping'));
 
     es.onerror = () => {
       es.close();

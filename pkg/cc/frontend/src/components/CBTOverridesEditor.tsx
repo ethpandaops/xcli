@@ -1,34 +1,32 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { useAPI } from "../hooks/useAPI";
-import type { CBTOverridesState } from "../types";
-import Spinner from "./Spinner";
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useAPI } from '@/hooks/useAPI';
+import type { CBTOverridesState } from '@/types';
+import Spinner from '@/components/Spinner';
 
 interface CBTOverridesEditorProps {
-  onToast: (message: string, type: "success" | "error") => void;
+  onToast: (message: string, type: 'success' | 'error') => void;
 }
 
-export default function CBTOverridesEditor({
-  onToast,
-}: CBTOverridesEditorProps) {
+export default function CBTOverridesEditor({ onToast }: CBTOverridesEditorProps) {
   const { fetchJSON, putJSON, postAction } = useAPI();
   const [state, setState] = useState<CBTOverridesState | null>(null);
   const [saving, setSaving] = useState(false);
   const [showRestartPrompt, setShowRestartPrompt] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [isHybrid, setIsHybrid] = useState(false);
-  const [externalFilter, setExternalFilter] = useState("");
-  const [transformFilter, setTransformFilter] = useState("");
+  const [externalFilter, setExternalFilter] = useState('');
+  const [transformFilter, setTransformFilter] = useState('');
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [showEnabledOnly, setShowEnabledOnly] = useState(false);
   const [showEnvVars, setShowEnvVars] = useState(false);
 
   useEffect(() => {
-    fetchJSON<CBTOverridesState>("/api/config/overrides")
+    fetchJSON<CBTOverridesState>('/api/config/overrides')
       .then(setState)
-      .catch((err) => onToast(err.message, "error"));
+      .catch(err => onToast(err.message, 'error'));
 
-    fetchJSON<{ mode: string }>("/api/config")
-      .then((cfg) => setIsHybrid(cfg.mode === "hybrid"))
+    fetchJSON<{ mode: string }>('/api/config')
+      .then(cfg => setIsHybrid(cfg.mode === 'hybrid'))
       .catch(() => {}); // non-critical
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fetch once on mount only
   }, [fetchJSON]);
@@ -42,22 +40,20 @@ export default function CBTOverridesEditor({
       const resp = await putJSON<{
         status: string;
         regenerateError?: string;
-      }>("/api/config/overrides", state);
+      }>('/api/config/overrides', state);
 
       if (resp.regenerateError) {
-        onToast(
-          `Saved but regen failed: ${resp.regenerateError}`,
-          "error",
-        );
+        onToast(`Saved but regen failed: ${resp.regenerateError}`, 'error');
       } else {
-        onToast("Overrides saved and configs regenerated", "success");
+        onToast('Overrides saved and configs regenerated', 'success');
 
         // Only prompt restart if any relevant service is actually running
         try {
-          const status = await fetchJSON<{ services: { name: string; status: string }[] }>("/api/status");
+          const status = await fetchJSON<{ services: { name: string; status: string }[] }>('/api/status');
           const relevantRunning = status.services.some(
-            (s) => ((s.name.startsWith("cbt-") || s.name.startsWith("cbt-api-")) ||
-              (isHybrid && s.name === "lab-backend")) && s.status === "running",
+            s =>
+              (s.name.startsWith('cbt-') || s.name.startsWith('cbt-api-') || (isHybrid && s.name === 'lab-backend')) &&
+              s.status === 'running'
           );
 
           if (relevantRunning) {
@@ -69,10 +65,7 @@ export default function CBTOverridesEditor({
         }
       }
     } catch (err) {
-      onToast(
-        err instanceof Error ? err.message : "Save failed",
-        "error",
-      );
+      onToast(err instanceof Error ? err.message : 'Save failed', 'error');
     } finally {
       setSaving(false);
     }
@@ -82,25 +75,23 @@ export default function CBTOverridesEditor({
     setRestarting(true);
 
     try {
-      const services = await fetchJSON<{ name: string; status: string }[]>("/api/services");
+      const services = await fetchJSON<{ name: string; status: string }[]>('/api/services');
       const cbtServices = services.filter(
-        (s) => s.name.startsWith("cbt-") && !s.name.startsWith("cbt-api-") && s.status === "running",
+        s => s.name.startsWith('cbt-') && !s.name.startsWith('cbt-api-') && s.status === 'running'
       );
 
       for (const svc of cbtServices) {
-        await postAction(svc.name, "restart");
+        await postAction(svc.name, 'restart');
       }
 
       // In hybrid mode, also restart lab-backend so it picks up updated local_overrides
       let restartedBackend = false;
 
       if (isHybrid) {
-        const backend = services.find(
-          (s) => s.name === "lab-backend" && s.status === "running",
-        );
+        const backend = services.find(s => s.name === 'lab-backend' && s.status === 'running');
 
         if (backend) {
-          await postAction(backend.name, "restart");
+          await postAction(backend.name, 'restart');
           restartedBackend = true;
         }
       }
@@ -112,29 +103,23 @@ export default function CBTOverridesEditor({
       }
 
       if (restartedBackend) {
-        parts.push("lab-backend");
+        parts.push('lab-backend');
       }
 
       if (parts.length > 0) {
-        onToast(`Restarted ${parts.join(" + ")}`, "success");
+        onToast(`Restarted ${parts.join(' + ')}`, 'success');
       } else {
-        onToast("No running services found to restart", "error");
+        onToast('No running services found to restart', 'error');
       }
     } catch (err) {
-      onToast(
-        err instanceof Error ? err.message : "Restart failed",
-        "error",
-      );
+      onToast(err instanceof Error ? err.message : 'Restart failed', 'error');
     } finally {
       setRestarting(false);
       setShowRestartPrompt(false);
     }
   };
 
-  const toggleModel = (
-    section: "externalModels" | "transformationModels",
-    index: number,
-  ) => {
+  const toggleModel = (section: 'externalModels' | 'transformationModels', index: number) => {
     if (!state) return;
 
     const models = [...state[section]];
@@ -148,13 +133,10 @@ export default function CBTOverridesEditor({
     }
   };
 
-  const setAllModels = (
-    section: "externalModels" | "transformationModels",
-    enabled: boolean,
-  ) => {
+  const setAllModels = (section: 'externalModels' | 'transformationModels', enabled: boolean) => {
     if (!state) return;
 
-    const models = state[section].map((m) => ({ ...m, enabled }));
+    const models = state[section].map(m => ({ ...m, enabled }));
     setState({ ...state, [section]: models });
   };
 
@@ -209,7 +191,7 @@ export default function CBTOverridesEditor({
       if (m.enabled) enabledSet.add(m.name);
     }
 
-    return deps.map((d) => ({ name: d, enabled: enabledSet.has(d) }));
+    return deps.map(d => ({ name: d, enabled: enabledSet.has(d) }));
   }, [state, selectedModel]);
 
   const enableMissingDeps = useCallback(() => {
@@ -219,8 +201,8 @@ export default function CBTOverridesEditor({
     const extMap = new Map(state.externalModels.map((m, i) => [m.name, i]));
     const transMap = new Map(state.transformationModels.map((m, i) => [m.name, i]));
 
-    const extModels = state.externalModels.map((m) => ({ ...m }));
-    const transModels = state.transformationModels.map((m) => ({ ...m }));
+    const extModels = state.externalModels.map(m => ({ ...m }));
+    const transModels = state.transformationModels.map(m => ({ ...m }));
 
     // Iteratively enable deps until stable (handles transitive deps).
     let changed = true;
@@ -270,9 +252,9 @@ export default function CBTOverridesEditor({
     setState({ ...state, externalModels: extModels, transformationModels: transModels });
 
     if (totalEnabled > 0) {
-      onToast(`Enabled ${totalEnabled} missing dependencies`, "success");
+      onToast(`Enabled ${totalEnabled} missing dependencies`, 'success');
     } else {
-      onToast("No missing dependencies", "success");
+      onToast('No missing dependencies', 'success');
     }
   }, [state, onToast]);
 
@@ -284,7 +266,7 @@ export default function CBTOverridesEditor({
 
     return state.externalModels
       .map((m, i) => ({ ...m, originalIndex: i }))
-      .filter((m) => {
+      .filter(m => {
         if (showEnabledOnly && !m.enabled) return false;
         if (lower && !m.name.toLowerCase().includes(lower)) return false;
 
@@ -300,7 +282,7 @@ export default function CBTOverridesEditor({
 
     return state.transformationModels
       .map((m, i) => ({ ...m, originalIndex: i }))
-      .filter((m) => {
+      .filter(m => {
         if (showEnabledOnly && !m.enabled) return false;
         if (lower && !m.name.toLowerCase().includes(lower)) return false;
 
@@ -312,8 +294,8 @@ export default function CBTOverridesEditor({
     return <Spinner text="Loading overrides" centered />;
   }
 
-  const extEnabled = state.externalModels.filter((m) => m.enabled).length;
-  const transEnabled = state.transformationModels.filter((m) => m.enabled).length;
+  const extEnabled = state.externalModels.filter(m => m.enabled).length;
+  const transEnabled = state.transformationModels.filter(m => m.enabled).length;
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -322,28 +304,36 @@ export default function CBTOverridesEditor({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setShowEnabledOnly((v) => !v)}
+              onClick={() => setShowEnabledOnly(v => !v)}
               className={`flex items-center gap-1.5 rounded-xs px-3 py-1.5 text-xs/4 font-medium transition-colors ${
                 showEnabledOnly
-                  ? "bg-indigo-500/15 text-indigo-400 ring-1 ring-indigo-500/25"
-                  : "text-gray-500 hover:bg-white/5 hover:text-gray-300"
+                  ? 'bg-indigo-500/15 text-indigo-400 ring-1 ring-indigo-500/25'
+                  : 'text-gray-500 hover:bg-white/5 hover:text-gray-300'
               }`}
             >
               <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 0 1-.659 1.591l-5.432 5.432a2.25 2.25 0 0 0-.659 1.591v2.927a2.25 2.25 0 0 1-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 0 0-.659-1.591L3.659 7.409A2.25 2.25 0 0 1 3 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0 1 12 3Z" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 0 1-.659 1.591l-5.432 5.432a2.25 2.25 0 0 0-.659 1.591v2.927a2.25 2.25 0 0 1-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 0 0-.659-1.591L3.659 7.409A2.25 2.25 0 0 1 3 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0 1 12 3Z"
+                />
               </svg>
-              {showEnabledOnly ? "Enabled only" : "Show all"}
+              {showEnabledOnly ? 'Enabled only' : 'Show all'}
             </button>
             <button
-              onClick={() => setShowEnvVars((v) => !v)}
+              onClick={() => setShowEnvVars(v => !v)}
               className={`flex items-center gap-1.5 rounded-xs px-3 py-1.5 text-xs/4 font-medium transition-colors ${
                 showEnvVars
-                  ? "bg-indigo-500/15 text-indigo-400 ring-1 ring-indigo-500/25"
-                  : "text-gray-500 hover:bg-white/5 hover:text-gray-300"
+                  ? 'bg-indigo-500/15 text-indigo-400 ring-1 ring-indigo-500/25'
+                  : 'text-gray-500 hover:bg-white/5 hover:text-gray-300'
               }`}
             >
               <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4.745 3A23.933 23.933 0 0 0 3 12c0 3.183.62 6.22 1.745 9M19.5 3c.967 2.78 1.5 5.817 1.5 9s-.533 6.22-1.5 9M8.25 8.885l1.444-.89a.75.75 0 0 1 1.105.402l2.402 7.206a.75.75 0 0 0 1.104.401l1.445-.889" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M4.745 3A23.933 23.933 0 0 0 3 12c0 3.183.62 6.22 1.745 9M19.5 3c.967 2.78 1.5 5.817 1.5 9s-.533 6.22-1.5 9M8.25 8.885l1.444-.89a.75.75 0 0 1 1.105.402l2.402 7.206a.75.75 0 0 0 1.104.401l1.445-.889"
+                />
               </svg>
               Environment
             </button>
@@ -355,16 +345,20 @@ export default function CBTOverridesEditor({
               className="flex items-center gap-1.5 rounded-xs bg-amber-500/10 px-3 py-1.5 text-xs/4 font-medium text-amber-400 ring-1 ring-amber-500/20 transition-colors hover:bg-amber-500/20"
             >
               <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
+                />
               </svg>
-              {missingDepCount} missing dep{missingDepCount > 1 ? "s" : ""} — fix
+              {missingDepCount} missing dep{missingDepCount > 1 ? 's' : ''} — fix
             </button>
           )}
         </div>
 
         {showEnvVars && (
           <div className="rounded-sm border border-border bg-surface-light p-4">
-            <div className="mb-3 text-xs/4 font-semibold uppercase tracking-wider text-gray-500">
+            <div className="mb-3 text-xs/4 font-semibold tracking-wider text-gray-500 uppercase">
               Environment Variables
             </div>
             <div className="flex flex-col gap-3">
@@ -372,23 +366,15 @@ export default function CBTOverridesEditor({
                 label="EXTERNAL_MODEL_MIN_TIMESTAMP"
                 value={state.envMinTimestamp}
                 enabled={state.envTimestampEnabled}
-                onValueChange={(v) =>
-                  setState({ ...state, envMinTimestamp: v })
-                }
-                onEnabledChange={(v) =>
-                  setState({ ...state, envTimestampEnabled: v })
-                }
+                onValueChange={v => setState({ ...state, envMinTimestamp: v })}
+                onEnabledChange={v => setState({ ...state, envTimestampEnabled: v })}
               />
               <EnvVarField
                 label="EXTERNAL_MODEL_MIN_BLOCK"
                 value={state.envMinBlock}
                 enabled={state.envBlockEnabled}
-                onValueChange={(v) =>
-                  setState({ ...state, envMinBlock: v })
-                }
-                onEnabledChange={(v) =>
-                  setState({ ...state, envBlockEnabled: v })
-                }
+                onValueChange={v => setState({ ...state, envMinBlock: v })}
+                onEnabledChange={v => setState({ ...state, envBlockEnabled: v })}
               />
             </div>
           </div>
@@ -403,27 +389,21 @@ export default function CBTOverridesEditor({
             totalCount={state.externalModels.length}
             filter={externalFilter}
             onFilterChange={setExternalFilter}
-            onEnableAll={() => setAllModels("externalModels", true)}
-            onDisableAll={() => setAllModels("externalModels", false)}
+            onEnableAll={() => setAllModels('externalModels', true)}
+            onDisableAll={() => setAllModels('externalModels', false)}
           >
             <div className="flex flex-col">
               {(filteredExternalModels ?? state.externalModels.map((m, i) => ({ ...m, originalIndex: i }))).map(
-                (model) => (
+                model => (
                   <ModelRow
                     key={model.name}
                     model={model}
                     needed={neededModels.has(model.name)}
                     isSelected={selectedModel === model.name}
-                    onToggle={() =>
-                      toggleModel("externalModels", model.originalIndex)
-                    }
-                    onSelect={() =>
-                      setSelectedModel(
-                        selectedModel === model.name ? null : model.name,
-                      )
-                    }
+                    onToggle={() => toggleModel('externalModels', model.originalIndex)}
+                    onSelect={() => setSelectedModel(selectedModel === model.name ? null : model.name)}
                   />
-                ),
+                )
               )}
             </div>
           </ModelColumn>
@@ -435,32 +415,23 @@ export default function CBTOverridesEditor({
             totalCount={state.transformationModels.length}
             filter={transformFilter}
             onFilterChange={setTransformFilter}
-            onEnableAll={() => setAllModels("transformationModels", true)}
-            onDisableAll={() => setAllModels("transformationModels", false)}
+            onEnableAll={() => setAllModels('transformationModels', true)}
+            onDisableAll={() => setAllModels('transformationModels', false)}
             borderLeft
           >
             <div className="flex flex-col">
               {(filteredTransformModels ?? state.transformationModels.map((m, i) => ({ ...m, originalIndex: i }))).map(
-                (model) => (
+                model => (
                   <ModelRow
                     key={model.name}
                     model={model}
                     needed={neededModels.has(model.name)}
                     isSelected={selectedModel === model.name}
                     hasDeps={!!state.dependencies?.[model.name]?.length}
-                    onToggle={() =>
-                      toggleModel(
-                        "transformationModels",
-                        model.originalIndex,
-                      )
-                    }
-                    onSelect={() =>
-                      setSelectedModel(
-                        selectedModel === model.name ? null : model.name,
-                      )
-                    }
+                    onToggle={() => toggleModel('transformationModels', model.originalIndex)}
+                    onSelect={() => setSelectedModel(selectedModel === model.name ? null : model.name)}
                   />
-                ),
+                )
               )}
             </div>
           </ModelColumn>
@@ -470,24 +441,30 @@ export default function CBTOverridesEditor({
         {selectedModel && selectedDeps && (
           <div className="rounded-sm border border-border bg-surface-light p-4">
             <div className="mb-3 flex items-center gap-2">
-              <svg className="size-4 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" />
+              <svg
+                className="size-4 text-gray-500"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z"
+                />
               </svg>
-              <span className="text-xs/4 font-medium text-gray-400">
-                Dependencies of
-              </span>
+              <span className="text-xs/4 font-medium text-gray-400">Dependencies of</span>
               <code className="rounded-xs bg-indigo-500/10 px-1.5 py-0.5 text-xs/4 text-indigo-400">
                 {selectedModel}
               </code>
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {selectedDeps.map((dep) => (
+              {selectedDeps.map(dep => (
                 <span
                   key={dep.name}
                   className={`flex items-center gap-1 rounded-xs px-2 py-1 font-mono text-xs/4 ${
-                    dep.enabled
-                      ? "bg-emerald-500/10 text-emerald-400"
-                      : "bg-red-500/10 text-red-400"
+                    dep.enabled ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
                   }`}
                 >
                   {dep.enabled ? (
@@ -509,10 +486,10 @@ export default function CBTOverridesEditor({
         {/* Save bar */}
         <div className="flex items-center justify-between rounded-sm border border-border bg-surface-light px-4 py-3">
           <span className="text-xs/4 text-gray-600">
-            {extEnabled + transEnabled} model{extEnabled + transEnabled !== 1 ? "s" : ""} enabled
+            {extEnabled + transEnabled} model{extEnabled + transEnabled !== 1 ? 's' : ''} enabled
             {missingDepCount > 0 && (
               <span className="ml-1 text-amber-500">
-                ({missingDepCount} missing dep{missingDepCount > 1 ? "s" : ""})
+                ({missingDepCount} missing dep{missingDepCount > 1 ? 's' : ''})
               </span>
             )}
           </span>
@@ -521,7 +498,7 @@ export default function CBTOverridesEditor({
             disabled={saving}
             className="rounded-xs bg-indigo-600 px-4 py-1.5 text-sm/5 font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
           >
-            {saving ? "Saving..." : "Save Overrides"}
+            {saving ? 'Saving...' : 'Save Overrides'}
           </button>
         </div>
       </div>
@@ -534,21 +511,29 @@ export default function CBTOverridesEditor({
               <div className="flex flex-col items-center gap-3 py-4">
                 <div className="size-6 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
                 <span className="text-sm/5 text-indigo-300">
-                  Restarting {isHybrid ? "xatu-cbt + lab-backend" : "xatu-cbt"} services...
+                  Restarting {isHybrid ? 'xatu-cbt + lab-backend' : 'xatu-cbt'} services...
                 </span>
               </div>
             ) : (
               <>
                 <div className="mb-2 flex items-center gap-2">
-                  <svg className="size-5 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182M2.985 19.644l3.181-3.183" />
+                  <svg
+                    className="size-5 text-indigo-400"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={1.5}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182M2.985 19.644l3.181-3.183"
+                    />
                   </svg>
-                  <h3 className="text-sm/5 font-semibold text-white">
-                    Restart Services
-                  </h3>
+                  <h3 className="text-sm/5 font-semibold text-white">Restart Services</h3>
                 </div>
                 <p className="mt-2 text-sm/5 text-gray-400">
-                  Restart {isHybrid ? "xatu-cbt and lab-backend" : "xatu-cbt services"} to apply the new overrides?
+                  Restart {isHybrid ? 'xatu-cbt and lab-backend' : 'xatu-cbt services'} to apply the new overrides?
                 </p>
                 <div className="mt-5 flex justify-end gap-2">
                   <button
@@ -599,14 +584,12 @@ function ModelColumn({
   const pct = totalCount > 0 ? (enabledCount / totalCount) * 100 : 0;
 
   return (
-    <div className={`flex flex-col bg-surface ${borderLeft ? "border-l border-border" : ""}`}>
+    <div className={`flex flex-col bg-surface ${borderLeft ? 'border-l border-border' : ''}`}>
       {/* Header */}
       <div className="border-b border-border px-4 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-baseline gap-2">
-            <h3 className="text-sm/5 font-semibold text-gray-200">
-              {title}
-            </h3>
+            <h3 className="text-sm/5 font-semibold text-gray-200">{title}</h3>
             <span className="font-mono text-xs/4 text-gray-600">
               {enabledCount}/{totalCount}
             </span>
@@ -639,21 +622,28 @@ function ModelColumn({
       {/* Search */}
       <div className="border-b border-border/50 px-4 py-2">
         <div className="flex items-center gap-2 rounded-xs bg-surface-light px-2.5 py-1.5">
-          <svg className="size-3.5 shrink-0 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+          <svg
+            className="size-3.5 shrink-0 text-gray-600"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
+            />
           </svg>
           <input
             type="text"
             value={filter}
-            onChange={(e) => onFilterChange(e.target.value)}
+            onChange={e => onFilterChange(e.target.value)}
             placeholder="Filter..."
             className="w-full bg-transparent text-sm/5 text-white placeholder:text-gray-600 focus:outline-hidden"
           />
           {filter && (
-            <button
-              onClick={() => onFilterChange("")}
-              className="shrink-0 text-gray-600 hover:text-gray-400"
-            >
+            <button onClick={() => onFilterChange('')} className="shrink-0 text-gray-600 hover:text-gray-400">
               <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
               </svg>
@@ -663,9 +653,7 @@ function ModelColumn({
       </div>
 
       {/* Model list */}
-      <div className="max-h-[28rem] overflow-y-auto">
-        {children}
-      </div>
+      <div className="max-h-[28rem] overflow-y-auto">{children}</div>
     </div>
   );
 }
@@ -690,47 +678,28 @@ function ModelRow({
   return (
     <div
       className={`group flex items-center gap-3 border-b border-border/30 px-4 py-2 transition-colors last:border-b-0 ${
-        isSelected ? "bg-indigo-500/5" : "hover:bg-white/[0.02]"
+        isSelected ? 'bg-indigo-500/5' : 'hover:bg-white/[0.02]'
       }`}
     >
       {/* Toggle */}
-      <button
-        onClick={onToggle}
-        className="relative shrink-0"
-        aria-label={`Toggle ${model.name}`}
-      >
+      <button onClick={onToggle} className="relative shrink-0" aria-label={`Toggle ${model.name}`}>
         <div
           className={`h-4 w-7 rounded-full transition-colors ${
-            model.enabled
-              ? "bg-emerald-500/80"
-              : needed
-                ? "bg-amber-500/30"
-                : "bg-surface-lighter"
+            model.enabled ? 'bg-emerald-500/80' : needed ? 'bg-amber-500/30' : 'bg-surface-lighter'
           }`}
         />
         <div
           className={`absolute top-0.5 left-0.5 size-3 rounded-full transition-all ${
-            model.enabled
-              ? "translate-x-3 bg-white"
-              : needed
-                ? "bg-amber-400"
-                : "bg-gray-500"
+            model.enabled ? 'translate-x-3 bg-white' : needed ? 'bg-amber-400' : 'bg-gray-500'
           }`}
         />
       </button>
 
       {/* Name */}
-      <button
-        onClick={onToggle}
-        className="min-w-0 flex-1 text-left"
-      >
+      <button onClick={onToggle} className="min-w-0 flex-1 text-left">
         <span
           className={`truncate font-mono text-xs/4 ${
-            model.enabled
-              ? "text-gray-200"
-              : needed
-                ? "text-amber-400"
-                : "text-gray-500"
+            model.enabled ? 'text-gray-200' : needed ? 'text-amber-400' : 'text-gray-500'
           }`}
         >
           {model.name}
@@ -749,14 +718,16 @@ function ModelRow({
         <button
           onClick={onSelect}
           className={`shrink-0 rounded-xs p-0.5 transition-colors ${
-            isSelected
-              ? "text-indigo-400"
-              : "text-gray-700 hover:text-gray-400"
+            isSelected ? 'text-indigo-400' : 'text-gray-700 hover:text-gray-400'
           }`}
           title="View dependencies"
         >
           <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z"
+            />
           </svg>
         </button>
       )}
@@ -781,29 +752,21 @@ function EnvVarField({
 }) {
   return (
     <div className="flex items-center gap-3">
-      <button
-        onClick={() => onEnabledChange(!enabled)}
-        className="relative shrink-0"
-        aria-label={`Toggle ${label}`}
-      >
+      <button onClick={() => onEnabledChange(!enabled)} className="relative shrink-0" aria-label={`Toggle ${label}`}>
         <div
-          className={`h-4 w-7 rounded-full transition-colors ${
-            enabled ? "bg-indigo-500/80" : "bg-surface-lighter"
-          }`}
+          className={`h-4 w-7 rounded-full transition-colors ${enabled ? 'bg-indigo-500/80' : 'bg-surface-lighter'}`}
         />
         <div
           className={`absolute top-0.5 left-0.5 size-3 rounded-full transition-all ${
-            enabled ? "translate-x-3 bg-white" : "bg-gray-500"
+            enabled ? 'translate-x-3 bg-white' : 'bg-gray-500'
           }`}
         />
       </button>
-      <code className={`w-72 shrink-0 text-xs/4 ${enabled ? "text-gray-300" : "text-gray-600"}`}>
-        {label}
-      </code>
+      <code className={`w-72 shrink-0 text-xs/4 ${enabled ? 'text-gray-300' : 'text-gray-600'}`}>{label}</code>
       <input
         type="text"
         value={value}
-        onChange={(e) => onValueChange(e.target.value)}
+        onChange={e => onValueChange(e.target.value)}
         disabled={!enabled}
         className="flex-1 rounded-xs border border-border bg-surface px-3 py-1.5 font-mono text-sm/5 text-white placeholder:text-gray-600 disabled:opacity-30"
         placeholder="0"

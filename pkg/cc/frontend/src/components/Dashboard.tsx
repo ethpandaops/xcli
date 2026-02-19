@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type {
   ServiceInfo,
   InfraInfo,
@@ -10,17 +10,18 @@ import type {
   HealthStatus,
   StackStatus,
   StackProgressEvent,
-} from "../types";
-import { useSSE } from "../hooks/useSSE";
-import { useAPI } from "../hooks/useAPI";
-import Header from "./Header";
-import ServiceCard from "./ServiceCard";
-import ConfigPanel from "./ConfigPanel";
-import GitStatus from "./GitStatus";
-import LogViewer from "./LogViewer";
-import StackProgress, { derivePhaseStates, BOOT_PHASES, STOP_PHASES } from "./StackProgress";
-import Spinner from "./Spinner";
-import { useFavicon } from "../hooks/useFavicon";
+} from '@/types';
+import { useSSE } from '@/hooks/useSSE';
+import { useAPI } from '@/hooks/useAPI';
+import Header from '@/components/Header';
+import ServiceCard from '@/components/ServiceCard';
+import ConfigPanel from '@/components/ConfigPanel';
+import GitStatus from '@/components/GitStatus';
+import LogViewer from '@/components/LogViewer';
+import StackProgress, { derivePhaseStates, BOOT_PHASES, STOP_PHASES } from '@/components/StackProgress';
+import Spinner from '@/components/Spinner';
+import { useFavicon } from '@/hooks/useFavicon';
+import { useNotifications } from '@/hooks/useNotifications';
 
 const MAX_LOGS = 10000;
 
@@ -30,6 +31,7 @@ interface DashboardProps {
 
 export default function Dashboard({ onNavigateConfig }: DashboardProps) {
   const { fetchJSON, postJSON } = useAPI();
+  const { notify, enabled: notificationsEnabled, toggle: toggleNotifications } = useNotifications();
   const [services, setServices] = useState<ServiceInfo[]>([]);
   const [infrastructure, setInfrastructure] = useState<InfraInfo[]>([]);
   const [config, setConfig] = useState<ConfigInfo | null>(null);
@@ -38,34 +40,38 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
   const logsRef = useRef<LogLine[]>([]);
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [stackStatus, setStackStatus] = useState<string | null>(null);
-  const [progressPhases, setProgressPhases] = useState<StackProgressEvent[]>(
-    [],
-  );
+  const [progressPhases, setProgressPhases] = useState<StackProgressEvent[]>([]);
   const [stackError, setStackError] = useState<string | null>(null);
 
   // Initial data load
   useEffect(() => {
-    fetchJSON<StatusResponse>("/api/status").then((data) => {
-      setServices(data.services);
-      setInfrastructure(data.infrastructure);
-      setConfig(data.config);
-    }).catch(console.error);
+    fetchJSON<StatusResponse>('/api/status')
+      .then(data => {
+        setServices(data.services);
+        setInfrastructure(data.infrastructure);
+        setConfig(data.config);
+      })
+      .catch(console.error);
 
-    fetchJSON<GitResponse>("/api/git").then((data) => {
-      setRepos(data.repos);
-    }).catch(console.error);
+    fetchJSON<GitResponse>('/api/git')
+      .then(data => {
+        setRepos(data.repos);
+      })
+      .catch(console.error);
 
     // Fetch log history so we have logs from before SSE connected
-    fetchJSON<LogLine[]>("/api/logs").then((data) => {
-      if (data.length > 0) {
-        logsRef.current = data;
-        setLogs(data);
-      }
-    }).catch(console.error);
+    fetchJSON<LogLine[]>('/api/logs')
+      .then(data => {
+        if (data.length > 0) {
+          logsRef.current = data;
+          setLogs(data);
+        }
+      })
+      .catch(console.error);
 
     // Seed stack status and progress; subsequent updates arrive via SSE
-    fetchJSON<StackStatus>("/api/stack/status")
-      .then((data) => {
+    fetchJSON<StackStatus>('/api/stack/status')
+      .then(data => {
         setStackStatus(data.status);
 
         if (data.error) {
@@ -80,9 +86,11 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
 
     // Refresh git status every 60s
     const gitInterval = setInterval(() => {
-      fetchJSON<GitResponse>("/api/git").then((data) => {
-        setRepos(data.repos);
-      }).catch(console.error);
+      fetchJSON<GitResponse>('/api/git')
+        .then(data => {
+          setRepos(data.repos);
+        })
+        .catch(console.error);
     }, 60000);
 
     return () => {
@@ -91,79 +99,86 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
   }, [fetchJSON]);
 
   // SSE handler
-  const handleSSE = useCallback((event: string, data: unknown) => {
-    switch (event) {
-      case "services": {
-        const incoming = data as ServiceInfo[];
-        setServices((prev) => {
-          const healthMap = new Map(prev.map((s) => [s.name, s.health]));
-          return incoming.map((s) => ({
-            ...s,
-            health: s.health && s.health !== "unknown" ? s.health : (healthMap.get(s.name) ?? s.health),
-          }));
-        });
-        break;
-      }
-      case "infrastructure":
-        setInfrastructure(data as InfraInfo[]);
-        break;
-      case "health": {
-        const health = data as HealthStatus;
-        setServices((prev) =>
-          prev.map((s) => {
-            const h = health[s.name];
-
-            return h ? { ...s, health: h.Status } : s;
-          }),
-        );
-        break;
-      }
-      case "log": {
-        const line = data as LogLine;
-        logsRef.current = [...logsRef.current.slice(-(MAX_LOGS - 1)), line];
-        setLogs(logsRef.current);
-        break;
-      }
-      case "stack_progress": {
-        const progress = data as StackProgressEvent;
-        setProgressPhases((prev) => [...prev, progress]);
-        break;
-      }
-      case "stack_starting":
-        setStackStatus("starting");
-        setProgressPhases([]);
-        setStackError(null);
-        break;
-      case "stack_started":
-        setStackStatus("running");
-        break;
-      case "stack_error": {
-        const errData = data as { error?: string };
-        setStackError(errData?.error ?? "Unknown error");
-        break;
-      }
-      case "stack_stopping":
-        setStackStatus("stopping");
-        setProgressPhases([]);
-        setStackError(null);
-        break;
-      case "stack_stopped":
-        setStackStatus("stopped");
-        setProgressPhases([]);
-        setStackError(null);
-        break;
-      case "stack_status": {
-        const status = data as StackStatus;
-        setStackStatus(status.status);
-
-        if (status.error) {
-          setStackError(status.error);
+  const handleSSE = useCallback(
+    (event: string, data: unknown) => {
+      switch (event) {
+        case 'services': {
+          const incoming = data as ServiceInfo[];
+          setServices(prev => {
+            const healthMap = new Map(prev.map(s => [s.name, s.health]));
+            return incoming.map(s => ({
+              ...s,
+              health: s.health && s.health !== 'unknown' ? s.health : (healthMap.get(s.name) ?? s.health),
+            }));
+          });
+          break;
         }
+        case 'infrastructure':
+          setInfrastructure(data as InfraInfo[]);
+          break;
+        case 'health': {
+          const health = data as HealthStatus;
+          setServices(prev =>
+            prev.map(s => {
+              const h = health[s.name];
 
-        break;
+              return h ? { ...s, health: h.Status } : s;
+            })
+          );
+          break;
+        }
+        case 'log': {
+          const line = data as LogLine;
+          logsRef.current = [...logsRef.current.slice(-(MAX_LOGS - 1)), line];
+          setLogs(logsRef.current);
+          break;
+        }
+        case 'stack_progress': {
+          const progress = data as StackProgressEvent;
+          setProgressPhases(prev => [...prev, progress]);
+          break;
+        }
+        case 'stack_starting':
+          setStackStatus('starting');
+          setProgressPhases([]);
+          setStackError(null);
+          break;
+        case 'stack_started':
+          setStackStatus('running');
+          notify('xcli: Stack Booted 🍆', { body: 'All services are up and running.' });
+          break;
+        case 'stack_error': {
+          const errData = data as { error?: string };
+          const msg = errData?.error ?? 'Unknown error';
+          setStackError(msg);
+          notify('xcli: Stack Error 🍆', { body: msg });
+          break;
+        }
+        case 'stack_stopping':
+          setStackStatus('stopping');
+          setProgressPhases([]);
+          setStackError(null);
+          break;
+        case 'stack_stopped':
+          setStackStatus('stopped');
+          setProgressPhases([]);
+          setStackError(null);
+          notify('xcli: Stack Stopped 🍆', { body: 'All services have been stopped.' });
+          break;
+        case 'stack_status': {
+          const status = data as StackStatus;
+          setStackStatus(status.status);
+
+          if (status.error) {
+            setStackError(status.error);
+          }
+
+          break;
+        }
       }
-    }
-  }, []);
+    },
+    [notify]
+  );
 
   useSSE(handleSSE);
   useFavicon(stackStatus, !!stackError);
@@ -172,16 +187,13 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
   useEffect(() => {
     if (!selectedService) return;
 
-    const svc = services.find((s) => s.name === selectedService);
-    if (!svc || svc.status === "running" || !svc.logFile) return;
+    const svc = services.find(s => s.name === selectedService);
+    if (!svc || svc.status === 'running' || !svc.logFile) return;
 
     fetchJSON<LogLine[]>(`/api/services/${encodeURIComponent(selectedService)}/logs`)
-      .then((data) => {
+      .then(data => {
         if (data.length > 0) {
-          logsRef.current = [
-            ...logsRef.current.filter((l) => l.Service !== selectedService),
-            ...data,
-          ];
+          logsRef.current = [...logsRef.current.filter(l => l.Service !== selectedService), ...data];
           setLogs(logsRef.current);
         }
       })
@@ -189,14 +201,13 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
   }, [selectedService, services, fetchJSON]);
 
   const handleCancelBoot = useCallback(() => {
-    postJSON<{ status: string }>("/api/stack/cancel").catch(console.error);
+    postJSON<{ status: string }>('/api/stack/cancel').catch(console.error);
   }, [postJSON]);
 
   const handleStackAction = useCallback(() => {
-    if (!stackStatus || stackStatus === "starting" || stackStatus === "stopping") return;
+    if (!stackStatus || stackStatus === 'starting' || stackStatus === 'stopping') return;
 
-    const endpoint =
-      stackStatus === "running" ? "/api/stack/down" : "/api/stack/up";
+    const endpoint = stackStatus === 'running' ? '/api/stack/down' : '/api/stack/up';
 
     postJSON<{ status: string }>(endpoint).catch(console.error);
   }, [stackStatus, postJSON]);
@@ -206,42 +217,32 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
       <Header
         services={services}
         infrastructure={infrastructure}
-        mode={config?.mode ?? ""}
+        mode={config?.mode ?? ''}
         onNavigateConfig={onNavigateConfig}
         stackStatus={stackStatus}
         onStackAction={handleStackAction}
-        currentPhase={
-          progressPhases.length > 0
-            ? progressPhases[progressPhases.length - 1].message
-            : undefined
-        }
+        currentPhase={progressPhases.length > 0 ? progressPhases[progressPhases.length - 1].message : undefined}
+        notificationsEnabled={notificationsEnabled}
+        onToggleNotifications={toggleNotifications}
       />
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar - Services + Infra */}
         <div className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border bg-surface p-3">
-          <div className="text-xs/4 font-semibold uppercase tracking-wider text-gray-500">
-            Services
-          </div>
-          {services.map((svc) => (
+          <div className="text-xs/4 font-semibold tracking-wider text-gray-500 uppercase">Services</div>
+          {services.map(svc => (
             <ServiceCard
               key={svc.name}
               service={svc}
               selected={selectedService === svc.name}
-              onSelect={() =>
-                setSelectedService(
-                  selectedService === svc.name ? null : svc.name,
-                )
-              }
+              onSelect={() => setSelectedService(selectedService === svc.name ? null : svc.name)}
             />
           ))}
 
           {infrastructure.length > 0 && (
             <>
-              <div className="mt-2 text-xs/4 font-semibold uppercase tracking-wider text-gray-500">
-                Infrastructure
-              </div>
-              {infrastructure.map((item) => (
+              <div className="mt-2 text-xs/4 font-semibold tracking-wider text-gray-500 uppercase">Infrastructure</div>
+              {infrastructure.map(item => (
                 <div
                   key={item.name}
                   className="flex items-center justify-between rounded-sm border border-border bg-surface-light p-3"
@@ -249,7 +250,7 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
                   <span className="text-sm/5 font-medium text-white">{item.name}</span>
                   <span
                     className={`text-xs/4 font-medium ${
-                      item.status === "running" ? "text-emerald-400" : "text-gray-500"
+                      item.status === 'running' ? 'text-emerald-400' : 'text-gray-500'
                     }`}
                   >
                     {item.status}
@@ -264,25 +265,21 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
         <div className="flex-1 overflow-hidden p-3">
           {stackStatus === null ? (
             <Spinner centered />
-          ) : stackStatus === "starting" || stackStatus === "stopping" ? (
+          ) : stackStatus === 'starting' || stackStatus === 'stopping' ? (
             <StackProgress
               phases={derivePhaseStates(
                 progressPhases,
                 stackError,
-                stackStatus === "stopping" ? STOP_PHASES : BOOT_PHASES,
+                stackStatus === 'stopping' ? STOP_PHASES : BOOT_PHASES
               )}
               error={stackError}
-              title={stackStatus === "stopping" ? "Stopping Stack" : "Booting Stack"}
-              onCancel={stackStatus === "starting" ? handleCancelBoot : undefined}
+              title={stackStatus === 'stopping' ? 'Stopping Stack' : 'Booting Stack'}
+              onCancel={stackStatus === 'starting' ? handleCancelBoot : undefined}
             />
           ) : stackError ? (
             progressPhases.length > 0 ? (
               <StackProgress
-                phases={derivePhaseStates(
-                  progressPhases,
-                  stackError,
-                  BOOT_PHASES,
-                )}
+                phases={derivePhaseStates(progressPhases, stackError, BOOT_PHASES)}
                 error={stackError}
                 title="Boot Failed"
                 onRetry={() => {
@@ -319,7 +316,7 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
                 </button>
               </div>
             )
-          ) : services.some((s) => s.status === "running") || selectedService ? (
+          ) : services.some(s => s.status === 'running') || selectedService ? (
             <LogViewer logs={logs} selectedService={selectedService} />
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-4 text-gray-500">

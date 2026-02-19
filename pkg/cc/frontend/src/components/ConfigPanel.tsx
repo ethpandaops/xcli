@@ -1,5 +1,5 @@
-import type { ConfigInfo, ServiceInfo } from "../types";
-import Spinner from "./Spinner";
+import type { ConfigInfo, ServiceInfo } from '@/types';
+import Spinner from '@/components/Spinner';
 
 interface ConfigPanelProps {
   config: ConfigInfo | null;
@@ -7,11 +7,7 @@ interface ConfigPanelProps {
   onNavigateConfig?: () => void;
 }
 
-export default function ConfigPanel({
-  config,
-  services,
-  onNavigateConfig,
-}: ConfigPanelProps) {
+export default function ConfigPanel({ config, services, onNavigateConfig }: ConfigPanelProps) {
   if (!config) {
     return (
       <div className="rounded-xs border border-border bg-surface-light p-4">
@@ -21,10 +17,10 @@ export default function ConfigPanel({
     );
   }
 
-  const enabledNetworks = config.networks.filter((n) => n.enabled);
+  const enabledNetworks = config.networks.filter(n => n.enabled);
 
   // Build a lookup from service name to its data for port/URL resolution.
-  const svcMap = new Map(services.map((s) => [s.name, s]));
+  const svcMap = new Map(services.map(s => [s.name, s]));
 
   // Helper to get the primary port for a service, falling back to computed value.
   const getPort = (serviceName: string, fallback: number): number => {
@@ -33,10 +29,10 @@ export default function ConfigPanel({
   };
 
   // Helper to get the URL for a service, falling back to computed value.
-  const getUrl = (serviceName: string, fallback: string, suffix = ""): string => {
+  const getUrl = (serviceName: string, fallback: string, suffix = ''): string => {
     const svc = svcMap.get(serviceName);
     const base = svc?.url ?? fallback;
-    return base !== "-" ? `${base}${suffix}` : "";
+    return base !== '-' ? `${base}${suffix}` : '';
   };
 
   return (
@@ -56,14 +52,9 @@ export default function ConfigPanel({
       <div className="flex flex-col gap-3 text-xs/4">
         {/* Mode + Networks inline */}
         <div className="flex items-center gap-2">
-          <span className="rounded-xs bg-indigo-500/20 px-2 py-0.5 font-medium text-indigo-400">
-            {config.mode}
-          </span>
-          {enabledNetworks.map((n) => (
-            <span
-              key={n.name}
-              className="rounded-xs bg-emerald-500/20 px-2 py-0.5 text-emerald-400"
-            >
+          <span className="rounded-xs bg-indigo-500/20 px-2 py-0.5 font-medium text-indigo-400">{config.mode}</span>
+          {enabledNetworks.map(n => (
+            <span key={n.name} className="rounded-xs bg-emerald-500/20 px-2 py-0.5 text-emerald-400">
               {n.name}
             </span>
           ))}
@@ -71,36 +62,34 @@ export default function ConfigPanel({
 
         {/* Services — per-network ports */}
         <div className="border-t border-border/50 pt-3">
-          <div className="mb-2 text-[10px]/3 font-semibold uppercase tracking-wider text-gray-600">
-            Services
-          </div>
+          <div className="mb-2 text-[10px]/3 font-semibold tracking-wider text-gray-600 uppercase">Services</div>
           <div className="flex flex-col gap-0.5">
             <PortRow
               label="Lab Frontend"
-              port={getPort("lab-frontend", config.ports.labFrontend)}
-              href={getUrl("lab-frontend", `http://localhost:${config.ports.labFrontend}`)}
+              port={getPort('lab-frontend', config.ports.labFrontend)}
+              href={getUrl('lab-frontend', `http://localhost:${config.ports.labFrontend}`)}
             />
-            {enabledNetworks.map((n) => {
+            {enabledNetworks.map(n => {
               const name = `cbt-api-${n.name}`;
               const fallbackPort = config.ports.cbtApiBase + n.portOffset;
               const port = getPort(name, fallbackPort);
               return (
                 <PortRow
                   key={name}
-                  label={`CBT API${enabledNetworks.length > 1 ? ` (${n.name})` : ""}`}
+                  label={`CBT API${enabledNetworks.length > 1 ? ` (${n.name})` : ''}`}
                   port={port}
                   href={`http://localhost:${port}/docs`}
                 />
               );
             })}
-            {enabledNetworks.map((n) => {
+            {enabledNetworks.map(n => {
               const name = `cbt-${n.name}`;
               const fallbackPort = config.ports.cbtFrontendBase + n.portOffset;
               const port = getPort(name, fallbackPort);
               return (
                 <PortRow
                   key={`cbt-fe-${n.name}`}
-                  label={`CBT Frontend${enabledNetworks.length > 1 ? ` (${n.name})` : ""}`}
+                  label={`CBT Frontend${enabledNetworks.length > 1 ? ` (${n.name})` : ''}`}
                   port={port}
                   href={`http://localhost:${port}`}
                 />
@@ -111,13 +100,19 @@ export default function ConfigPanel({
 
         {/* Infrastructure */}
         <div className="border-t border-border/50 pt-3">
-          <div className="mb-2 text-[10px]/3 font-semibold uppercase tracking-wider text-gray-600">
-            Infrastructure
-          </div>
+          <div className="mb-2 text-[10px]/3 font-semibold tracking-wider text-gray-600 uppercase">Infrastructure</div>
           <div className="flex flex-col gap-0.5">
-            <PortRow label="ClickHouse CBT" port={config.ports.clickhouseCbt} href={`http://localhost:${config.ports.clickhouseCbt}/play`} />
-            {config.mode === "local" && (
-              <PortRow label="ClickHouse Xatu" port={config.ports.clickhouseXatu} href={`http://localhost:${config.ports.clickhouseXatu}/play`} />
+            <PortRow
+              label="ClickHouse CBT"
+              port={config.ports.clickhouseCbt}
+              href={`http://localhost:${config.ports.clickhouseCbt}/play`}
+            />
+            {config.mode === 'local' && (
+              <PortRow
+                label="ClickHouse Xatu"
+                port={config.ports.clickhouseXatu}
+                href={`http://localhost:${config.ports.clickhouseXatu}/play`}
+              />
             )}
             <PortRow label="Redis" port={config.ports.redis} />
           </div>
@@ -125,11 +120,13 @@ export default function ConfigPanel({
 
         {/* Observability */}
         <div className="border-t border-border/50 pt-3">
-          <div className="mb-2 text-[10px]/3 font-semibold uppercase tracking-wider text-gray-600">
-            Observability
-          </div>
+          <div className="mb-2 text-[10px]/3 font-semibold tracking-wider text-gray-600 uppercase">Observability</div>
           <div className="flex flex-col gap-0.5">
-            <PortRow label="Prometheus" port={config.ports.prometheus} href={`http://localhost:${config.ports.prometheus}`} />
+            <PortRow
+              label="Prometheus"
+              port={config.ports.prometheus}
+              href={`http://localhost:${config.ports.prometheus}`}
+            />
             <PortRow label="Grafana" port={config.ports.grafana} href={`http://localhost:${config.ports.grafana}`} />
           </div>
         </div>

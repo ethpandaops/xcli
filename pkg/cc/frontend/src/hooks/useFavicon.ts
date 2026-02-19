@@ -1,22 +1,22 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef } from 'react';
 
-type StackState = "running" | "starting" | "stopping" | "error" | "stopped" | null;
+type StackState = 'running' | 'starting' | 'stopping' | 'error' | 'stopped' | null;
 
 const COLORS: Record<string, string> = {
-  running: "#34d399",   // emerald-400
-  starting: "#fbbf24",  // amber-400
-  stopping: "#fbbf24",  // amber-400
-  error: "#f87171",     // red-400
-  stopped: "#6b7280",   // gray-500
+  running: '#34d399', // emerald-400
+  starting: '#fbbf24', // amber-400
+  stopping: '#fbbf24', // amber-400
+  error: '#f87171', // red-400
+  stopped: '#6b7280', // gray-500
 };
 
 function drawFavicon(color: string): string {
   const size = 64;
-  const canvas = document.createElement("canvas");
+  const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return "";
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
 
   // Filled circle
   ctx.beginPath();
@@ -24,7 +24,7 @@ function drawFavicon(color: string): string {
   ctx.fillStyle = color;
   ctx.fill();
 
-  return canvas.toDataURL("image/png");
+  return canvas.toDataURL('image/png');
 }
 
 export function useFavicon(stackStatus: string | null, hasError: boolean) {
@@ -32,8 +32,8 @@ export function useFavicon(stackStatus: string | null, hasError: boolean) {
 
   useEffect(() => {
     let state: StackState = stackStatus as StackState;
-    if (hasError) state = "error";
-    if (!state) state = "stopped";
+    if (hasError) state = 'error';
+    if (!state) state = 'stopped';
 
     const color = COLORS[state] ?? COLORS.stopped;
     const href = drawFavicon(color);
@@ -42,11 +42,11 @@ export function useFavicon(stackStatus: string | null, hasError: boolean) {
     if (!linkRef.current) {
       // Remove any existing favicon links
       const existing = document.querySelectorAll("link[rel='icon']");
-      existing.forEach((el) => el.remove());
+      existing.forEach(el => el.remove());
 
-      const link = document.createElement("link");
-      link.rel = "icon";
-      link.type = "image/png";
+      const link = document.createElement('link');
+      link.rel = 'icon';
+      link.type = 'image/png';
       document.head.appendChild(link);
       linkRef.current = link;
     }
