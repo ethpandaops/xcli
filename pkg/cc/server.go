@@ -17,6 +17,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const logHistorySize = 1000
+
 // Server is the Command Center HTTP server.
 type Server struct {
 	log     logrus.FieldLogger
@@ -30,6 +32,11 @@ type Server struct {
 	port    int
 	srv     *http.Server
 	wg      sync.WaitGroup
+
+	// logHistory is a ring buffer of recent log lines so new SSE clients
+	// can catch up on logs emitted before they connected.
+	logHistory   []tui.LogLine
+	logHistoryMu sync.RWMutex
 }
 
 // NewServer creates a new Command Center server.
@@ -76,8 +83,9 @@ func (s *Server) Start(ctx context.Context, autoOpen bool) error {
 	// Start health monitoring
 	s.health.Start()
 
-	// Start log streaming for running services
-	s.startLogStreaming()
+	// Log streaming is started by the broadcastLoop ticker (every 2s) rather
+	// than here, so that SSE clients have time to connect before the initial
+	// burst of Docker log history is broadcast.
 
 	// Start SSE background broadcaster
 	s.wg.Add(1)
@@ -191,6 +199,9 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/stack/restart", s.api.handlePostStackRestart)
 	mux.HandleFunc("GET /api/stack/status", s.api.handleGetStackStatus)
 
+	// Logs
+	mux.HandleFunc("GET /api/logs", s.handleGetLogs)
+
 	// SSE events
 	mux.Handle("GET /api/events", s.sseHub)
 
@@ -280,6 +291,7 @@ func (s *Server) broadcastLoop(ctx context.Context) {
 				return
 			}
 
+			s.appendLog(logLine)
 			s.sseHub.Broadcast("log", logLine)
 		case <-statusTicker.C:
 			services := s.api.getServicesData()
@@ -292,6 +304,29 @@ func (s *Server) broadcastLoop(ctx context.Context) {
 			s.startLogStreaming()
 		}
 	}
+}
+
+// appendLog adds a log line to the history ring buffer.
+func (s *Server) appendLog(line tui.LogLine) {
+	s.logHistoryMu.Lock()
+	defer s.logHistoryMu.Unlock()
+
+	if len(s.logHistory) >= logHistorySize {
+		s.logHistory = s.logHistory[1:]
+	}
+
+	s.logHistory = append(s.logHistory, line)
+}
+
+// handleGetLogs returns recent log history so new clients can catch up
+// on logs emitted before their SSE connection was established.
+func (s *Server) handleGetLogs(w http.ResponseWriter, _ *http.Request) {
+	s.logHistoryMu.RLock()
+	logs := make([]tui.LogLine, len(s.logHistory))
+	copy(logs, s.logHistory)
+	s.logHistoryMu.RUnlock()
+
+	writeJSON(w, http.StatusOK, logs)
 }
 
 // openBrowser opens the given URL in the default browser.

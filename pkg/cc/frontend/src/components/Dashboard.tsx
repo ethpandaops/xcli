@@ -19,6 +19,7 @@ import ConfigPanel from "./ConfigPanel";
 import GitStatus from "./GitStatus";
 import LogViewer from "./LogViewer";
 import StackProgress, { derivePhaseStates, BOOT_PHASES, STOP_PHASES } from "./StackProgress";
+import Spinner from "./Spinner";
 
 const MAX_LOGS = 10000;
 
@@ -64,6 +65,14 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
 
     fetchJSON<GitResponse>("/api/git").then((data) => {
       setRepos(data.repos);
+    }).catch(console.error);
+
+    // Fetch log history so we have logs from before SSE connected
+    fetchJSON<LogLine[]>("/api/logs").then((data) => {
+      if (data.length > 0) {
+        logsRef.current = data;
+        setLogs(data);
+      }
     }).catch(console.error);
 
     refreshStackStatus();
@@ -205,12 +214,7 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
                   key={item.name}
                   className="flex items-center justify-between rounded-sm border border-border bg-surface-light p-3"
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-xs bg-surface-lighter px-1.5 py-0.5 font-mono text-xs/4 text-gray-400">
-                      {item.type === "clickhouse" ? "CH" : item.type === "redis" ? "RD" : "??"}
-                    </span>
-                    <span className="text-sm/5 font-medium text-white">{item.name}</span>
-                  </div>
+                  <span className="text-sm/5 font-medium text-white">{item.name}</span>
                   <span
                     className={`text-xs/4 font-medium ${
                       item.status === "running" ? "text-emerald-400" : "text-gray-500"
@@ -228,7 +232,7 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
         <div className="flex-1 overflow-hidden p-3">
           {stackStatus === null ? (
             <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-gray-500">Loading...</p>
+              <Spinner size="md" />
             </div>
           ) : stackStatus === "starting" || stackStatus === "stopping" ? (
             <StackProgress

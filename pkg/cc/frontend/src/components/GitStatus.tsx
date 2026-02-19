@@ -1,4 +1,5 @@
 import type { RepoInfo } from "../types";
+import Spinner from "./Spinner";
 
 interface GitStatusProps {
   repos: RepoInfo[];
@@ -11,7 +12,7 @@ export default function GitStatus({ repos }: GitStatusProps) {
         <h3 className="mb-2 text-sm/5 font-semibold text-gray-400">
           Git Status
         </h3>
-        <p className="text-xs/4 text-gray-600">Loading...</p>
+        <Spinner />
       </div>
     );
   }

@@ -690,6 +690,42 @@ func (m *Manager) RestartObservabilityService(ctx context.Context, service strin
 	return m.observability.RestartService(ctx, service)
 }
 
+// StartObservabilityService starts a specific observability service container.
+func (m *Manager) StartObservabilityService(ctx context.Context, service string) error {
+	if !m.cfg.Infrastructure.Observability.Enabled {
+		return fmt.Errorf("observability is not enabled")
+	}
+
+	if m.observability == nil {
+		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
+		if err != nil {
+			return fmt.Errorf("failed to create observability manager: %w", err)
+		}
+
+		m.observability = obsMgr
+	}
+
+	return m.observability.StartService(ctx, service)
+}
+
+// StopObservabilityService stops a specific observability service container.
+func (m *Manager) StopObservabilityService(ctx context.Context, service string) error {
+	if !m.cfg.Infrastructure.Observability.Enabled {
+		return fmt.Errorf("observability is not enabled")
+	}
+
+	if m.observability == nil {
+		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
+		if err != nil {
+			return fmt.Errorf("failed to create observability manager: %w", err)
+		}
+
+		m.observability = obsMgr
+	}
+
+	return m.observability.StopService(ctx, service)
+}
+
 // AutoSeedBoundsIfNeeded checks if local Redis has external model bounds and seeds them
 // from production if missing. External bounds tell CBT the min/max range of data available
 // on the external ClickHouse, avoiding slow initial full scans.

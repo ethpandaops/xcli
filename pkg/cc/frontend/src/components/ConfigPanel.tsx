@@ -1,4 +1,5 @@
 import type { ConfigInfo, ServiceInfo } from "../types";
+import Spinner from "./Spinner";
 
 interface ConfigPanelProps {
   config: ConfigInfo | null;
@@ -15,7 +16,7 @@ export default function ConfigPanel({
     return (
       <div className="rounded-xs border border-border bg-surface-light p-4">
         <h3 className="mb-2 text-sm/5 font-semibold text-gray-400">Config</h3>
-        <p className="text-xs/4 text-gray-600">Loading...</p>
+        <Spinner />
       </div>
     );
   }

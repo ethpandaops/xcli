@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useAPI } from "../hooks/useAPI";
 import type { CBTOverridesState } from "../types";
+import Spinner from "./Spinner";
 
 interface CBTOverridesEditorProps {
   onToast: (message: string, type: "success" | "error") => void;
@@ -18,6 +19,7 @@ export default function CBTOverridesEditor({
   const [transformFilter, setTransformFilter] = useState("");
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [showEnabledOnly, setShowEnabledOnly] = useState(false);
+  const [showEnvVars, setShowEnvVars] = useState(false);
 
   useEffect(() => {
     fetchJSON<CBTOverridesState>("/api/config/overrides")
@@ -44,7 +46,21 @@ export default function CBTOverridesEditor({
         );
       } else {
         onToast("Overrides saved and configs regenerated", "success");
-        setShowRestartPrompt(true);
+
+        // Only prompt restart if any cbt service is actually running
+        try {
+          const status = await fetchJSON<{ services: { name: string; status: string }[] }>("/api/status");
+          const cbtRunning = status.services.some(
+            (s) => (s.name.startsWith("cbt-") || s.name.startsWith("cbt-api-")) && s.status === "running",
+          );
+
+          if (cbtRunning) {
+            setShowRestartPrompt(true);
+          }
+        } catch {
+          // If we can't check, show the prompt anyway
+          setShowRestartPrompt(true);
+        }
       }
     } catch (err) {
       onToast(
@@ -263,45 +279,24 @@ export default function CBTOverridesEditor({
   }, [state, transformFilter, showEnabledOnly]);
 
   if (!state) {
-    return <div className="text-sm/5 text-gray-400">Loading overrides...</div>;
+    return <Spinner text="Loading overrides" centered />;
   }
 
   return (
     <div className="mx-auto max-w-5xl">
       <div className="flex flex-col gap-6">
-        {/* Env vars */}
-        <div className="rounded-xs border border-border bg-surface p-4">
-          <h3 className="mb-3 text-sm/5 font-semibold text-gray-300">
-            Environment Variables
-          </h3>
-          <div className="flex flex-col gap-3">
-            <EnvVarField
-              label="EXTERNAL_MODEL_MIN_TIMESTAMP"
-              value={state.envMinTimestamp}
-              enabled={state.envTimestampEnabled}
-              onValueChange={(v) =>
-                setState({ ...state, envMinTimestamp: v })
-              }
-              onEnabledChange={(v) =>
-                setState({ ...state, envTimestampEnabled: v })
-              }
-            />
-            <EnvVarField
-              label="EXTERNAL_MODEL_MIN_BLOCK"
-              value={state.envMinBlock}
-              enabled={state.envBlockEnabled}
-              onValueChange={(v) =>
-                setState({ ...state, envMinBlock: v })
-              }
-              onEnabledChange={(v) =>
-                setState({ ...state, envBlockEnabled: v })
-              }
-            />
-          </div>
-        </div>
-
         {/* Toolbar */}
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowEnvVars((v) => !v)}
+            className={`rounded-xs px-3 py-1 text-xs/4 font-medium transition-colors ${
+              showEnvVars
+                ? "bg-indigo-600 text-white"
+                : "bg-surface-lighter text-gray-400 hover:text-white"
+            }`}
+          >
+            {showEnvVars ? "Hide environment variables" : "Show environment variables"}
+          </button>
           <button
             onClick={() => setShowEnabledOnly((v) => !v)}
             className={`rounded-xs px-3 py-1 text-xs/4 font-medium transition-colors ${
@@ -313,6 +308,35 @@ export default function CBTOverridesEditor({
             {showEnabledOnly ? "Showing enabled only" : "Show enabled only"}
           </button>
         </div>
+
+        {showEnvVars && (
+          <div className="rounded-xs border border-border bg-surface p-4">
+            <div className="flex flex-col gap-3">
+              <EnvVarField
+                label="EXTERNAL_MODEL_MIN_TIMESTAMP"
+                value={state.envMinTimestamp}
+                enabled={state.envTimestampEnabled}
+                onValueChange={(v) =>
+                  setState({ ...state, envMinTimestamp: v })
+                }
+                onEnabledChange={(v) =>
+                  setState({ ...state, envTimestampEnabled: v })
+                }
+              />
+              <EnvVarField
+                label="EXTERNAL_MODEL_MIN_BLOCK"
+                value={state.envMinBlock}
+                enabled={state.envBlockEnabled}
+                onValueChange={(v) =>
+                  setState({ ...state, envMinBlock: v })
+                }
+                onEnabledChange={(v) =>
+                  setState({ ...state, envBlockEnabled: v })
+                }
+              />
+            </div>
+          </div>
+        )}
 
         {/* Enable missing deps banner */}
         {missingDepCount > 0 && (
@@ -476,46 +500,53 @@ export default function CBTOverridesEditor({
           </div>
         )}
 
-        {/* Restart prompt */}
+        {/* Restart modal */}
         {showRestartPrompt && (
-          <div className="flex items-center justify-between rounded-xs border border-indigo-500/30 bg-indigo-500/10 px-4 py-3">
-            {restarting ? (
-              <div className="flex items-center gap-2">
-                <div className="size-3.5 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
-                <span className="text-sm/5 text-indigo-300">Restarting xatu-cbt services...</span>
-              </div>
-            ) : (
-              <>
-                <span className="text-sm/5 text-indigo-300">
-                  Restart xatu-cbt services with these changes?
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    onClick={restartCbtApis}
-                    className="rounded-xs bg-indigo-600 px-3 py-1 text-xs/4 font-medium text-white transition-colors hover:bg-indigo-500"
-                  >
-                    Restart
-                  </button>
-                  <button
-                    onClick={() => setShowRestartPrompt(false)}
-                    className="rounded-xs bg-surface-lighter px-3 py-1 text-xs/4 text-gray-300 transition-colors hover:bg-gray-600"
-                  >
-                    Skip
-                  </button>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+            <div className="w-full max-w-sm rounded-sm border border-border bg-surface-light p-6 shadow-xl">
+              {restarting ? (
+                <div className="flex flex-col items-center gap-3 py-4">
+                  <div className="size-6 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
+                  <span className="text-sm/5 text-indigo-300">Restarting xatu-cbt services...</span>
                 </div>
-              </>
-            )}
+              ) : (
+                <>
+                  <h3 className="text-sm/5 font-semibold text-white">
+                    Restart Services
+                  </h3>
+                  <p className="mt-2 text-sm/5 text-gray-400">
+                    Restart xatu-cbt services to apply the new overrides?
+                  </p>
+                  <div className="mt-5 flex justify-end gap-2">
+                    <button
+                      onClick={() => setShowRestartPrompt(false)}
+                      className="rounded-xs bg-surface-lighter px-3 py-1.5 text-xs/4 font-medium text-gray-300 transition-colors hover:bg-gray-600"
+                    >
+                      Skip
+                    </button>
+                    <button
+                      onClick={restartCbtApis}
+                      className="rounded-xs bg-indigo-600 px-3 py-1.5 text-xs/4 font-medium text-white transition-colors hover:bg-indigo-500"
+                    >
+                      Restart
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         )}
 
         {/* Save */}
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="rounded-xs bg-indigo-600 px-4 py-2 text-sm/5 font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
-        >
-          {saving ? "Saving..." : "Save Overrides"}
-        </button>
+        <div className="flex justify-end">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="rounded-xs bg-indigo-600 px-4 py-2 text-sm/5 font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save Overrides"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -573,12 +604,20 @@ function ModelRow({
       {hasDeps && (
         <button
           onClick={onSelect}
-          className="shrink-0 rounded-xs p-0.5 text-gray-600 transition-colors hover:bg-white/10 hover:text-gray-400"
+          className={`shrink-0 rounded-xs p-0.5 transition-colors hover:bg-white/10 ${
+            isSelected ? "text-indigo-400" : "text-gray-600 hover:text-gray-400"
+          }`}
           title="View dependencies"
         >
-          <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-          </svg>
+          {isSelected ? (
+            <svg className="size-3.5" viewBox="0 0 24 24" fill="currentColor">
+              <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12Zm8.706-1.442c1.146-.573 2.437.463 2.126 1.706l-.709 2.836.042-.02a.75.75 0 0 1 .67 1.34l-.04.022c-1.147.573-2.438-.463-2.127-1.706l.71-2.836-.042.02a.75.75 0 1 1-.671-1.34l.041-.022ZM12 9a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z" clipRule="evenodd" />
+            </svg>
+          ) : (
+            <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
+            </svg>
+          )}
         </button>
       )}
     </div>

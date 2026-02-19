@@ -52,11 +52,9 @@ export default function LogViewer({ logs, selectedService }: LogViewerProps) {
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <span className="text-xs/4 font-semibold text-gray-400">Logs</span>
-        {selectedService && (
-          <span className="rounded-xs bg-indigo-500/20 px-2 py-0.5 text-xs/4 text-indigo-400">
-            {selectedService}
-          </span>
-        )}
+        <span className="rounded-xs bg-indigo-500/20 px-2 py-0.5 text-xs/4 text-indigo-400">
+          {selectedService ?? "All"}
+        </span>
 
         <div className="ml-auto flex items-center gap-2">
           {/* Level filter buttons */}

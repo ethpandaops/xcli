@@ -80,7 +80,13 @@ func (ls *LogStreamer) streamLogs(ctx context.Context, serviceName string, stdou
 		ls.mu.Unlock()
 	}()
 
-	reader, ok := stdout.(interface{ Read([]byte) (int, error) })
+	ls.streamPipe(ctx, serviceName, stdout)
+}
+
+// streamPipe reads lines from a pipe and sends them to the output channel.
+// Does not manage the services map — caller is responsible for cleanup.
+func (ls *LogStreamer) streamPipe(ctx context.Context, serviceName string, pipe any) {
+	reader, ok := pipe.(interface{ Read([]byte) (int, error) })
 	if !ok {
 		return
 	}
@@ -128,7 +134,14 @@ func (ls *LogStreamer) StartDocker(serviceName, containerName string) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	cmd := exec.CommandContext(ctx, "docker", "logs", "-f", "--tail", "50", containerName)
+	cmd := exec.CommandContext(ctx, "docker", "logs", "-f", "--tail", "100", containerName)
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		cancel()
+
+		return err
+	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -136,9 +149,6 @@ func (ls *LogStreamer) StartDocker(serviceName, containerName string) error {
 
 		return err
 	}
-
-	// Docker logs often writes to stderr too
-	cmd.Stderr = cmd.Stdout
 
 	if err := cmd.Start(); err != nil {
 		cancel()
@@ -149,8 +159,32 @@ func (ls *LogStreamer) StartDocker(serviceName, containerName string) error {
 	// Store cancel function for cleanup
 	ls.services[serviceName] = cancel
 
-	// Parse logs in background — removes itself from map when done
-	go ls.streamLogs(ctx, serviceName, stdout)
+	// Stream stdout and stderr concurrently — Docker containers may write to
+	// either, and a sequential reader would block on the first until EOF.
+	go func() {
+		var wg sync.WaitGroup
+
+		wg.Add(2) //nolint:mnd // stdout + stderr
+
+		go func() {
+			defer wg.Done()
+
+			ls.streamPipe(ctx, serviceName, stdout)
+		}()
+
+		go func() {
+			defer wg.Done()
+
+			ls.streamPipe(ctx, serviceName, stderr)
+		}()
+
+		wg.Wait()
+
+		// Both pipes done — remove from map so the service can be re-tailed
+		ls.mu.Lock()
+		delete(ls.services, serviceName)
+		ls.mu.Unlock()
+	}()
 
 	return nil
 }

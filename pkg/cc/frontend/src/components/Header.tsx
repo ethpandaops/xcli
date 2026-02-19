@@ -49,8 +49,8 @@ export default function Header({
   return (
     <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-3">
       <div className="flex items-center gap-4">
-        <h1 className="text-lg/6 font-bold tracking-tight text-white">
-          🍆 xcli Command Center
+        <h1 className="group text-lg/6 font-bold tracking-tight text-white">
+          <span className="inline-block origin-bottom transition-transform group-hover:animate-wobble">🍆</span> xcli Command Center
         </h1>
         <span className="rounded-xs bg-indigo-500/20 px-2 py-0.5 text-xs/4 font-medium text-indigo-400">
           {mode || "unknown"}

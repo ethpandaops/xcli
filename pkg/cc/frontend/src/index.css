@@ -1,10 +1,19 @@
 @import "tailwindcss";
 
 @theme {
-  --color-surface: oklch(0.145 0.005 285);
-  --color-surface-light: oklch(0.19 0.005 285);
-  --color-surface-lighter: oklch(0.23 0.005 285);
-  --color-border: oklch(0.3 0.005 285);
+  --color-surface: oklch(0.16 0.02 260);
+  --color-surface-light: oklch(0.20 0.022 260);
+  --color-surface-lighter: oklch(0.25 0.024 260);
+  --color-border: oklch(0.30 0.025 260);
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco,
     Consolas, 'Liberation Mono', 'Courier New', monospace;
+  --animate-wobble: wobble 0.5s ease-in-out;
+}
+
+@keyframes wobble {
+  0% { transform: rotate(0deg); }
+  25% { transform: rotate(15deg); }
+  50% { transform: rotate(-10deg); }
+  75% { transform: rotate(5deg); }
+  100% { transform: rotate(0deg); }
 }

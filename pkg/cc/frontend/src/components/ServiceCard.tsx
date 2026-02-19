@@ -61,6 +61,7 @@ export default function ServiceCard({
   );
 
   const isRunning = service.status === "running";
+  const isDocker = service.name === "prometheus" || service.name === "grafana";
 
   // Append /docs for cbt-api services when opening in browser
   const openUrl = service.url && service.name.startsWith("cbt-api-")
@@ -123,7 +124,7 @@ export default function ServiceCard({
       <div className="mt-2 flex items-center gap-3 text-xs/4 text-gray-500">
         {service.uptime && <span>{service.uptime}</span>}
         {service.pid > 0 && <span>PID {service.pid}</span>}
-        {service.url && service.name !== "lab-backend" && (
+        {isRunning && service.url && service.name !== "lab-backend" && (
           <a
             href={openUrl}
             target="_blank"
@@ -161,11 +162,13 @@ export default function ServiceCard({
             />
           </>
         )}
-        <ActionBtn
-          label="Rebuild"
-          loading={loading === "rebuild"}
-          onClick={() => doAction("rebuild")}
-        />
+        {!isDocker && (
+          <ActionBtn
+            label="Rebuild"
+            loading={loading === "rebuild"}
+            onClick={() => doAction("rebuild")}
+          />
+        )}
       </div>
     </div>
   );

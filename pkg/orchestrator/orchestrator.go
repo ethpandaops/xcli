@@ -619,6 +619,11 @@ func (o *Orchestrator) StartService(ctx context.Context, service string) error {
 	// Use background context for long-running processes
 	processCtx := context.Background()
 
+	// Handle observability services (Docker containers)
+	if service == constants.ServicePrometheus || service == constants.ServiceGrafana {
+		return o.infra.StartObservabilityService(ctx, service)
+	}
+
 	// Parse service name to determine type and network
 	switch {
 	case service == constants.ServiceLabBackend:
@@ -648,6 +653,11 @@ func (o *Orchestrator) StartService(ctx context.Context, service string) error {
 
 // StopService stops a specific service by name.
 func (o *Orchestrator) StopService(ctx context.Context, service string) error {
+	// Handle observability services (Docker containers)
+	if service == constants.ServicePrometheus || service == constants.ServiceGrafana {
+		return o.infra.StopObservabilityService(ctx, service)
+	}
+
 	// Try to stop the process via process manager
 	err := o.proc.Stop(ctx, service)
 
