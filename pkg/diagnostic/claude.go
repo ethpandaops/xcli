@@ -1,4 +1,3 @@
-//nolint:staticcheck // QF1012: WriteString(Sprintf) pattern is used consistently for prompt building readability
 package diagnostic
 
 import (

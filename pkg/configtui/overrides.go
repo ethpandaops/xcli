@@ -1,6 +1,4 @@
 // Package configtui provides a TUI for managing CBT model overrides.
-//
-//nolint:staticcheck // QF1012: WriteString(Sprintf) pattern used for YAML building
 package configtui
 
 import (
