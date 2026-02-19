@@ -22,10 +22,15 @@ export default function ConfigPanel({ config, services, onNavigateConfig }: Conf
   // Build a lookup from service name to its data for port/URL resolution.
   const svcMap = new Map(services.map(s => [s.name, s]));
 
-  // Helper to get the primary port for a service, falling back to computed value.
+  // Helper to get the primary port for a service by extracting it from the
+  // service URL (which always points at the HTTP port). Falls back to config value.
   const getPort = (serviceName: string, fallback: number): number => {
     const svc = svcMap.get(serviceName);
-    return svc?.ports?.[0] ?? fallback;
+    if (svc?.url && svc.url !== '-') {
+      const match = svc.url.match(/:(\d+)$/);
+      if (match) return parseInt(match[1], 10);
+    }
+    return fallback;
   };
 
   // Helper to get the URL for a service, falling back to computed value.
