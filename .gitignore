@@ -28,6 +28,7 @@ go.work
 # Command Center frontend
 pkg/cc/frontend/node_modules/
 pkg/cc/frontend/dist/
+pkg/cc/frontend/storybook-static/
 
 # OS
 .DS_Store
