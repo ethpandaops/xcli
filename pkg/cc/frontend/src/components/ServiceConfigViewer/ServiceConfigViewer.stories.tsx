@@ -19,6 +19,7 @@ const meta = {
   },
   args: {
     onToast: fn(),
+    stack: 'lab',
   },
 } satisfies Meta<typeof ServiceConfigViewer>;
 
@@ -33,7 +34,7 @@ export const EmptyFileList: Story = {
   parameters: {
     msw: {
       handlers: [
-        http.get('/api/config/files', async () => {
+        http.get('/api/stacks/:stack/config/files', async () => {
           await delay(100);
           return HttpResponse.json([]);
         }),

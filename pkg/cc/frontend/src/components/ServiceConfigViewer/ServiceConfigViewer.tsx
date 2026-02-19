@@ -4,6 +4,7 @@ import type { ConfigFileInfo, ConfigFileContent } from '@/types';
 
 interface ServiceConfigViewerProps {
   onToast: (message: string, type: 'success' | 'error') => void;
+  stack: string;
 }
 
 function fileExtColor(name: string): string {
@@ -14,8 +15,8 @@ function fileExtColor(name: string): string {
   return 'text-text-tertiary';
 }
 
-export default function ServiceConfigViewer({ onToast }: ServiceConfigViewerProps) {
-  const { fetchJSON, putJSON, deleteAction } = useAPI();
+export default function ServiceConfigViewer({ onToast, stack }: ServiceConfigViewerProps) {
+  const { fetchJSON, putJSON, deleteAction } = useAPI(stack);
   const [files, setFiles] = useState<ConfigFileInfo[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<ConfigFileContent | null>(null);
@@ -26,7 +27,7 @@ export default function ServiceConfigViewer({ onToast }: ServiceConfigViewerProp
 
   // Load file list
   useEffect(() => {
-    fetchJSON<ConfigFileInfo[]>('/api/config/files')
+    fetchJSON<ConfigFileInfo[]>('/config/files')
       .then(setFiles)
       .catch(err => onToast(err.message, 'error'));
   }, [fetchJSON, onToast]);
@@ -41,7 +42,7 @@ export default function ServiceConfigViewer({ onToast }: ServiceConfigViewerProp
 
     setLoading(true);
 
-    fetchJSON<ConfigFileContent>(`/api/config/files/${selectedFile}`)
+    fetchJSON<ConfigFileContent>(`/config/files/${selectedFile}`)
       .then(data => {
         setFileContent(data);
         setEditContent(data.overrideContent ?? data.content);
@@ -60,7 +61,7 @@ export default function ServiceConfigViewer({ onToast }: ServiceConfigViewerProp
       const resp = await putJSON<{
         status: string;
         regenerateError?: string;
-      }>(`/api/config/files/${selectedFile}/override`, {
+      }>(`/config/files/${selectedFile}/override`, {
         content: editContent,
       });
 
@@ -71,11 +72,11 @@ export default function ServiceConfigViewer({ onToast }: ServiceConfigViewerProp
       }
 
       // Refresh
-      const updated = await fetchJSON<ConfigFileContent>(`/api/config/files/${selectedFile}`);
+      const updated = await fetchJSON<ConfigFileContent>(`/config/files/${selectedFile}`);
       setFileContent(updated);
       setEditMode(false);
 
-      const updatedFiles = await fetchJSON<ConfigFileInfo[]>('/api/config/files');
+      const updatedFiles = await fetchJSON<ConfigFileInfo[]>('/config/files');
       setFiles(updatedFiles);
     } catch (err) {
       onToast(err instanceof Error ? err.message : 'Save failed', 'error');
@@ -92,16 +93,16 @@ export default function ServiceConfigViewer({ onToast }: ServiceConfigViewerProp
     }
 
     try {
-      await deleteAction(`/api/config/files/${selectedFile}/override`);
+      await deleteAction(`/config/files/${selectedFile}/override`);
       onToast('Override removed', 'success');
 
       // Refresh
-      const updated = await fetchJSON<ConfigFileContent>(`/api/config/files/${selectedFile}`);
+      const updated = await fetchJSON<ConfigFileContent>(`/config/files/${selectedFile}`);
       setFileContent(updated);
       setEditContent(updated.content);
       setEditMode(false);
 
-      const updatedFiles = await fetchJSON<ConfigFileInfo[]>('/api/config/files');
+      const updatedFiles = await fetchJSON<ConfigFileInfo[]>('/config/files');
       setFiles(updatedFiles);
     } catch (err) {
       onToast(err instanceof Error ? err.message : 'Delete failed', 'error');

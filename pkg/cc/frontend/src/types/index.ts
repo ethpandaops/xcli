@@ -183,6 +183,12 @@ export interface ModelEntry {
   enabled: boolean;
 }
 
+export interface StackInfo {
+  name: string;
+  label: string;
+  status?: string;
+}
+
 export interface CBTOverridesState {
   externalModels: ModelEntry[];
   transformationModels: ModelEntry[];

@@ -6,6 +6,7 @@ interface ServiceCardProps {
   service: ServiceInfo;
   selected: boolean;
   onSelect: () => void;
+  stack: string;
 }
 
 const healthIcons: Record<string, { color: string; title: string; path: string }> = {
@@ -31,8 +32,8 @@ const healthIcons: Record<string, { color: string; title: string; path: string }
   },
 };
 
-export default function ServiceCard({ service, selected, onSelect }: ServiceCardProps) {
-  const { postAction } = useAPI();
+export default function ServiceCard({ service, selected, onSelect, stack }: ServiceCardProps) {
+  const { postAction } = useAPI(stack);
   const [loading, setLoading] = useState<string | null>(null);
 
   const doAction = useCallback(
@@ -71,7 +72,7 @@ export default function ServiceCard({ service, selected, onSelect }: ServiceCard
     <div
       onClick={onSelect}
       className={`group relative cursor-pointer rounded-xs transition-colors ${
-        selected ? 'bg-accent/10 ring-1 ring-accent/30' : 'hover:bg-white/[0.03]'
+        selected ? 'bg-accent/10 ring-1 ring-accent/30' : 'hover:bg-white/3'
       }`}
     >
       {loading && (

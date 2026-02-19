@@ -2,14 +2,14 @@ import { useEffect, useRef, useCallback } from 'react';
 
 type SSEHandler = (event: string, data: unknown) => void;
 
-export function useSSE(handler: SSEHandler, onConnect?: () => void) {
+export function useSSE(handler: SSEHandler, onConnect: (() => void) | undefined, stack: string) {
   const handlerRef = useRef(handler);
   handlerRef.current = handler;
   const onConnectRef = useRef(onConnect);
   onConnectRef.current = onConnect;
 
   const connect = useCallback(() => {
-    const es = new EventSource('/api/events');
+    const es = new EventSource(`/api/stacks/${stack}/events`);
 
     es.onopen = () => {
       onConnectRef.current?.();
@@ -42,7 +42,7 @@ export function useSSE(handler: SSEHandler, onConnect?: () => void) {
     };
 
     return es;
-  }, []);
+  }, [stack]);
 
   useEffect(() => {
     const es = connect();

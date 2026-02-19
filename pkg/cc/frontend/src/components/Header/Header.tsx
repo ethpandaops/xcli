@@ -1,34 +1,56 @@
+import { useState, useRef, useEffect } from 'react';
 import type { ServiceInfo, InfraInfo } from '@/types';
 
 interface HeaderProps {
   services: ServiceInfo[];
   infrastructure: InfraInfo[];
-  mode: string;
   onNavigateConfig?: () => void;
   stackStatus: string | null;
   onStackAction: () => void;
   currentPhase?: string;
   notificationsEnabled: boolean;
   onToggleNotifications: () => void;
+  activeStack: string;
+  availableStacks: string[];
+  onSwitchStack: (stack: string) => void;
 }
 
 export default function Header({
   services,
   infrastructure,
-  mode,
   onNavigateConfig,
   stackStatus,
   onStackAction,
   currentPhase,
   notificationsEnabled,
   onToggleNotifications,
+  activeStack,
+  availableStacks,
+  onSwitchStack,
 }: HeaderProps) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
   const running = services.filter(s => s.status === 'running').length;
   const healthy = services.filter(s => s.health === 'healthy').length;
   const infraRunning = infrastructure.filter(i => i.status === 'running').length;
 
   const isBusy = !stackStatus || stackStatus === 'starting' || stackStatus === 'stopping';
   const isRunning = stackStatus === 'running';
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!dropdownOpen) return;
+
+    const handleClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClick);
+
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [dropdownOpen]);
 
   let buttonLabel = 'Boot Stack';
   let buttonClass = 'flex items-center gap-1.5 rounded-xs px-3 py-1.5 text-xs/4 font-medium transition-colors ';
@@ -53,9 +75,67 @@ export default function Header({
         <h1 className="group text-sm/5 font-bold tracking-tight text-text-primary">
           <span className="inline-block origin-bottom transition-transform group-hover:animate-wobble">🍆</span> xcli
         </h1>
-        <span className="rounded-xs bg-accent/15 px-1.5 py-0.5 text-xs/3 font-medium text-accent-light">
-          {mode || '—'}
-        </span>
+
+        <div className="h-4 w-px bg-border" />
+
+        {/* Stack switcher */}
+        <div className="relative" ref={dropdownRef}>
+          <button
+            onClick={() => setDropdownOpen(v => !v)}
+            className={`flex items-center gap-1.5 rounded-xs border px-2.5 py-1 text-xs/4 font-medium transition-colors ${
+              dropdownOpen
+                ? 'border-accent/40 bg-accent/10 text-accent-light'
+                : 'border-border bg-surface-light text-text-secondary hover:border-text-disabled hover:text-text-primary'
+            }`}
+          >
+            {/* Stack icon */}
+            <svg
+              className="size-3.5 shrink-0 text-text-muted"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={1.5}
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M6.429 9.75 2.25 12l4.179 2.25m0-4.5 5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0 4.179 2.25L12 21.75l-9.75-5.25 4.179-2.25m11.142 0-5.571 3-5.571-3"
+              />
+            </svg>
+            <span>{activeStack}</span>
+            <svg
+              className={`size-3 text-text-disabled transition-transform ${dropdownOpen ? 'rotate-180' : ''}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+            </svg>
+          </button>
+
+          {dropdownOpen && (
+            <div className="absolute top-full left-0 z-50 mt-1 min-w-36 rounded-xs border border-border bg-surface-light py-1 shadow-lg">
+              {availableStacks.map(stack => (
+                <button
+                  key={stack}
+                  onClick={() => {
+                    onSwitchStack(stack);
+                    setDropdownOpen(false);
+                  }}
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs/4 transition-colors ${
+                    stack === activeStack
+                      ? 'bg-accent/10 font-medium text-accent-light'
+                      : 'text-text-secondary hover:bg-white/5'
+                  }`}
+                >
+                  {stack === activeStack && <span className="size-1.5 rounded-full bg-accent" />}
+                  {stack}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center gap-4 text-xs/4 text-text-muted">

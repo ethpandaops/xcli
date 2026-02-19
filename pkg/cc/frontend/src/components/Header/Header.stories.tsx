@@ -16,11 +16,13 @@ const meta = {
   args: {
     services: mockServices,
     infrastructure: mockInfrastructure,
-    mode: 'local',
     stackStatus: 'stopped',
     onStackAction: fn(),
     notificationsEnabled: true,
     onToggleNotifications: fn(),
+    activeStack: 'lab',
+    availableStacks: ['lab'],
+    onSwitchStack: fn(),
   },
 } satisfies Meta<typeof Header>;
 
