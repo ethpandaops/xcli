@@ -25,6 +25,14 @@ import { useNotifications } from '@/hooks/useNotifications';
 
 const MAX_LOGS = 10000;
 
+function loadSidebarState(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === 'true';
+  } catch {
+    return false;
+  }
+}
+
 interface DashboardProps {
   onNavigateConfig?: () => void;
 }
@@ -42,6 +50,32 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
   const [stackStatus, setStackStatus] = useState<string | null>(null);
   const [progressPhases, setProgressPhases] = useState<StackProgressEvent[]>([]);
   const [stackError, setStackError] = useState<string | null>(null);
+  const [leftCollapsed, setLeftCollapsed] = useState(() => loadSidebarState('xcli:sidebar-left-collapsed'));
+  const [rightCollapsed, setRightCollapsed] = useState(() => loadSidebarState('xcli:sidebar-right-collapsed'));
+
+  const toggleLeft = useCallback(() => {
+    setLeftCollapsed(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('xcli:sidebar-left-collapsed', String(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleRight = useCallback(() => {
+    setRightCollapsed(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('xcli:sidebar-right-collapsed', String(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
 
   // Fetch all REST data — called on mount and whenever SSE (re)connects
   const loadAllData = useCallback(() => {
@@ -229,39 +263,56 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar - Services + Infra */}
-        <div className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border bg-surface p-3">
-          <div className="text-xs/4 font-semibold tracking-wider text-text-muted uppercase">Services</div>
-          {services.map(svc => (
-            <ServiceCard
-              key={svc.name}
-              service={svc}
-              selected={selectedService === svc.name}
-              onSelect={() => setSelectedService(selectedService === svc.name ? null : svc.name)}
-            />
-          ))}
+        <div
+          className={`relative shrink-0 border-r border-border bg-surface transition-[width] duration-200 ease-in-out ${leftCollapsed ? 'w-10' : 'w-72'}`}
+        >
+          <div className={`flex h-full flex-col gap-3 overflow-y-auto p-3 ${leftCollapsed ? 'invisible' : ''}`}>
+            <div className="text-xs/4 font-semibold tracking-wider text-text-muted uppercase">Services</div>
+            {services.map(svc => (
+              <ServiceCard
+                key={svc.name}
+                service={svc}
+                selected={selectedService === svc.name}
+                onSelect={() => setSelectedService(selectedService === svc.name ? null : svc.name)}
+              />
+            ))}
 
-          {infrastructure.length > 0 && (
-            <>
-              <div className="mt-2 text-xs/4 font-semibold tracking-wider text-text-muted uppercase">
-                Infrastructure
-              </div>
-              {infrastructure.map(item => (
-                <div
-                  key={item.name}
-                  className="flex items-center justify-between rounded-sm border border-border bg-surface-light p-3"
-                >
-                  <span className="text-sm/5 font-medium text-text-primary">{item.name}</span>
-                  <span
-                    className={`text-xs/4 font-medium ${
-                      item.status === 'running' ? 'text-success' : 'text-text-muted'
-                    }`}
-                  >
-                    {item.status}
-                  </span>
+            {infrastructure.length > 0 && (
+              <>
+                <div className="mt-2 text-xs/4 font-semibold tracking-wider text-text-muted uppercase">
+                  Infrastructure
                 </div>
-              ))}
-            </>
-          )}
+                {infrastructure.map(item => (
+                  <div
+                    key={item.name}
+                    className="flex items-center justify-between rounded-sm border border-border bg-surface-light p-3"
+                  >
+                    <span className="text-sm/5 font-medium text-text-primary">{item.name}</span>
+                    <span
+                      className={`text-xs/4 font-medium ${
+                        item.status === 'running' ? 'text-success' : 'text-text-muted'
+                      }`}
+                    >
+                      {item.status}
+                    </span>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+          <button
+            onClick={toggleLeft}
+            className="absolute top-2 -right-3 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-surface-light text-text-muted transition-colors hover:bg-surface-lighter hover:text-text-secondary"
+            title={leftCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <svg className="size-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              {leftCollapsed ? (
+                <path strokeLinecap="round" strokeLinejoin="round" d="m9 5 7 7-7 7" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" d="m15 19-7-7 7-7" />
+              )}
+            </svg>
+          </button>
         </div>
 
         {/* Main area - adaptive center panel */}
@@ -348,9 +399,26 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
         </div>
 
         {/* Right sidebar - Config + Git */}
-        <div className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto border-l border-border bg-surface p-3">
-          <ConfigPanel config={config} services={services} onNavigateConfig={onNavigateConfig} />
-          <GitStatus repos={repos} />
+        <div
+          className={`relative shrink-0 border-l border-border bg-surface transition-[width] duration-200 ease-in-out ${rightCollapsed ? 'w-10' : 'w-72'}`}
+        >
+          <button
+            onClick={toggleRight}
+            className="absolute top-2 -left-3 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-surface-light text-text-muted transition-colors hover:bg-surface-lighter hover:text-text-secondary"
+            title={rightCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <svg className="size-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              {rightCollapsed ? (
+                <path strokeLinecap="round" strokeLinejoin="round" d="m15 19-7-7 7-7" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" d="m9 5 7 7-7 7" />
+              )}
+            </svg>
+          </button>
+          <div className={`flex h-full flex-col gap-3 overflow-y-auto p-3 ${rightCollapsed ? 'invisible' : ''}`}>
+            <ConfigPanel config={config} services={services} onNavigateConfig={onNavigateConfig} />
+            <GitStatus repos={repos} />
+          </div>
         </div>
       </div>
     </div>
