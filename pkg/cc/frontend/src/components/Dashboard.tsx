@@ -151,7 +151,6 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
           const errData = data as { error?: string };
           const msg = errData?.error ?? 'Unknown error';
           setStackError(msg);
-          notify('xcli: Stack Error 🍆', { body: msg });
           break;
         }
         case 'stack_stopping':
