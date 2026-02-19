@@ -68,7 +68,7 @@ func (m *Manager) SetVerbose(verbose bool) {
 // Start starts infrastructure via xatu-cbt.
 func (m *Manager) Start(ctx context.Context) error {
 	// Check if infrastructure is already running
-	if m.IsRunning() {
+	if m.IsRunning(ctx) {
 		m.log.Info("infrastructure is already running")
 
 		return nil
@@ -214,13 +214,13 @@ func (m *Manager) SetupNetwork(ctx context.Context, network string) error {
 }
 
 // IsRunning checks if infrastructure is running.
-func (m *Manager) IsRunning() bool {
+func (m *Manager) IsRunning(ctx context.Context) bool {
 	// Get ports from mode (instead of hard-coded ports)
 	ports := m.mode.GetHealthCheckPorts()
 
 	for _, port := range ports {
 		addr := fmt.Sprintf("localhost:%d", port)
-		if !m.checkPort(addr) {
+		if !m.checkPort(ctx, addr) {
 			return false
 		}
 	}
@@ -259,7 +259,7 @@ func (m *Manager) WaitForReady(ctx context.Context, timeout time.Duration, spinn
 
 			for _, port := range ports {
 				addr := fmt.Sprintf("localhost:%d", port)
-				if !m.checkPort(addr) {
+				if !m.checkPort(ctx, addr) {
 					m.log.WithField("port", port).Debug("waiting for port")
 
 					allReady = false
@@ -278,8 +278,10 @@ func (m *Manager) WaitForReady(ctx context.Context, timeout time.Duration, spinn
 }
 
 // checkPort checks if a port is open.
-func (m *Manager) checkPort(addr string) bool {
-	conn, err := net.DialTimeout("tcp", addr, 1*time.Second)
+func (m *Manager) checkPort(ctx context.Context, addr string) bool {
+	d := net.Dialer{Timeout: 1 * time.Second}
+
+	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return false
 	}
@@ -291,7 +293,7 @@ func (m *Manager) checkPort(addr string) bool {
 
 // Status returns the status of infrastructure components relevant to the current mode.
 // Hybrid mode shows ClickHouse CBT + Redis; local mode adds ClickHouse Xatu.
-func (m *Manager) Status() map[string]bool {
+func (m *Manager) Status(ctx context.Context) map[string]bool {
 	// Map ports to display names for mode-relevant infrastructure only.
 	portNames := map[int]string{
 		m.cfg.Infrastructure.ClickHouseCBTPort: "ClickHouse CBT",
@@ -307,7 +309,7 @@ func (m *Manager) Status() map[string]bool {
 
 	for port, name := range portNames {
 		addr := fmt.Sprintf("localhost:%d", port)
-		status[name] = m.checkPort(addr)
+		status[name] = m.checkPort(ctx, addr)
 	}
 
 	return status

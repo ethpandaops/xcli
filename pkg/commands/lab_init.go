@@ -99,7 +99,7 @@ func runLabInit(ctx context.Context, log logrus.FieldLogger, configPath string) 
 
 	spinner := ui.NewSpinner("Scanning parent directory for required repositories")
 
-	repos, err := disc.DiscoverRepos()
+	repos, err := disc.DiscoverRepos(ctx)
 	if err != nil {
 		spinner.Fail("Repository discovery failed")
 

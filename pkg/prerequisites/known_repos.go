@@ -1,13 +1,13 @@
 package prerequisites
 
-// buildKnownRepoPrerequisites returns prerequisite definitions for all known repos.
-func buildKnownRepoPrerequisites() map[string]RepoPrerequisites {
-	return map[string]RepoPrerequisites{
+// buildKnownRepo returns prerequisite definitions for all known repos.
+func buildKnownRepo() map[string]Repo {
+	return map[string]Repo{
 		"lab-backend": {
 			RepoName: "lab-backend",
 			Prerequisites: []Prerequisite{
 				{
-					Type:            PrerequisiteTypeFileCopy,
+					Type:            TypeFileCopy,
 					Description:     "Copy .env.example to .env",
 					SourcePath:      ".env.example",
 					DestinationPath: ".env",
@@ -19,7 +19,7 @@ func buildKnownRepoPrerequisites() map[string]RepoPrerequisites {
 			RepoName: "lab",
 			Prerequisites: []Prerequisite{
 				{
-					Type:         PrerequisiteTypeCommand,
+					Type:         TypeCommand,
 					Description:  "Install frontend dependencies",
 					Command:      "pnpm",
 					Args:         []string{"install"},
@@ -27,7 +27,7 @@ func buildKnownRepoPrerequisites() map[string]RepoPrerequisites {
 					SkipIfExists: "node_modules",
 				},
 				{
-					Type:         PrerequisiteTypeCommand,
+					Type:         TypeCommand,
 					Description:  "Build frontend for bundling",
 					Command:      "pnpm",
 					Args:         []string{"run", "build"},
@@ -40,7 +40,7 @@ func buildKnownRepoPrerequisites() map[string]RepoPrerequisites {
 			RepoName: "xatu-cbt",
 			Prerequisites: []Prerequisite{
 				{
-					Type:            PrerequisiteTypeFileCopy,
+					Type:            TypeFileCopy,
 					Description:     "Copy example.env to .env",
 					SourcePath:      "example.env",
 					DestinationPath: ".env",
@@ -52,7 +52,7 @@ func buildKnownRepoPrerequisites() map[string]RepoPrerequisites {
 			RepoName: "cbt-api",
 			Prerequisites: []Prerequisite{
 				{
-					Type:            PrerequisiteTypeFileCopy,
+					Type:            TypeFileCopy,
 					Description:     "Copy config.example.yaml to config.yaml",
 					SourcePath:      "config.example.yaml",
 					DestinationPath: "config.yaml",

@@ -90,7 +90,7 @@ func (hm *HealthMonitor) checkAll() {
 	}
 
 	// Send update
-	snapshot := make(map[string]HealthStatus)
+	snapshot := make(map[string]HealthStatus, len(hm.services))
 	for k, v := range hm.services {
 		snapshot[k] = v
 	}

@@ -257,7 +257,7 @@ func extractSection(text, sectionName string) string {
 
 // extractBulletPoints extracts items from a bullet list.
 func extractBulletPoints(text string) []string {
-	items := make([]string, 0)
+	items := make([]string, 0, 8)
 
 	// Match lines starting with -, *, or •
 	re := regexp.MustCompile(`(?m)^[\s]*[-*•]\s*(.+)$`)
@@ -280,7 +280,7 @@ func extractBulletPoints(text string) []string {
 
 // extractListItems extracts items from numbered or bullet lists.
 func extractListItems(text string) []string {
-	items := make([]string, 0)
+	items := make([]string, 0, 8)
 
 	// Match numbered items (1. item) or bullet points
 	re := regexp.MustCompile(`(?m)^[\s]*(?:\d+[.)]\s*|[-*•]\s*)(.+)$`)
@@ -300,7 +300,7 @@ func extractListItems(text string) []string {
 
 // extractCommands extracts shell commands from text.
 func extractCommands(text string) []string {
-	commands := make([]string, 0)
+	commands := make([]string, 0, 4)
 
 	// Match lines starting with $
 	dollarRe := regexp.MustCompile(`(?m)^\s*\$\s*(.+)$`)

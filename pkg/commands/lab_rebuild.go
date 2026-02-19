@@ -375,7 +375,7 @@ func runFullRebuild(
 	spinner = ui.NewSpinner("[5/7] Regenerating configs")
 
 	configStart := time.Now()
-	configErr := orch.GenerateConfigs()
+	configErr := orch.GenerateConfigs(ctx)
 	configEnd := time.Now()
 
 	configResult := diagnostic.BuildResult{

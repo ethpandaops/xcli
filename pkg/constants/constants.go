@@ -126,7 +126,7 @@ func GetDependencies(project string) []string {
 
 // GetDependents returns the projects that depend on the given project.
 func GetDependents(project string) []string {
-	dependents := make([]string, 0)
+	dependents := make([]string, 0, len(ProjectDependencies))
 
 	for dependent, deps := range ProjectDependencies {
 		for _, dep := range deps {
