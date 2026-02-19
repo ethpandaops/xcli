@@ -770,10 +770,10 @@ func categorizeModelsByType(
 	intervalTypes map[string]IntervalType,
 	rangeInfos map[string]*RangeColumnInfo,
 ) (timeModels, blockModels, entityModels, unknownModels []string) {
-	timeModels = make([]string, 0)
-	blockModels = make([]string, 0)
-	entityModels = make([]string, 0)
-	unknownModels = make([]string, 0)
+	timeModels = make([]string, 0, len(models))
+	blockModels = make([]string, 0, len(models))
+	entityModels = make([]string, 0, len(models))
+	unknownModels = make([]string, 0, len(models))
 
 	for _, model := range models {
 		// First check frontmatter interval type (most accurate)

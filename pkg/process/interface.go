@@ -5,9 +5,9 @@ import (
 	"os/exec"
 )
 
-// ProcessManager defines the interface for process lifecycle management.
+// Manager defines the interface for process lifecycle management.
 // This interface enables dependency injection and testing via mocks.
-type ProcessManager interface {
+type Manager interface {
 	// Start starts a new process with optional health checking.
 	// If healthCheck is provided, waits for service to be healthy before returning.
 	Start(ctx context.Context, name string, cmd *exec.Cmd, healthCheck HealthChecker) error

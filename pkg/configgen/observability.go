@@ -291,26 +291,26 @@ func (g *Generator) generateLabDashboard(outputPath string) error {
 	// Build panels dynamically based on enabled networks
 	panels := g.buildDashboardPanels()
 
-	dashboard := map[string]interface{}{
-		"annotations": map[string]interface{}{
-			"list": []interface{}{},
+	dashboard := map[string]any{
+		"annotations": map[string]any{
+			"list": []any{},
 		},
 		"editable":             true,
 		"fiscalYearStartMonth": 0,
 		"graphTooltip":         0,
 		"id":                   nil,
-		"links":                []interface{}{},
+		"links":                []any{},
 		"panels":               panels,
 		"schemaVersion":        39,
 		"tags":                 []string{"lab", "xcli"},
-		"templating": map[string]interface{}{
-			"list": []interface{}{},
+		"templating": map[string]any{
+			"list": []any{},
 		},
-		"time": map[string]interface{}{
+		"time": map[string]any{
 			"from": "now-1h",
 			"to":   "now",
 		},
-		"timepicker": map[string]interface{}{},
+		"timepicker": map[string]any{},
 		"timezone":   "browser",
 		"title":      "Lab Overview",
 		"uid":        "xcli-lab-overview",
@@ -333,16 +333,16 @@ func (g *Generator) generateLabDashboard(outputPath string) error {
 }
 
 // buildDashboardPanels creates Grafana dashboard panels for lab services.
-func (g *Generator) buildDashboardPanels() []interface{} {
-	panels := make([]interface{}, 0, 10)
+func (g *Generator) buildDashboardPanels() []any {
+	panels := make([]any, 0, 10)
 	gridY := 0
 
 	// Service health row
-	panels = append(panels, map[string]interface{}{
+	panels = append(panels, map[string]any{
 		"collapsed": false,
-		"gridPos":   map[string]interface{}{"h": 1, "w": 24, "x": 0, "y": gridY},
+		"gridPos":   map[string]any{"h": 1, "w": 24, "x": 0, "y": gridY},
 		"id":        1,
-		"panels":    []interface{}{},
+		"panels":    []any{},
 		"title":     "Service Health",
 		"type":      "row",
 	})
@@ -385,11 +385,11 @@ func (g *Generator) buildDashboardPanels() []interface{} {
 	gridY += 3
 
 	// Go runtime metrics row
-	panels = append(panels, map[string]interface{}{
+	panels = append(panels, map[string]any{
 		"collapsed": false,
-		"gridPos":   map[string]interface{}{"h": 1, "w": 24, "x": 0, "y": gridY},
+		"gridPos":   map[string]any{"h": 1, "w": 24, "x": 0, "y": gridY},
 		"id":        panelID,
-		"panels":    []interface{}{},
+		"panels":    []any{},
 		"title":     "Go Runtime",
 		"type":      "row",
 	})
@@ -417,26 +417,26 @@ func (g *Generator) buildDashboardPanels() []interface{} {
 }
 
 // createStatPanel creates a Grafana stat panel configuration.
-func (g *Generator) createStatPanel(id int, title, query string, x, y, w, h int) map[string]interface{} {
-	return map[string]interface{}{
-		"datasource": map[string]interface{}{
+func (g *Generator) createStatPanel(id int, title, query string, x, y, w, h int) map[string]any {
+	return map[string]any{
+		"datasource": map[string]any{
 			"type": "prometheus",
 			"uid":  "prometheus",
 		},
-		"fieldConfig": map[string]interface{}{
-			"defaults": map[string]interface{}{
-				"color": map[string]interface{}{
+		"fieldConfig": map[string]any{
+			"defaults": map[string]any{
+				"color": map[string]any{
 					"mode": "thresholds",
 				},
-				"mappings": []interface{}{
-					map[string]interface{}{
-						"options": map[string]interface{}{
-							"0": map[string]interface{}{
+				"mappings": []any{
+					map[string]any{
+						"options": map[string]any{
+							"0": map[string]any{
 								"color": "red",
 								"index": 1,
 								"text":  "Down",
 							},
-							"1": map[string]interface{}{
+							"1": map[string]any{
 								"color": "green",
 								"index": 0,
 								"text":  "Up",
@@ -445,24 +445,24 @@ func (g *Generator) createStatPanel(id int, title, query string, x, y, w, h int)
 						"type": "value",
 					},
 				},
-				"thresholds": map[string]interface{}{
+				"thresholds": map[string]any{
 					"mode": "absolute",
-					"steps": []interface{}{
-						map[string]interface{}{"color": "red", "value": nil},
-						map[string]interface{}{"color": "green", "value": 1},
+					"steps": []any{
+						map[string]any{"color": "red", "value": nil},
+						map[string]any{"color": "green", "value": 1},
 					},
 				},
 			},
-			"overrides": []interface{}{},
+			"overrides": []any{},
 		},
-		"gridPos": map[string]interface{}{"h": h, "w": w, "x": x, "y": y},
+		"gridPos": map[string]any{"h": h, "w": w, "x": x, "y": y},
 		"id":      id,
-		"options": map[string]interface{}{
+		"options": map[string]any{
 			"colorMode":   "value",
 			"graphMode":   "none",
 			"justifyMode": "auto",
 			"orientation": "auto",
-			"reduceOptions": map[string]interface{}{
+			"reduceOptions": map[string]any{
 				"calcs":  []string{"lastNotNull"},
 				"fields": "",
 				"values": false,
@@ -470,9 +470,9 @@ func (g *Generator) createStatPanel(id int, title, query string, x, y, w, h int)
 			"textMode": "auto",
 		},
 		"pluginVersion": "11.3.1",
-		"targets": []interface{}{
-			map[string]interface{}{
-				"datasource": map[string]interface{}{
+		"targets": []any{
+			map[string]any{
+				"datasource": map[string]any{
 					"type": "prometheus",
 					"uid":  "prometheus",
 				},
@@ -488,18 +488,18 @@ func (g *Generator) createStatPanel(id int, title, query string, x, y, w, h int)
 }
 
 // createTimeSeriesPanel creates a Grafana time series panel configuration.
-func (g *Generator) createTimeSeriesPanel(id int, title, query string, x, y, w, h int) map[string]interface{} {
-	return map[string]interface{}{
-		"datasource": map[string]interface{}{
+func (g *Generator) createTimeSeriesPanel(id int, title, query string, x, y, w, h int) map[string]any {
+	return map[string]any{
+		"datasource": map[string]any{
 			"type": "prometheus",
 			"uid":  "prometheus",
 		},
-		"fieldConfig": map[string]interface{}{
-			"defaults": map[string]interface{}{
-				"color": map[string]interface{}{
+		"fieldConfig": map[string]any{
+			"defaults": map[string]any{
+				"color": map[string]any{
 					"mode": "palette-classic",
 				},
-				"custom": map[string]interface{}{
+				"custom": map[string]any{
 					"axisBorderShow":   false,
 					"axisCenteredZero": false,
 					"axisColorMode":    "text",
@@ -509,7 +509,7 @@ func (g *Generator) createTimeSeriesPanel(id int, title, query string, x, y, w, 
 					"drawStyle":        "line",
 					"fillOpacity":      10,
 					"gradientMode":     "none",
-					"hideFrom": map[string]interface{}{
+					"hideFrom": map[string]any{
 						"legend":  false,
 						"tooltip": false,
 						"viz":     false,
@@ -518,46 +518,46 @@ func (g *Generator) createTimeSeriesPanel(id int, title, query string, x, y, w, 
 					"lineInterpolation": "linear",
 					"lineWidth":         1,
 					"pointSize":         5,
-					"scaleDistribution": map[string]interface{}{
+					"scaleDistribution": map[string]any{
 						"type": "linear",
 					},
 					"showPoints": "auto",
 					"spanNulls":  false,
-					"stacking": map[string]interface{}{
+					"stacking": map[string]any{
 						"group": "A",
 						"mode":  "none",
 					},
-					"thresholdsStyle": map[string]interface{}{
+					"thresholdsStyle": map[string]any{
 						"mode": "off",
 					},
 				},
-				"mappings": []interface{}{},
-				"thresholds": map[string]interface{}{
+				"mappings": []any{},
+				"thresholds": map[string]any{
 					"mode": "absolute",
-					"steps": []interface{}{
-						map[string]interface{}{"color": "green", "value": nil},
+					"steps": []any{
+						map[string]any{"color": "green", "value": nil},
 					},
 				},
 			},
-			"overrides": []interface{}{},
+			"overrides": []any{},
 		},
-		"gridPos": map[string]interface{}{"h": h, "w": w, "x": x, "y": y},
+		"gridPos": map[string]any{"h": h, "w": w, "x": x, "y": y},
 		"id":      id,
-		"options": map[string]interface{}{
-			"legend": map[string]interface{}{
-				"calcs":       []interface{}{},
+		"options": map[string]any{
+			"legend": map[string]any{
+				"calcs":       []any{},
 				"displayMode": "list",
 				"placement":   "bottom",
 				"showLegend":  true,
 			},
-			"tooltip": map[string]interface{}{
+			"tooltip": map[string]any{
 				"mode": "single",
 				"sort": "none",
 			},
 		},
-		"targets": []interface{}{
-			map[string]interface{}{
-				"datasource": map[string]interface{}{
+		"targets": []any{
+			map[string]any{
+				"datasource": map[string]any{
 					"type": "prometheus",
 					"uid":  "prometheus",
 				},

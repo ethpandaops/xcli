@@ -27,7 +27,7 @@ func TestExecuteFileCopy(t *testing.T) {
 				require.NoError(t, err)
 			},
 			prereq: Prerequisite{
-				Type:            PrerequisiteTypeFileCopy,
+				Type:            TypeFileCopy,
 				Description:     "Copy source to dest",
 				SourcePath:      "source.txt",
 				DestinationPath: "dest.txt",
@@ -40,7 +40,7 @@ func TestExecuteFileCopy(t *testing.T) {
 				t.Helper()
 			},
 			prereq: Prerequisite{
-				Type:            PrerequisiteTypeFileCopy,
+				Type:            TypeFileCopy,
 				Description:     "Copy missing file",
 				SourcePath:      "missing.txt",
 				DestinationPath: "dest.txt",
@@ -62,7 +62,7 @@ func TestExecuteFileCopy(t *testing.T) {
 			log.SetOutput(os.Stdout)
 			checker := &checker{
 				log:  log,
-				defs: make(map[string]RepoPrerequisites),
+				defs: make(map[string]Repo),
 			}
 
 			// Execute
@@ -104,12 +104,12 @@ func TestExecuteFileCopySkipIfExists(t *testing.T) {
 	log.SetOutput(os.Stdout)
 	testChecker := &checker{
 		log: log.WithField("component", "prerequisites"),
-		defs: map[string]RepoPrerequisites{
+		defs: map[string]Repo{
 			"test-repo": {
 				RepoName: "test-repo",
 				Prerequisites: []Prerequisite{
 					{
-						Type:            PrerequisiteTypeFileCopy,
+						Type:            TypeFileCopy,
 						Description:     "Copy source to dest",
 						SourcePath:      "source.txt",
 						DestinationPath: "dest.txt",
@@ -140,7 +140,7 @@ func TestExecuteCommand(t *testing.T) {
 		{
 			name: "successful command execution",
 			prereq: Prerequisite{
-				Type:        PrerequisiteTypeCommand,
+				Type:        TypeCommand,
 				Description: "Create test file",
 				Command:     "touch",
 				Args:        []string{"test-output.txt"},
@@ -157,7 +157,7 @@ func TestExecuteCommand(t *testing.T) {
 		{
 			name: "command not found",
 			prereq: Prerequisite{
-				Type:        PrerequisiteTypeCommand,
+				Type:        TypeCommand,
 				Description: "Run nonexistent command",
 				Command:     "nonexistent-command-xyz",
 				Args:        []string{},
@@ -180,7 +180,7 @@ func TestExecuteCommand(t *testing.T) {
 			log.SetOutput(os.Stdout)
 			checker := &checker{
 				log:  log,
-				defs: make(map[string]RepoPrerequisites),
+				defs: make(map[string]Repo),
 			}
 
 			// Execute
@@ -213,7 +213,7 @@ func TestExecuteDirectoryCheck(t *testing.T) {
 				require.NoError(t, err)
 			},
 			prereq: Prerequisite{
-				Type:          PrerequisiteTypeDirectoryCheck,
+				Type:          TypeDirectoryCheck,
 				Description:   "Check directory exists",
 				DirectoryPath: "test-dir",
 				ShouldExist:   true,
@@ -226,7 +226,7 @@ func TestExecuteDirectoryCheck(t *testing.T) {
 				t.Helper()
 			},
 			prereq: Prerequisite{
-				Type:          PrerequisiteTypeDirectoryCheck,
+				Type:          TypeDirectoryCheck,
 				Description:   "Check directory exists",
 				DirectoryPath: "missing-dir",
 				ShouldExist:   true,
@@ -239,7 +239,7 @@ func TestExecuteDirectoryCheck(t *testing.T) {
 				t.Helper()
 			},
 			prereq: Prerequisite{
-				Type:          PrerequisiteTypeDirectoryCheck,
+				Type:          TypeDirectoryCheck,
 				Description:   "Check directory does not exist",
 				DirectoryPath: "should-not-exist",
 				ShouldExist:   false,
@@ -255,7 +255,7 @@ func TestExecuteDirectoryCheck(t *testing.T) {
 				require.NoError(t, err)
 			},
 			prereq: Prerequisite{
-				Type:          PrerequisiteTypeDirectoryCheck,
+				Type:          TypeDirectoryCheck,
 				Description:   "Check directory does not exist",
 				DirectoryPath: "unwanted-dir",
 				ShouldExist:   false,
@@ -277,7 +277,7 @@ func TestExecuteDirectoryCheck(t *testing.T) {
 			log.SetOutput(os.Stdout)
 			checker := &checker{
 				log:  log,
-				defs: make(map[string]RepoPrerequisites),
+				defs: make(map[string]Repo),
 			}
 
 			// Execute
@@ -306,12 +306,12 @@ func TestCheckAndRun(t *testing.T) {
 	log.SetOutput(os.Stdout)
 	testChecker := &checker{
 		log: log.WithField("component", "prerequisites"),
-		defs: map[string]RepoPrerequisites{
+		defs: map[string]Repo{
 			"test-repo": {
 				RepoName: "test-repo",
 				Prerequisites: []Prerequisite{
 					{
-						Type:            PrerequisiteTypeFileCopy,
+						Type:            TypeFileCopy,
 						Description:     "Copy source to dest",
 						SourcePath:      "source.txt",
 						DestinationPath: "dest.txt",
@@ -346,7 +346,7 @@ func TestCheck(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupFunc   func(t *testing.T, repoPath string)
-		prereqs     RepoPrerequisites
+		prereqs     Repo
 		expectError bool
 	}{
 		{
@@ -357,11 +357,11 @@ func TestCheck(t *testing.T) {
 				err := os.WriteFile(filepath.Join(repoPath, "dest.txt"), []byte("content"), 0600)
 				require.NoError(t, err)
 			},
-			prereqs: RepoPrerequisites{
+			prereqs: Repo{
 				RepoName: "test-repo",
 				Prerequisites: []Prerequisite{
 					{
-						Type:            PrerequisiteTypeFileCopy,
+						Type:            TypeFileCopy,
 						Description:     "Copy file",
 						SourcePath:      "source.txt",
 						DestinationPath: "dest.txt",
@@ -375,11 +375,11 @@ func TestCheck(t *testing.T) {
 			setupFunc: func(t *testing.T, repoPath string) {
 				t.Helper()
 			},
-			prereqs: RepoPrerequisites{
+			prereqs: Repo{
 				RepoName: "test-repo",
 				Prerequisites: []Prerequisite{
 					{
-						Type:            PrerequisiteTypeFileCopy,
+						Type:            TypeFileCopy,
 						Description:     "Copy file",
 						SourcePath:      "source.txt",
 						DestinationPath: "missing.txt",
@@ -403,7 +403,7 @@ func TestCheck(t *testing.T) {
 			log.SetOutput(os.Stdout)
 			testChecker := &checker{
 				log: log.WithField("component", "prerequisites"),
-				defs: map[string]RepoPrerequisites{
+				defs: map[string]Repo{
 					"test-repo": tt.prereqs,
 				},
 			}
@@ -423,14 +423,14 @@ func TestCheck(t *testing.T) {
 
 func TestKnownRepos(t *testing.T) {
 	// Get known repo prerequisites
-	defs := buildKnownRepoPrerequisites()
+	defs := buildKnownRepo()
 
 	// Test lab-backend
 	labBackend, exists := defs["lab-backend"]
 	require.True(t, exists, "lab-backend should have prerequisites defined")
 	assert.Equal(t, "lab-backend", labBackend.RepoName)
 	assert.Len(t, labBackend.Prerequisites, 1, "lab-backend should have 1 prerequisite")
-	assert.Equal(t, PrerequisiteTypeFileCopy, labBackend.Prerequisites[0].Type)
+	assert.Equal(t, TypeFileCopy, labBackend.Prerequisites[0].Type)
 	assert.Equal(t, ".env.example", labBackend.Prerequisites[0].SourcePath)
 	assert.Equal(t, ".env", labBackend.Prerequisites[0].DestinationPath)
 
@@ -441,13 +441,13 @@ func TestKnownRepos(t *testing.T) {
 	assert.Len(t, lab.Prerequisites, 2, "lab should have 2 prerequisites (no .env copy)")
 
 	// First prerequisite: pnpm install
-	assert.Equal(t, PrerequisiteTypeCommand, lab.Prerequisites[0].Type)
+	assert.Equal(t, TypeCommand, lab.Prerequisites[0].Type)
 	assert.Equal(t, "pnpm", lab.Prerequisites[0].Command)
 	assert.Equal(t, []string{"install"}, lab.Prerequisites[0].Args)
 	assert.Equal(t, "node_modules", lab.Prerequisites[0].SkipIfExists)
 
 	// Second prerequisite: pnpm build
-	assert.Equal(t, PrerequisiteTypeCommand, lab.Prerequisites[1].Type)
+	assert.Equal(t, TypeCommand, lab.Prerequisites[1].Type)
 	assert.Equal(t, "pnpm", lab.Prerequisites[1].Command)
 	assert.Equal(t, []string{"run", "build"}, lab.Prerequisites[1].Args)
 	assert.Equal(t, "dist", lab.Prerequisites[1].SkipIfExists)
@@ -457,7 +457,7 @@ func TestKnownRepos(t *testing.T) {
 	require.True(t, exists, "cbt-api should have prerequisites defined")
 	assert.Equal(t, "cbt-api", cbtAPI.RepoName)
 	assert.Len(t, cbtAPI.Prerequisites, 1, "cbt-api should have 1 prerequisite")
-	assert.Equal(t, PrerequisiteTypeFileCopy, cbtAPI.Prerequisites[0].Type)
+	assert.Equal(t, TypeFileCopy, cbtAPI.Prerequisites[0].Type)
 	assert.Equal(t, "config.example.yaml", cbtAPI.Prerequisites[0].SourcePath)
 	assert.Equal(t, "config.yaml", cbtAPI.Prerequisites[0].DestinationPath)
 
@@ -466,7 +466,7 @@ func TestKnownRepos(t *testing.T) {
 	require.True(t, exists, "xatu-cbt should have prerequisites defined")
 	assert.Equal(t, "xatu-cbt", xatuCBT.RepoName)
 	assert.Len(t, xatuCBT.Prerequisites, 1, "xatu-cbt should have 1 prerequisite")
-	assert.Equal(t, PrerequisiteTypeFileCopy, xatuCBT.Prerequisites[0].Type)
+	assert.Equal(t, TypeFileCopy, xatuCBT.Prerequisites[0].Type)
 	assert.Equal(t, "example.env", xatuCBT.Prerequisites[0].SourcePath)
 	assert.Equal(t, ".env", xatuCBT.Prerequisites[0].DestinationPath)
 

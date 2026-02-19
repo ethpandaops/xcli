@@ -200,7 +200,7 @@ func (g *Generator) BuildSanitizedColumnList(ctx context.Context, model, salt st
 	}
 
 	// Find IP columns for reporting
-	sanitizedCols := make([]string, 0)
+	sanitizedCols := make([]string, 0, len(columns))
 
 	for _, col := range columns {
 		if IsIPColumn(col.Type) {
@@ -239,7 +239,7 @@ func CountIPColumns(columns []ColumnInfo) int {
 // GetIPColumnNames returns the names of all IP columns in a schema.
 // Useful for logging/debugging.
 func GetIPColumnNames(columns []ColumnInfo) []string {
-	names := make([]string, 0)
+	names := make([]string, 0, len(columns))
 
 	for _, col := range columns {
 		if IsIPColumn(col.Type) {

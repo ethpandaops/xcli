@@ -84,7 +84,7 @@ the new configs.`,
 
 			ui.Info("Regenerating service configurations...")
 
-			if err := orch.GenerateConfigs(); err != nil {
+			if err := orch.GenerateConfigs(cmd.Context()); err != nil {
 				return fmt.Errorf("failed to regenerate configs: %w", err)
 			}
 
