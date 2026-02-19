@@ -20,7 +20,12 @@ GOMOD=$(GOCMD) mod
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
-build: ## Build the binary
+cc-frontend: ## Build the Command Center frontend
+	@echo "Building CC frontend..."
+	@cd pkg/cc/frontend && pnpm install --frozen-lockfile && pnpm build
+	@echo "✓ CC frontend built"
+
+build: cc-frontend ## Build the binary
 	@echo "Building $(BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/$(BINARY_NAME)
@@ -59,5 +64,11 @@ run: build ## Build and run
 
 dev: ## Run in development mode
 	$(GOCMD) run ./cmd/$(BINARY_NAME)
+
+cc-dev: build ## Run CC backend + Vite HMR (open localhost:5173)
+	@trap 'kill 0' EXIT; \
+		./$(BUILD_DIR)/$(BINARY_NAME) cc --no-open & \
+		cd pkg/cc/frontend && pnpm dev & \
+		wait
 
 .DEFAULT_GOAL := help

@@ -36,7 +36,7 @@ Example:
 				return fmt.Errorf("failed to create orchestrator: %w", err)
 			}
 
-			return orch.Down(cmd.Context())
+			return orch.Down(cmd.Context(), nil)
 		},
 	}
 }

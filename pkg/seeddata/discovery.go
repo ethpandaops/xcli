@@ -1,3 +1,4 @@
+//nolint:staticcheck // QF1012: WriteString(Sprintf) pattern is used consistently for prompt building readability
 package seeddata
 
 import (
@@ -734,7 +735,7 @@ func (g *Generator) QueryTableSample(
 		Timeout: 30 * time.Second,
 	}
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // URL is from trusted config
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -1293,7 +1294,7 @@ func (g *Generator) QueryRowCount(
 		Timeout: 2 * time.Minute, // Row count queries on large tables can take time
 	}
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // URL is from trusted config
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute request: %w", err)
 	}

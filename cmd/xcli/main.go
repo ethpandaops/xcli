@@ -102,6 +102,7 @@ func main() {
 
 	// Add stack commands
 	rootCmd.AddCommand(commands.NewLabCommand(log, configPath))
+	rootCmd.AddCommand(commands.NewCCCommand(log, configPath))
 
 	// Execute
 	if err := rootCmd.ExecuteContext(ctx); err != nil {

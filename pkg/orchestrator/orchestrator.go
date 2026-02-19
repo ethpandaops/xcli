@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,7 +25,19 @@ import (
 	"github.com/ethpandaops/xcli/pkg/process"
 	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v3"
 )
+
+// ProgressFunc reports stack boot progress.
+// phase is a short identifier, message is human-readable.
+type ProgressFunc func(phase string, message string)
+
+// reportProgress calls the progress callback if non-nil.
+func reportProgress(progress ProgressFunc, phase, message string) {
+	if progress != nil {
+		progress(phase, message)
+	}
+}
 
 // Orchestrator manages the complete lab stack.
 type Orchestrator struct {
@@ -77,6 +90,9 @@ func NewOrchestrator(log logrus.FieldLogger, cfg *config.LabConfig, configPath s
 	}, nil
 }
 
+// StateDir returns the state directory path for reading config files.
+func (o *Orchestrator) StateDir() string { return o.stateDir }
+
 // SetVerbose sets verbose mode for build/setup command output.
 func (o *Orchestrator) SetVerbose(verbose bool) {
 	o.verbose = verbose
@@ -117,9 +133,11 @@ func (o *Orchestrator) GetServicePorts(service string) []int {
 }
 
 // Up starts the complete stack.
+// progress is an optional callback for reporting boot phase updates.
+// Pass nil to disable progress reporting (e.g. from CLI callers).
 //
 //nolint:gocyclo // Complexity is from context cancellation checks between phases for proper Ctrl+C handling
-func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) error {
+func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool, progress ProgressFunc) error {
 	// Display startup banner
 	ui.Banner("Starting Lab Stack")
 
@@ -127,6 +145,8 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 
 	// Fast prerequisite validation (read-only checks, no fixing)
 	// Fails fast with helpful error if prerequisites not satisfied
+	reportProgress(progress, "prerequisites", "Validating prerequisites...")
+
 	if err := o.validatePrerequisites(ctx); err != nil {
 		return fmt.Errorf("prerequisites not satisfied: %w\n\nRun 'xcli lab init' to satisfy prerequisites", err)
 	}
@@ -138,6 +158,8 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 
 	// Test external ClickHouse connection early (before builds and infrastructure)
 	if o.mode.NeedsExternalClickHouse() {
+		reportProgress(progress, "external_ch", "Testing external ClickHouse...")
+
 		if o.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL == "" {
 			return fmt.Errorf("external ClickHouse URL is required when using hybrid mode")
 		}
@@ -162,6 +184,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 
 	// Check git status for all repositories (non-blocking)
 	// Done after prerequisite check to ensure all repos exist
+	reportProgress(progress, "git_status", "Checking git status...")
 	o.checkGitStatus(ctx)
 
 	// Check if stack is already running
@@ -197,6 +220,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	// Reason: Infrastructure startup requires xatu-cbt binary to run migrations and services
 	// This ensures xatu-cbt is ready before starting infrastructure in Phase 1
 	if !skipBuild {
+		reportProgress(progress, "build_xatu_cbt", "Building Xatu-CBT...")
 		ui.Header("Phase 1: Building Xatu-CBT")
 		o.log.Info("building xatu-cbt")
 
@@ -224,6 +248,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	}
 
 	// Phase 1: Start infrastructure
+	reportProgress(progress, "infrastructure", "Starting infrastructure...")
 	ui.Header("Phase 2: Starting Infrastructure")
 	o.log.WithField("mode", o.mode.Name()).Info("starting infrastructure")
 
@@ -242,6 +267,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	// Note: xatu-cbt already built in Phase 0
 	// BuildAll now runs: CBT || lab-backend || lab (parallel execution)
 	if !skipBuild {
+		reportProgress(progress, "build_services", "Building services...")
 		ui.Header("Phase 3: Building Services")
 		o.log.Info("building repositories")
 
@@ -266,6 +292,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	}
 
 	// Phase 3: Setup networks (run migrations)
+	reportProgress(progress, "network_setup", "Setting up networks...")
 	ui.Blank()
 	ui.Header("Phase 4: Network Setup")
 
@@ -297,6 +324,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	}
 
 	// Phase 4: Generate configs (needed for proto generation)
+	reportProgress(progress, "generate_configs", "Generating configurations...")
 	ui.Header("Phase 5: Generating Configurations")
 	o.log.Info("generating service configurations")
 
@@ -317,6 +345,8 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 
 	// Build cbt-api (includes proto generation in its DAG)
 	if !skipBuild {
+		reportProgress(progress, "build_cbt_api", "Building cbt-api...")
+
 		buildSpinner := ui.NewSpinner("Building cbt-api")
 
 		if err := o.builder.BuildCBTAPI(ctx, forceBuild); err != nil {
@@ -344,6 +374,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	}
 
 	// Start services
+	reportProgress(progress, "start_services", "Starting all services...")
 	ui.Header("Phase 6: Starting Services")
 
 	serviceSpinner := ui.NewSpinner("Starting all services")
@@ -355,6 +386,8 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 	}
 
 	serviceSpinner.Success("All services started")
+
+	reportProgress(progress, "complete", "Stack is running!")
 
 	ui.Blank()
 	ui.Success("Stack is running!")
@@ -408,10 +441,14 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool) 
 }
 
 // Down stops all services and tears down infrastructure (removes volumes).
-func (o *Orchestrator) Down(ctx context.Context) error {
+// progress is an optional callback for reporting teardown phase updates.
+// Pass nil to disable progress reporting (e.g. from CLI callers).
+func (o *Orchestrator) Down(ctx context.Context, progress ProgressFunc) error {
 	o.log.Info("tearing down stack")
 
 	// Stop services first
+	reportProgress(progress, "stop_services", "Stopping services...")
+
 	spinner := ui.NewSpinner("Stopping services")
 
 	o.log.Info("stopping services")
@@ -424,6 +461,8 @@ func (o *Orchestrator) Down(ctx context.Context) error {
 	}
 
 	// Check for and clean up orphaned processes
+	reportProgress(progress, "cleanup_orphans", "Cleaning up orphaned processes...")
+
 	spinner = ui.NewSpinner("Cleaning up orphaned processes")
 
 	o.log.Info("checking for orphaned processes")
@@ -437,6 +476,8 @@ func (o *Orchestrator) Down(ctx context.Context) error {
 	}
 
 	// Clean log files
+	reportProgress(progress, "clean_logs", "Cleaning log files...")
+
 	spinner = ui.NewSpinner("Cleaning log files")
 
 	o.log.Info("cleaning log files")
@@ -466,6 +507,8 @@ func (o *Orchestrator) Down(ctx context.Context) error {
 	}
 
 	// Reset infrastructure (stops containers and removes volumes)
+	reportProgress(progress, "stop_infrastructure", "Stopping infrastructure...")
+
 	spinner = ui.NewSpinner("Stopping infrastructure and removing volumes")
 
 	o.log.Info("resetting infrastructure")
@@ -478,6 +521,8 @@ func (o *Orchestrator) Down(ctx context.Context) error {
 
 	spinner.Success("Infrastructure stopped and volumes removed")
 
+	reportProgress(progress, "complete", "Stack stopped")
+
 	o.log.Info("teardown complete")
 	ui.Blank()
 	ui.Success("Stack torn down successfully")
@@ -488,7 +533,11 @@ func (o *Orchestrator) Down(ctx context.Context) error {
 }
 
 // StopServices stops all running services without tearing down infrastructure.
-func (o *Orchestrator) StopServices(ctx context.Context) error {
+// progress is an optional callback for reporting stop phase updates.
+// Pass nil to disable progress reporting (e.g. from CLI callers).
+func (o *Orchestrator) StopServices(ctx context.Context, progress ProgressFunc) error {
+	reportProgress(progress, "stop_services", "Stopping all services...")
+
 	spinner := ui.NewSpinner("Stopping all services")
 
 	o.log.Info("stopping all services")
@@ -500,6 +549,8 @@ func (o *Orchestrator) StopServices(ctx context.Context) error {
 	}
 
 	spinner.Success("All services stopped")
+
+	reportProgress(progress, "complete", "All services stopped")
 
 	return nil
 }
@@ -570,6 +621,11 @@ func (o *Orchestrator) StartService(ctx context.Context, service string) error {
 	// Use background context for long-running processes
 	processCtx := context.Background()
 
+	// Handle observability services (Docker containers)
+	if service == constants.ServicePrometheus || service == constants.ServiceGrafana {
+		return o.infra.StartObservabilityService(ctx, service)
+	}
+
 	// Parse service name to determine type and network
 	switch {
 	case service == constants.ServiceLabBackend:
@@ -599,6 +655,11 @@ func (o *Orchestrator) StartService(ctx context.Context, service string) error {
 
 // StopService stops a specific service by name.
 func (o *Orchestrator) StopService(ctx context.Context, service string) error {
+	// Handle observability services (Docker containers)
+	if service == constants.ServicePrometheus || service == constants.ServiceGrafana {
+		return o.infra.StopObservabilityService(ctx, service)
+	}
+
 	// Try to stop the process via process manager
 	err := o.proc.Stop(ctx, service)
 
@@ -1301,18 +1362,31 @@ func (o *Orchestrator) getServicePorts(service string) []int {
 	case "lab-frontend":
 		return []int{o.cfg.Ports.LabFrontend}
 	case "lab-backend":
-		return []int{o.cfg.Ports.LabBackend}
+		port := o.cfg.Ports.LabBackend
+		if p := o.readConfigPort(constants.ConfigFileLabBackend); p != 0 {
+			port = p
+		}
+
+		return []int{port}
 	default:
 		// Check if it's a CBT or CBT-API service
 		for i, network := range o.cfg.EnabledNetworks() {
 			if service == "cbt-"+network.Name {
-				// CBT metrics port and frontend port
-				return []int{9100 + i, o.cfg.GetCBTFrontendPort(network.Name)}
+				fePort := o.cfg.GetCBTFrontendPort(network.Name)
+				if p := o.readConfigPort(fmt.Sprintf(constants.ConfigFileCBT, network.Name)); p != 0 {
+					fePort = p
+				}
+
+				return []int{9100 + i, fePort}
 			}
 
 			if service == "cbt-api-"+network.Name {
-				// CBT API service port and metrics port
-				return []int{o.cfg.GetCBTAPIPort(network.Name), 9200 + i}
+				port := o.cfg.GetCBTAPIPort(network.Name)
+				if p := o.readConfigPort(fmt.Sprintf(constants.ConfigFileCBTAPI, network.Name)); p != 0 {
+					port = p
+				}
+
+				return []int{port, 9200 + i}
 			}
 		}
 	}
@@ -1326,16 +1400,35 @@ func (o *Orchestrator) getServiceURL(service string) string {
 	case constants.ServiceLabFrontend:
 		return fmt.Sprintf("http://localhost:%d", o.cfg.Ports.LabFrontend)
 	case constants.ServiceLabBackend:
-		return fmt.Sprintf("http://localhost:%d", o.cfg.Ports.LabBackend)
+		port := o.cfg.Ports.LabBackend
+		if p := o.readConfigPort(constants.ConfigFileLabBackend); p != 0 {
+			port = p
+		}
+
+		return fmt.Sprintf("http://localhost:%d", port)
+	case constants.ServicePrometheus:
+		return fmt.Sprintf("http://localhost:%d", o.cfg.Infrastructure.Observability.PrometheusPort)
+	case constants.ServiceGrafana:
+		return fmt.Sprintf("http://localhost:%d", o.cfg.Infrastructure.Observability.GrafanaPort)
 	default:
 		// Check if it's a CBT or CBT-API service
 		for _, network := range o.cfg.EnabledNetworks() {
 			if service == constants.ServiceNameCBT(network.Name) {
-				return fmt.Sprintf("http://localhost:%d", o.cfg.GetCBTFrontendPort(network.Name))
+				fePort := o.cfg.GetCBTFrontendPort(network.Name)
+				if p := o.readConfigPort(fmt.Sprintf(constants.ConfigFileCBT, network.Name)); p != 0 {
+					fePort = p
+				}
+
+				return fmt.Sprintf("http://localhost:%d", fePort)
 			}
 
 			if service == constants.ServiceNameCBTAPI(network.Name) {
-				return fmt.Sprintf("http://localhost:%d", o.cfg.GetCBTAPIPort(network.Name))
+				port := o.cfg.GetCBTAPIPort(network.Name)
+				if p := o.readConfigPort(fmt.Sprintf(constants.ConfigFileCBTAPI, network.Name)); p != 0 {
+					port = p
+				}
+
+				return fmt.Sprintf("http://localhost:%d", port)
 			}
 		}
 	}
@@ -1364,6 +1457,45 @@ func (o *Orchestrator) sanitizeURL(rawURL string) string {
 	}
 
 	return parsedURL.String()
+}
+
+// readConfigPort reads the primary service port from a generated config file.
+// Checks server.port (cbt-api, lab-backend) and frontend.addr (cbt) formats.
+// Returns 0 if the file doesn't exist or can't be parsed.
+func (o *Orchestrator) readConfigPort(filename string) int {
+	configPath := filepath.Join(o.stateDir, "configs", filename)
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return 0
+	}
+
+	var cfg struct {
+		Server struct {
+			Port int `yaml:"port"`
+		} `yaml:"server"`
+		Frontend struct {
+			Addr string `yaml:"addr"`
+		} `yaml:"frontend"`
+	}
+
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return 0
+	}
+
+	// server.port takes precedence (cbt-api, lab-backend).
+	if cfg.Server.Port != 0 {
+		return cfg.Server.Port
+	}
+
+	// frontend.addr format is ":PORT" (cbt).
+	if cfg.Frontend.Addr != "" {
+		if p, parseErr := strconv.Atoi(strings.TrimPrefix(cfg.Frontend.Addr, ":")); parseErr == nil {
+			return p
+		}
+	}
+
+	return 0
 }
 
 // hasCustomConfig checks if a custom config exists in the custom-configs directory.
