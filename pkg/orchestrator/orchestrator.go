@@ -159,6 +159,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool, 
 	// Test external ClickHouse connection early (before builds and infrastructure)
 	if o.mode.NeedsExternalClickHouse() {
 		reportProgress(progress, "external_ch", "Testing external ClickHouse...")
+
 		if o.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL == "" {
 			return fmt.Errorf("external ClickHouse URL is required when using hybrid mode")
 		}
@@ -345,6 +346,7 @@ func (o *Orchestrator) Up(ctx context.Context, skipBuild bool, forceBuild bool, 
 	// Build cbt-api (includes proto generation in its DAG)
 	if !skipBuild {
 		reportProgress(progress, "build_cbt_api", "Building cbt-api...")
+
 		buildSpinner := ui.NewSpinner("Building cbt-api")
 
 		if err := o.builder.BuildCBTAPI(ctx, forceBuild); err != nil {

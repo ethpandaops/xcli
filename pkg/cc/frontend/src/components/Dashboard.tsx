@@ -20,6 +20,7 @@ import GitStatus from "./GitStatus";
 import LogViewer from "./LogViewer";
 import StackProgress, { derivePhaseStates, BOOT_PHASES, STOP_PHASES } from "./StackProgress";
 import Spinner from "./Spinner";
+import { useFavicon } from "../hooks/useFavicon";
 
 const MAX_LOGS = 10000;
 
@@ -161,6 +162,7 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
   }, []);
 
   useSSE(handleSSE);
+  useFavicon(stackStatus, !!stackError);
 
   const handleCancelBoot = useCallback(() => {
     postJSON<{ status: string }>("/api/stack/cancel").catch(console.error);

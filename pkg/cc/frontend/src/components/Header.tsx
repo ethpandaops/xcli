@@ -30,50 +30,52 @@ export default function Header({
 
   let buttonLabel = "Boot Stack";
   let buttonClass =
-    "rounded-md px-3 py-1.5 text-xs font-medium transition-colors ";
+    "flex items-center gap-1.5 rounded-xs px-3 py-1.5 text-xs/4 font-medium transition-colors ";
 
   if (stackStatus === "starting") {
     buttonLabel = currentPhase ? `Starting: ${currentPhase}` : "Starting...";
-    buttonClass += "cursor-not-allowed bg-amber-500/20 text-amber-400";
+    buttonClass += "cursor-not-allowed bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20";
   } else if (stackStatus === "stopping") {
     buttonLabel = currentPhase ? `Stopping: ${currentPhase}` : "Stopping...";
-    buttonClass += "cursor-not-allowed bg-amber-500/20 text-amber-400";
+    buttonClass += "cursor-not-allowed bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20";
   } else if (isRunning) {
     buttonLabel = "Stop Stack";
-    buttonClass += "bg-red-500/20 text-red-400 hover:bg-red-500/30";
+    buttonClass += "bg-red-500/10 text-red-400 ring-1 ring-red-500/20 hover:bg-red-500/20";
   } else {
     buttonLabel = "Boot Stack";
-    buttonClass += "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30";
+    buttonClass += "bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20 hover:bg-emerald-500/20";
   }
 
   return (
-    <header className="flex items-center justify-between border-b border-border bg-surface px-6 py-3">
-      <div className="flex items-center gap-4">
-        <h1 className="group text-lg/6 font-bold tracking-tight text-white">
-          <span className="inline-block origin-bottom transition-transform group-hover:animate-wobble">🍆</span> xcli Command Center
+    <header className="flex items-center justify-between border-b border-border bg-surface px-5 py-2.5">
+      <div className="flex items-center gap-3">
+        <h1 className="group text-sm/5 font-bold tracking-tight text-white">
+          <span className="inline-block origin-bottom transition-transform group-hover:animate-wobble">🍆</span>{" "}
+          xcli
         </h1>
-        <span className="rounded-xs bg-indigo-500/20 px-2 py-0.5 text-xs/4 font-medium text-indigo-400">
-          {mode || "unknown"}
+        <span className="rounded-xs bg-indigo-500/15 px-1.5 py-0.5 text-xs/3 font-medium text-indigo-400">
+          {mode || "—"}
         </span>
       </div>
 
-      <div className="flex items-center gap-6 text-sm/5 text-gray-400">
-        <div className="flex items-center gap-2">
-          <span className="size-2 rounded-full bg-emerald-500" />
-          <span>
-            {running}/{services.length} services
+      <div className="flex items-center gap-4 text-xs/4 text-gray-500">
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1.5">
+            <span className={`size-1.5 rounded-full ${running > 0 ? "bg-emerald-500" : "bg-gray-600"}`} />
+            {running}/{services.length}
           </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="size-2 rounded-full bg-sky-500" />
-          <span>{healthy} healthy</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="size-2 rounded-full bg-violet-500" />
-          <span>
+          <span className="flex items-center gap-1.5">
+            <span className={`size-1.5 rounded-full ${healthy > 0 ? "bg-sky-500" : "bg-gray-600"}`} />
+            {healthy} healthy
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className={`size-1.5 rounded-full ${infraRunning > 0 ? "bg-violet-500" : "bg-gray-600"}`} />
             {infraRunning}/{infrastructure.length} infra
           </span>
         </div>
+
+        <div className="h-4 w-px bg-border" />
+
         <button
           onClick={onStackAction}
           disabled={isBusy}
@@ -82,17 +84,17 @@ export default function Header({
         >
           {isBusy && (
             <svg
-              className="-ml-0.5 mr-1.5 inline size-3 animate-spin"
+              className="size-3 animate-spin"
               fill="none"
               viewBox="0 0 24 24"
             >
               <circle
-                className="opacity-25"
+                className="opacity-20"
                 cx="12"
                 cy="12"
                 r="10"
                 stroke="currentColor"
-                strokeWidth="4"
+                strokeWidth="3"
               />
               <path
                 className="opacity-75"
@@ -101,16 +103,17 @@ export default function Header({
               />
             </svg>
           )}
-          {buttonLabel}
+          <span className="max-w-48 truncate">{buttonLabel}</span>
         </button>
+
         {onNavigateConfig && (
           <button
             onClick={onNavigateConfig}
-            className="rounded-xs p-1.5 text-gray-400 transition-colors hover:bg-white/10 hover:text-white"
+            className="rounded-xs p-1.5 text-gray-500 transition-colors hover:bg-white/5 hover:text-gray-300"
             title="Config Management"
           >
             <svg
-              className="size-5"
+              className="size-4"
               fill="none"
               viewBox="0 0 24 24"
               strokeWidth={1.5}

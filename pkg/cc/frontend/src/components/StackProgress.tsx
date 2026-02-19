@@ -88,98 +88,174 @@ export default function StackProgress({
   onRetry,
   onCancel,
 }: StackProgressProps) {
+  const doneCount = phases.filter((p) => p.status === "done").length;
+  const activePhase = phases.find((p) => p.status === "active");
+  const hasError = phases.some((p) => p.status === "error");
+  const progress = hasError
+    ? (doneCount / phases.length) * 100
+    : activePhase
+      ? ((doneCount + 0.5) / phases.length) * 100
+      : (doneCount / phases.length) * 100;
+
   return (
     <div className="flex h-full items-center justify-center">
-      <div className="w-full max-w-md rounded-lg bg-surface p-6">
-        <h2 className="mb-6 text-sm font-semibold uppercase tracking-wider text-gray-400">
-          {title}
-        </h2>
-        <div className="relative">
-          {phases.map((phase, i) => (
-            <div key={phase.id} className="relative flex gap-3 pb-6 last:pb-0">
-              {/* Timeline line */}
-              {i < phases.length - 1 && (
-                <div
-                  className={`absolute left-[9px] top-5 h-full w-px ${
-                    phase.status === "done"
-                      ? "bg-emerald-500/50"
-                      : "bg-gray-700"
-                  }`}
-                />
-              )}
+      {/* Radial backdrop glow */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div
+          className={`absolute left-1/2 top-1/2 size-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-[0.07] blur-[120px] ${
+            hasError
+              ? "bg-red-500"
+              : activePhase
+                ? "bg-emerald-500"
+                : "bg-indigo-500"
+          }`}
+        />
+      </div>
 
-              {/* Status icon */}
-              <div className="relative z-10 mt-0.5 flex size-[18px] shrink-0 items-center justify-center">
-                {phase.status === "done" && (
-                  <svg
-                    className="size-[18px] text-emerald-500"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth={2.5}
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                )}
-                {phase.status === "active" && (
-                  <span className="relative flex size-[18px] items-center justify-center">
-                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-amber-400 opacity-30" />
-                    <span className="relative inline-flex size-2.5 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]" />
-                  </span>
-                )}
-                {phase.status === "error" && (
-                  <svg
-                    className="size-[18px] text-red-500"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth={2.5}
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                )}
-                {phase.status === "pending" && (
-                  <span className="inline-flex size-2 rounded-full bg-gray-600" />
-                )}
-              </div>
-
-              {/* Content */}
-              <div className="min-w-0 flex-1">
-                <p
-                  className={`text-sm font-medium ${
-                    phase.status === "done"
-                      ? "text-emerald-400"
-                      : phase.status === "active"
-                        ? "text-amber-300"
-                        : phase.status === "error"
-                          ? "text-red-400"
-                          : "text-gray-500"
-                  }`}
-                >
-                  {phase.label}
-                </p>
-                {phase.status === "error" && error && (
-                  <p className="mt-1 truncate font-mono text-xs text-red-400/70">
-                    {error}
-                  </p>
-                )}
-              </div>
-            </div>
-          ))}
+      <div className="relative w-full max-w-sm">
+        {/* Header */}
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-xs/4 font-semibold uppercase tracking-widest text-gray-500">
+            {title}
+          </h2>
+          <span className="font-mono text-xs/4 text-gray-600">
+            {doneCount}/{phases.length}
+          </span>
         </div>
 
+        {/* Progress rail */}
+        <div className="mt-3 h-px w-full bg-border">
+          <div
+            className={`h-full transition-all duration-700 ease-out ${
+              hasError ? "bg-red-500" : "bg-emerald-500"
+            }`}
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+
+        {/* Timeline */}
+        <div className="mt-6">
+          {phases.map((phase, i) => {
+            const stepNum = String(i + 1).padStart(2, "0");
+
+            return (
+              <div key={phase.id} className="relative flex items-start gap-3 pb-5 last:pb-0">
+                {/* Vertical connector */}
+                {i < phases.length - 1 && (
+                  <div
+                    className={`absolute left-[11px] top-5 h-full w-px transition-colors duration-300 ${
+                      phase.status === "done"
+                        ? "bg-emerald-500/30"
+                        : "bg-border"
+                    }`}
+                  />
+                )}
+
+                {/* Step indicator */}
+                <div className="relative z-10 flex size-[22px] shrink-0 items-center justify-center">
+                  {phase.status === "done" && (
+                    <span className="flex size-[22px] items-center justify-center rounded-full bg-emerald-500/15">
+                      <svg
+                        className="size-3 text-emerald-400"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={3}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M4.5 12.75l6 6 9-13.5"
+                        />
+                      </svg>
+                    </span>
+                  )}
+                  {phase.status === "active" && (
+                    <span className="relative flex size-[22px] items-center justify-center">
+                      <span className="absolute size-[22px] animate-ping rounded-full bg-amber-400/20" />
+                      <span className="absolute size-[22px] rounded-full bg-amber-400/10" />
+                      <span className="relative size-2 rounded-full bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.6)]" />
+                    </span>
+                  )}
+                  {phase.status === "error" && (
+                    <span className="flex size-[22px] items-center justify-center rounded-full bg-red-500/15">
+                      <svg
+                        className="size-3 text-red-400"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={3}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </span>
+                  )}
+                  {phase.status === "pending" && (
+                    <span className="flex size-[22px] items-center justify-center">
+                      <span className="size-1.5 rounded-full bg-gray-700" />
+                    </span>
+                  )}
+                </div>
+
+                {/* Content */}
+                <div className="min-w-0 flex-1 pt-0.5">
+                  <div className="flex items-baseline gap-2">
+                    <span
+                      className={`font-mono text-xs/4 ${
+                        phase.status === "done"
+                          ? "text-emerald-500/50"
+                          : phase.status === "active"
+                            ? "text-amber-400/60"
+                            : phase.status === "error"
+                              ? "text-red-400/60"
+                              : "text-gray-700"
+                      }`}
+                    >
+                      {stepNum}
+                    </span>
+                    <span
+                      className={`text-sm/5 font-medium ${
+                        phase.status === "done"
+                          ? "text-emerald-400/80"
+                          : phase.status === "active"
+                            ? "text-white"
+                            : phase.status === "error"
+                              ? "text-red-400"
+                              : "text-gray-600"
+                      }`}
+                    >
+                      {phase.label}
+                    </span>
+                  </div>
+
+                  {/* Active phase message */}
+                  {phase.status === "active" && phase.message && (
+                    <p className="mt-1 truncate font-mono text-xs/4 text-amber-400/50">
+                      {phase.message}
+                    </p>
+                  )}
+
+                  {/* Error message */}
+                  {phase.status === "error" && error && (
+                    <p className="mt-1 truncate font-mono text-xs/4 text-red-400/60">
+                      {error}
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Actions */}
         {error && onRetry && (
           <button
             onClick={onRetry}
-            className="mt-6 w-full rounded-md bg-emerald-500/20 px-4 py-2 text-sm font-medium text-emerald-400 transition-colors hover:bg-emerald-500/30"
+            className="mt-6 rounded-xs bg-emerald-500/10 px-4 py-2 text-xs/4 font-medium text-emerald-400 ring-1 ring-emerald-500/20 transition-colors hover:bg-emerald-500/20"
           >
             Retry
           </button>
@@ -188,7 +264,7 @@ export default function StackProgress({
         {!error && onCancel && (
           <button
             onClick={onCancel}
-            className="mt-6 text-xs font-medium text-gray-500 transition-colors hover:text-red-400"
+            className="mt-5 text-xs/4 text-gray-600 transition-colors hover:text-red-400"
           >
             Cancel Boot
           </button>
