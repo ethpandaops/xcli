@@ -130,8 +130,8 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard, stack }:
                     updated.infrastructure = {
                       ...config.infrastructure,
                       ClickHouse: {
-                        ...config.infrastructure.ClickHouse,
-                        Xatu: { ...config.infrastructure.ClickHouse.Xatu, Mode: xatuMode },
+                        ...config.infrastructure?.ClickHouse,
+                        Xatu: { ...config.infrastructure?.ClickHouse?.Xatu, Mode: xatuMode },
                       },
                     };
                     setConfig(updated);
@@ -157,14 +157,14 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard, stack }:
               <div className="relative">
                 <input
                   type="checkbox"
-                  checked={config.infrastructure.Observability.Enabled}
+                  checked={config.infrastructure?.Observability?.Enabled ?? false}
                   onChange={e =>
                     setConfig({
                       ...config,
                       infrastructure: {
                         ...config.infrastructure,
                         Observability: {
-                          ...config.infrastructure.Observability,
+                          ...config.infrastructure?.Observability,
                           Enabled: e.target.checked,
                         },
                       },
@@ -176,7 +176,7 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard, stack }:
                 <div className="absolute top-0.5 left-0.5 size-4 rounded-full bg-text-tertiary transition-all peer-checked:translate-x-4 peer-checked:bg-text-primary" />
               </div>
               <span className="text-sm/5 text-text-secondary">
-                {config.infrastructure.Observability.Enabled ? 'Prometheus & Grafana enabled' : 'Disabled'}
+                {config.infrastructure?.Observability?.Enabled ? 'Prometheus & Grafana enabled' : 'Disabled'}
               </span>
             </label>
           </Section>
@@ -219,14 +219,14 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard, stack }:
             <ClusterCard
               label="Xatu"
               description={isHybrid ? 'External production data' : 'Local instance'}
-              cluster={config.infrastructure.ClickHouse.Xatu}
+              cluster={config.infrastructure?.ClickHouse?.Xatu}
               onChange={xatu =>
                 setConfig({
                   ...config,
                   infrastructure: {
                     ...config.infrastructure,
                     ClickHouse: {
-                      ...config.infrastructure.ClickHouse,
+                      ...config.infrastructure?.ClickHouse,
                       Xatu: xatu,
                     },
                   },
@@ -236,14 +236,14 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard, stack }:
             <ClusterCard
               label="CBT"
               description="Local processing & storage"
-              cluster={config.infrastructure.ClickHouse.CBT}
+              cluster={config.infrastructure?.ClickHouse?.CBT}
               onChange={cbt =>
                 setConfig({
                   ...config,
                   infrastructure: {
                     ...config.infrastructure,
                     ClickHouse: {
-                      ...config.infrastructure.ClickHouse,
+                      ...config.infrastructure?.ClickHouse,
                       CBT: cbt,
                     },
                   },
@@ -410,15 +410,26 @@ function ClusterCard({
 }: {
   label: string;
   description: string;
-  cluster: {
-    Mode: string;
-    ExternalURL?: string;
-    ExternalDatabase?: string;
-    ExternalUsername?: string;
-    ExternalPassword?: string;
-  };
-  onChange: (c: typeof cluster) => void;
+  cluster:
+    | {
+        Mode: string;
+        ExternalURL?: string;
+        ExternalDatabase?: string;
+        ExternalUsername?: string;
+        ExternalPassword?: string;
+      }
+    | undefined;
+  onChange: (c: NonNullable<typeof cluster>) => void;
 }) {
+  if (!cluster) {
+    return (
+      <div className="flex flex-col gap-3 rounded-xs border border-border/50 bg-surface p-4">
+        <div className="text-sm/5 font-medium text-text-primary">{label}</div>
+        <div className="text-xs/4 text-text-disabled">{description}</div>
+      </div>
+    );
+  }
+
   const isExternal = cluster.Mode === 'external';
 
   return (

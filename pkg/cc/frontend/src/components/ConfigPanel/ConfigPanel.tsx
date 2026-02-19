@@ -120,20 +120,30 @@ export default function ConfigPanel({ config, services, onNavigateConfig }: Conf
           </div>
         </div>
 
-        {/* Observability */}
-        <div className="border-t border-border/50 pt-3">
-          <div className="mb-2 text-[10px]/3 font-semibold tracking-wider text-text-disabled uppercase">
-            Observability
+        {/* Observability — only show when the services are present */}
+        {(svcMap.has('prometheus') || svcMap.has('grafana')) && (
+          <div className="border-t border-border/50 pt-3">
+            <div className="mb-2 text-[10px]/3 font-semibold tracking-wider text-text-disabled uppercase">
+              Observability
+            </div>
+            <div className="flex flex-col gap-0.5">
+              {svcMap.has('prometheus') && (
+                <PortRow
+                  label="Prometheus"
+                  port={getPort('prometheus', config.ports.prometheus)}
+                  href={`http://localhost:${getPort('prometheus', config.ports.prometheus)}`}
+                />
+              )}
+              {svcMap.has('grafana') && (
+                <PortRow
+                  label="Grafana"
+                  port={getPort('grafana', config.ports.grafana)}
+                  href={`http://localhost:${getPort('grafana', config.ports.grafana)}`}
+                />
+              )}
+            </div>
           </div>
-          <div className="flex flex-col gap-0.5">
-            <PortRow
-              label="Prometheus"
-              port={config.ports.prometheus}
-              href={`http://localhost:${config.ports.prometheus}`}
-            />
-            <PortRow label="Grafana" port={config.ports.grafana} href={`http://localhost:${config.ports.grafana}`} />
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
