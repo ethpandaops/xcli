@@ -232,7 +232,7 @@ func (t *DependencyTree) PrintTree(indent string) string {
 		typeStr = "external"
 	}
 
-	sb.WriteString(fmt.Sprintf("%s%s ({{%s}})\n", indent, t.Model, typeStr))
+	fmt.Fprintf(&sb, "%s%s ({{%s}})\n", indent, t.Model, typeStr)
 
 	childIndent := indent + "  "
 

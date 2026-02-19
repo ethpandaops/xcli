@@ -322,7 +322,7 @@ func (g *Generator) executeQueryToFile(ctx context.Context, query, outputPath st
 	}
 
 	// Execute request
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // URL is constructed from trusted config, not user input
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute request: %w", err)
 	}
