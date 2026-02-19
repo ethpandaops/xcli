@@ -119,6 +119,7 @@ func (g *Generator) GenerateCBTConfig(network string, userOverridesPath string) 
 		if loadErr != nil {
 			g.log.WithError(loadErr).Warn("failed to load user overrides, continuing without them")
 		} else if len(userOverrides) > 0 {
+			removeEmptyMaps(userOverrides)
 			// Deep merge user overrides (user takes ultimate precedence)
 			err = mergo.Merge(&baseConfig, userOverrides, mergo.WithOverride)
 			if err != nil {
@@ -161,6 +162,21 @@ func (g *Generator) generateAutoDefaults(network string) (map[string]interface{}
 	return map[string]interface{}{
 		"models": modelsSection,
 	}, nil
+}
+
+// removeEmptyMaps recursively removes empty map entries from a map.
+// This prevents YAML keys with only comments (parsed as empty maps)
+// from overriding populated auto-defaults during mergo merge.
+func removeEmptyMaps(m map[string]interface{}) {
+	for key, val := range m {
+		if nested, ok := val.(map[string]interface{}); ok {
+			removeEmptyMaps(nested)
+
+			if len(nested) == 0 {
+				delete(m, key)
+			}
+		}
+	}
 }
 
 // loadYAMLFile loads a YAML file as a generic map.

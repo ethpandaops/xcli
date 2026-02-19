@@ -114,13 +114,13 @@ func SaveOverrides(path string, m *Model, existingOverrides *CBTOverrides) error
 
 	for _, model := range m.externalModels {
 		if !model.Enabled {
-			disabledModels = append(disabledModels, model.Name)
+			disabledModels = append(disabledModels, model.OverrideKey)
 		}
 	}
 
 	for _, model := range m.transformationModels {
 		if !model.Enabled {
-			disabledModels = append(disabledModels, model.Name)
+			disabledModels = append(disabledModels, model.OverrideKey)
 		}
 	}
 

@@ -438,6 +438,22 @@ func GetExternalModelIntervalType(model, xatuCBTPath string) (IntervalType, erro
 	return fm.Interval.Type, nil
 }
 
+// GetExternalModelDatabase returns the database field from an external model's
+// frontmatter. Returns an empty string if the model has no custom database set.
+func GetExternalModelDatabase(model, xatuCBTPath string) string {
+	modelPath := findModelFile(xatuCBTPath, "external", model)
+	if modelPath == "" {
+		return ""
+	}
+
+	fm, err := parseFrontmatter(modelPath)
+	if err != nil {
+		return ""
+	}
+
+	return fm.Database
+}
+
 // IsEntityModel checks if an external model is an entity/dimension table.
 func IsEntityModel(model, xatuCBTPath string) bool {
 	intervalType, err := GetExternalModelIntervalType(model, xatuCBTPath)

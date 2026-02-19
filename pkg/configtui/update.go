@@ -335,11 +335,11 @@ func (m Model) reload() (Model, tea.Cmd) {
 	// Reset model enabled states.
 	// If no file exists, default all models to disabled.
 	for i := range m.externalModels {
-		m.externalModels[i].Enabled = fileExists && !IsModelDisabled(overrides, m.externalModels[i].Name)
+		m.externalModels[i].Enabled = fileExists && !IsModelDisabled(overrides, m.externalModels[i].OverrideKey)
 	}
 
 	for i := range m.transformationModels {
-		m.transformationModels[i].Enabled = fileExists && !IsModelDisabled(overrides, m.transformationModels[i].Name)
+		m.transformationModels[i].Enabled = fileExists && !IsModelDisabled(overrides, m.transformationModels[i].OverrideKey)
 	}
 
 	m.dirty = false

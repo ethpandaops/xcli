@@ -15,8 +15,9 @@ const (
 
 // ModelEntry represents a single model (external or transformation).
 type ModelEntry struct {
-	Name    string
-	Enabled bool // true = default (omit from overrides), false = disabled
+	Name        string // Display name (filename without extension).
+	OverrideKey string // Key in .cbt-overrides.yaml (may include "database." prefix).
+	Enabled     bool   // true = default (omit from overrides), false = disabled.
 }
 
 // Model is the Bubbletea application state.
