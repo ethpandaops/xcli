@@ -5,10 +5,11 @@ import Spinner from '@/components/Spinner';
 
 interface CBTOverridesEditorProps {
   onToast: (message: string, type: 'success' | 'error') => void;
+  stack: string;
 }
 
-export default function CBTOverridesEditor({ onToast }: CBTOverridesEditorProps) {
-  const { fetchJSON, putJSON, postAction } = useAPI();
+export default function CBTOverridesEditor({ onToast, stack }: CBTOverridesEditorProps) {
+  const { fetchJSON, putJSON, postAction } = useAPI(stack);
   const [state, setState] = useState<CBTOverridesState | null>(null);
   const [saving, setSaving] = useState(false);
   const [showRestartPrompt, setShowRestartPrompt] = useState(false);
@@ -21,11 +22,11 @@ export default function CBTOverridesEditor({ onToast }: CBTOverridesEditorProps)
   const [showEnvVars, setShowEnvVars] = useState(false);
 
   useEffect(() => {
-    fetchJSON<CBTOverridesState>('/api/config/overrides')
+    fetchJSON<CBTOverridesState>('/config/overrides')
       .then(setState)
       .catch(err => onToast(err.message, 'error'));
 
-    fetchJSON<{ mode: string }>('/api/config')
+    fetchJSON<{ mode: string }>('/config')
       .then(cfg => setIsHybrid(cfg.mode === 'hybrid'))
       .catch(() => {}); // non-critical
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fetch once on mount only
@@ -40,7 +41,7 @@ export default function CBTOverridesEditor({ onToast }: CBTOverridesEditorProps)
       const resp = await putJSON<{
         status: string;
         regenerateError?: string;
-      }>('/api/config/overrides', state);
+      }>('/config/overrides', state);
 
       if (resp.regenerateError) {
         onToast(`Saved but regen failed: ${resp.regenerateError}`, 'error');
@@ -49,7 +50,7 @@ export default function CBTOverridesEditor({ onToast }: CBTOverridesEditorProps)
 
         // Only prompt restart if any relevant service is actually running
         try {
-          const status = await fetchJSON<{ services: { name: string; status: string }[] }>('/api/status');
+          const status = await fetchJSON<{ services: { name: string; status: string }[] }>('/status');
           const relevantRunning = status.services.some(
             s =>
               (s.name.startsWith('cbt-') || s.name.startsWith('cbt-api-') || (isHybrid && s.name === 'lab-backend')) &&
@@ -75,7 +76,7 @@ export default function CBTOverridesEditor({ onToast }: CBTOverridesEditorProps)
     setRestarting(true);
 
     try {
-      const services = await fetchJSON<{ name: string; status: string }[]>('/api/services');
+      const services = await fetchJSON<{ name: string; status: string }[]>('/services');
       const cbtServices = services.filter(
         s => s.name.startsWith('cbt-') && !s.name.startsWith('cbt-api-') && s.status === 'running'
       );
@@ -648,7 +649,7 @@ function ModelColumn({
       </div>
 
       {/* Model list */}
-      <div className="max-h-[28rem] overflow-y-auto">{children}</div>
+      <div className="max-h-112 overflow-y-auto">{children}</div>
     </div>
   );
 }
@@ -673,7 +674,7 @@ function ModelRow({
   return (
     <div
       className={`group flex items-center gap-3 border-b border-border/30 px-4 py-2 transition-colors last:border-b-0 ${
-        isSelected ? 'bg-accent/5' : 'hover:bg-white/[0.02]'
+        isSelected ? 'bg-accent/5' : 'hover:bg-white/2'
       }`}
     >
       {/* Toggle */}

@@ -25,6 +25,7 @@ const meta = {
   },
   args: {
     onBack: fn(),
+    stack: 'lab',
   },
 } satisfies Meta<typeof ConfigPage>;
 

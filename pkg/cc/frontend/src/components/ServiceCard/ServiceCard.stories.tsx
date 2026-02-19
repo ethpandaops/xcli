@@ -20,6 +20,7 @@ const meta = {
   args: {
     selected: false,
     onSelect: fn(),
+    stack: 'lab',
   },
 } satisfies Meta<typeof ServiceCard>;
 

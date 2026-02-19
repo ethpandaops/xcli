@@ -35,10 +35,13 @@ function loadSidebarState(key: string): boolean {
 
 interface DashboardProps {
   onNavigateConfig?: () => void;
+  stack: string;
+  availableStacks: string[];
+  onSwitchStack: (stack: string) => void;
 }
 
-export default function Dashboard({ onNavigateConfig }: DashboardProps) {
-  const { fetchJSON, postJSON } = useAPI();
+export default function Dashboard({ onNavigateConfig, stack, availableStacks, onSwitchStack }: DashboardProps) {
+  const { fetchJSON, postJSON } = useAPI(stack);
   const { notify, enabled: notificationsEnabled, toggle: toggleNotifications } = useNotifications();
   const [services, setServices] = useState<ServiceInfo[]>([]);
   const [infrastructure, setInfrastructure] = useState<InfraInfo[]>([]);
@@ -80,7 +83,7 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
 
   // Fetch all REST data — called on mount and whenever SSE (re)connects
   const loadAllData = useCallback(() => {
-    fetchJSON<StatusResponse>('/api/status')
+    fetchJSON<StatusResponse>('/status')
       .then(data => {
         setServices(data.services);
         setInfrastructure(data.infrastructure);
@@ -88,13 +91,13 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
       })
       .catch(console.error);
 
-    fetchJSON<GitResponse>('/api/git')
+    fetchJSON<GitResponse>('/git')
       .then(data => {
         setRepos(data.repos);
       })
       .catch(console.error);
 
-    fetchJSON<LogLine[]>('/api/logs')
+    fetchJSON<LogLine[]>('/logs')
       .then(data => {
         if (data.length > 0) {
           logsRef.current = data;
@@ -103,7 +106,7 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
       })
       .catch(console.error);
 
-    fetchJSON<StackStatus>('/api/stack/status')
+    fetchJSON<StackStatus>('/stack/status')
       .then(data => {
         setStackStatus(data.status);
 
@@ -123,7 +126,7 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
     loadAllData();
 
     const gitInterval = setInterval(() => {
-      fetchJSON<GitResponse>('/api/git')
+      fetchJSON<GitResponse>('/git')
         .then(data => {
           setRepos(data.repos);
         })
@@ -216,7 +219,7 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
     [notify]
   );
 
-  useSSE(handleSSE, loadAllData);
+  useSSE(handleSSE, loadAllData, stack);
   useFavicon(stackStatus, !!stackError);
 
   // Track which stopped-service logs we've already fetched to avoid duplicate requests
@@ -231,7 +234,7 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
       if (!svc || svc.status === 'running' || !svc.logFile) continue;
 
       fetchedStoppedLogs.current.add(tab);
-      fetchJSON<LogLine[]>(`/api/services/${encodeURIComponent(tab)}/logs`)
+      fetchJSON<LogLine[]>(`/services/${encodeURIComponent(tab)}/logs`)
         .then(data => {
           if (data.length > 0) {
             logsRef.current = [...logsRef.current.filter(l => l.Service !== tab), ...data];
@@ -262,13 +265,13 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
   }, []);
 
   const handleCancelBoot = useCallback(() => {
-    postJSON<{ status: string }>('/api/stack/cancel').catch(console.error);
+    postJSON<{ status: string }>('/stack/cancel').catch(console.error);
   }, [postJSON]);
 
   const handleStackAction = useCallback(() => {
     if (!stackStatus || stackStatus === 'starting' || stackStatus === 'stopping') return;
 
-    const endpoint = stackStatus === 'running' ? '/api/stack/down' : '/api/stack/up';
+    const endpoint = stackStatus === 'running' ? '/stack/down' : '/stack/up';
 
     postJSON<{ status: string }>(endpoint).catch(console.error);
   }, [stackStatus, postJSON]);
@@ -278,13 +281,15 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
       <Header
         services={services}
         infrastructure={infrastructure}
-        mode={config?.mode ?? ''}
         onNavigateConfig={onNavigateConfig}
         stackStatus={stackStatus}
         onStackAction={handleStackAction}
         currentPhase={progressPhases.length > 0 ? progressPhases[progressPhases.length - 1].message : undefined}
         notificationsEnabled={notificationsEnabled}
         onToggleNotifications={toggleNotifications}
+        activeStack={stack}
+        availableStacks={availableStacks}
+        onSwitchStack={onSwitchStack}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -300,6 +305,7 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
                 service={svc}
                 selected={activeTab === svc.name}
                 onSelect={() => handleSelectService(svc.name)}
+                stack={stack}
               />
             ))}
 

@@ -6,24 +6,25 @@ import Spinner from '@/components/Spinner';
 interface LabConfigEditorProps {
   onToast: (message: string, type: 'success' | 'error') => void;
   onNavigateDashboard?: () => void;
+  stack: string;
 }
 
-export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabConfigEditorProps) {
-  const { fetchJSON, putJSON, postJSON } = useAPI();
+export default function LabConfigEditor({ onToast, onNavigateDashboard, stack }: LabConfigEditorProps) {
+  const { fetchJSON, putJSON, postJSON } = useAPI(stack);
   const [config, setConfig] = useState<LabConfigFull | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
 
   useEffect(() => {
-    fetchJSON<LabConfigFull>('/api/config/lab')
+    fetchJSON<LabConfigFull>('/config')
       .then(setConfig)
       .catch(err => setError(err.message));
   }, [fetchJSON]);
 
   const handleSave = async () => {
     try {
-      const status = await fetchJSON<{ services: { name: string; status: string }[] }>('/api/status');
+      const status = await fetchJSON<{ services: { name: string; status: string }[] }>('/status');
       const anyRunning = status.services.some(s => s.status === 'running');
 
       if (anyRunning) {
@@ -55,7 +56,7 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabCon
       const resp = await putJSON<{
         status: string;
         regenerateError?: string;
-      }>('/api/config/lab', config);
+      }>('/config', config);
 
       if (resp.regenerateError) {
         onToast(`Saved but regeneration failed: ${resp.regenerateError}`, 'error');
@@ -81,7 +82,7 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabCon
     if (!ok) return;
 
     try {
-      await postJSON<{ status: string }>('/api/stack/restart');
+      await postJSON<{ status: string }>('/stack/restart');
     } catch {
       // If restart fails to start, fall through — dashboard will show error.
     }

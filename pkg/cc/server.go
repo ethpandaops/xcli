@@ -169,54 +169,64 @@ func (s *Server) Stop() error {
 }
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
-	// API routes
-	mux.HandleFunc("GET /api/status", s.api.handleGetStatus)
-	mux.HandleFunc("GET /api/services", s.api.handleGetServices)
-	mux.HandleFunc("GET /api/infrastructure", s.api.handleGetInfrastructure)
-	mux.HandleFunc("GET /api/config", s.api.handleGetConfig)
-	mux.HandleFunc("GET /api/git", s.api.handleGetGit)
+	// Stack-scoped routes: /api/stacks/{stack}/...
+	// For now only "lab" is supported; the {stack} parameter is accepted
+	// but ignored so the frontend can already use the multi-stack URL scheme.
+	s.registerStackRoutes(mux, "/api/stacks/{stack}")
+
+	// Stacks list endpoint
+	mux.HandleFunc("GET /api/stacks", s.api.handleGetStacks)
+
+	// SPA - must be last (catch-all)
+	mux.Handle("/", newSPAHandler())
+}
+
+// registerStackRoutes registers all stack-scoped API routes under the given prefix.
+func (s *Server) registerStackRoutes(mux *http.ServeMux, prefix string) {
+	// Status & info
+	mux.HandleFunc("GET "+prefix+"/status", s.api.handleGetStatus)
+	mux.HandleFunc("GET "+prefix+"/services", s.api.handleGetServices)
+	mux.HandleFunc("GET "+prefix+"/infrastructure", s.api.handleGetInfrastructure)
+	mux.HandleFunc("GET "+prefix+"/git", s.api.handleGetGit)
 
 	// Service actions
-	mux.HandleFunc("POST /api/services/{name}/start", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST "+prefix+"/services/{name}/start", func(w http.ResponseWriter, r *http.Request) {
 		s.api.handlePostServiceAction(w, r, "start")
 	})
-	mux.HandleFunc("POST /api/services/{name}/stop", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST "+prefix+"/services/{name}/stop", func(w http.ResponseWriter, r *http.Request) {
 		s.api.handlePostServiceAction(w, r, "stop")
 	})
-	mux.HandleFunc("POST /api/services/{name}/restart", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST "+prefix+"/services/{name}/restart", func(w http.ResponseWriter, r *http.Request) {
 		s.api.handlePostServiceAction(w, r, "restart")
 	})
-	mux.HandleFunc("POST /api/services/{name}/rebuild", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST "+prefix+"/services/{name}/rebuild", func(w http.ResponseWriter, r *http.Request) {
 		s.api.handlePostServiceAction(w, r, "rebuild")
 	})
 
 	// Config management
-	mux.HandleFunc("GET /api/config/lab", s.api.handleGetLabConfig)
-	mux.HandleFunc("PUT /api/config/lab", s.api.handlePutLabConfig)
-	mux.HandleFunc("GET /api/config/files", s.api.handleGetConfigFiles)
-	mux.HandleFunc("GET /api/config/files/{name}", s.api.handleGetConfigFile)
-	mux.HandleFunc("PUT /api/config/files/{name}/override", s.api.handlePutConfigFileOverride)
-	mux.HandleFunc("DELETE /api/config/files/{name}/override", s.api.handleDeleteConfigFileOverride)
-	mux.HandleFunc("GET /api/config/overrides", s.api.handleGetOverrides)
-	mux.HandleFunc("PUT /api/config/overrides", s.api.handlePutOverrides)
-	mux.HandleFunc("POST /api/config/regenerate", s.api.handlePostRegenerate)
+	mux.HandleFunc("GET "+prefix+"/config", s.api.handleGetLabConfig)
+	mux.HandleFunc("PUT "+prefix+"/config", s.api.handlePutLabConfig)
+	mux.HandleFunc("GET "+prefix+"/config/files", s.api.handleGetConfigFiles)
+	mux.HandleFunc("GET "+prefix+"/config/files/{name}", s.api.handleGetConfigFile)
+	mux.HandleFunc("PUT "+prefix+"/config/files/{name}/override", s.api.handlePutConfigFileOverride)
+	mux.HandleFunc("DELETE "+prefix+"/config/files/{name}/override", s.api.handleDeleteConfigFileOverride)
+	mux.HandleFunc("GET "+prefix+"/config/overrides", s.api.handleGetOverrides)
+	mux.HandleFunc("PUT "+prefix+"/config/overrides", s.api.handlePutOverrides)
+	mux.HandleFunc("POST "+prefix+"/config/regenerate", s.api.handlePostRegenerate)
 
 	// Stack control
-	mux.HandleFunc("POST /api/stack/up", s.api.handlePostStackUp)
-	mux.HandleFunc("POST /api/stack/down", s.api.handlePostStackDown)
-	mux.HandleFunc("POST /api/stack/restart", s.api.handlePostStackRestart)
-	mux.HandleFunc("POST /api/stack/cancel", s.api.handlePostStackCancel)
-	mux.HandleFunc("GET /api/stack/status", s.api.handleGetStackStatus)
+	mux.HandleFunc("POST "+prefix+"/stack/up", s.api.handlePostStackUp)
+	mux.HandleFunc("POST "+prefix+"/stack/down", s.api.handlePostStackDown)
+	mux.HandleFunc("POST "+prefix+"/stack/restart", s.api.handlePostStackRestart)
+	mux.HandleFunc("POST "+prefix+"/stack/cancel", s.api.handlePostStackCancel)
+	mux.HandleFunc("GET "+prefix+"/stack/status", s.api.handleGetStackStatus)
 
 	// Logs
-	mux.HandleFunc("GET /api/services/{name}/logs", s.api.handleGetServiceLogs)
-	mux.HandleFunc("GET /api/logs", s.handleGetLogs)
+	mux.HandleFunc("GET "+prefix+"/services/{name}/logs", s.api.handleGetServiceLogs)
+	mux.HandleFunc("GET "+prefix+"/logs", s.handleGetLogs)
 
 	// SSE events
-	mux.Handle("GET /api/events", s.sseHub)
-
-	// SPA - must be last (catch-all)
-	mux.Handle("/", newSPAHandler())
+	mux.Handle("GET "+prefix+"/events", s.sseHub)
 }
 
 // startLogStreaming starts tailing logs for running services and stops
