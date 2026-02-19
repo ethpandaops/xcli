@@ -63,13 +63,17 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
       }
     }).catch(console.error);
 
-    // Seed stack status; subsequent updates arrive via SSE
+    // Seed stack status and progress; subsequent updates arrive via SSE
     fetchJSON<StackStatus>("/api/stack/status")
       .then((data) => {
         setStackStatus(data.status);
 
         if (data.error) {
           setStackError(data.error);
+        }
+
+        if (data.progress && data.progress.length > 0) {
+          setProgressPhases(data.progress);
         }
       })
       .catch(console.error);
@@ -164,6 +168,26 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
   useSSE(handleSSE);
   useFavicon(stackStatus, !!stackError);
 
+  // Fetch log file from disk when a stopped service with a log file is selected
+  useEffect(() => {
+    if (!selectedService) return;
+
+    const svc = services.find((s) => s.name === selectedService);
+    if (!svc || svc.status === "running" || !svc.logFile) return;
+
+    fetchJSON<LogLine[]>(`/api/services/${encodeURIComponent(selectedService)}/logs`)
+      .then((data) => {
+        if (data.length > 0) {
+          logsRef.current = [
+            ...logsRef.current.filter((l) => l.Service !== selectedService),
+            ...data,
+          ];
+          setLogs(logsRef.current);
+        }
+      })
+      .catch(console.error);
+  }, [selectedService, services, fetchJSON]);
+
   const handleCancelBoot = useCallback(() => {
     postJSON<{ status: string }>("/api/stack/cancel").catch(console.error);
   }, [postJSON]);
@@ -239,9 +263,7 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
         {/* Main area - adaptive center panel */}
         <div className="flex-1 overflow-hidden p-3">
           {stackStatus === null ? (
-            <div className="flex h-full items-center justify-center">
-              <Spinner size="md" />
-            </div>
+            <Spinner centered />
           ) : stackStatus === "starting" || stackStatus === "stopping" ? (
             <StackProgress
               phases={derivePhaseStates(
@@ -297,7 +319,7 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
                 </button>
               </div>
             )
-          ) : services.some((s) => s.status === "running") ? (
+          ) : services.some((s) => s.status === "running") || selectedService ? (
             <LogViewer logs={logs} selectedService={selectedService} />
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-4 text-gray-500">

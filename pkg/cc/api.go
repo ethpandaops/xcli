@@ -1,10 +1,13 @@
 package cc
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -27,12 +30,19 @@ type gitCache struct {
 	mu        sync.RWMutex
 }
 
+// stackProgressEvent is a single progress event emitted during boot/stop.
+type stackProgressEvent struct {
+	Phase   string `json:"phase"`
+	Message string `json:"message"`
+}
+
 // stackState tracks background stack operations to prevent concurrent boots/stops.
 type stackState struct {
-	status     string             // "idle", "starting", "stopping"
-	lastError  string             // last boot/stop error, cleared on next operation
-	cancelBoot context.CancelFunc // cancels the in-progress boot context; nil when not booting
-	mu         sync.Mutex
+	status         string               // "idle", "starting", "stopping"
+	lastError      string               // last boot/stop error, cleared on next operation
+	cancelBoot     context.CancelFunc   // cancels the in-progress boot context; nil when not booting
+	progressEvents []stackProgressEvent // accumulated progress events for the current operation
+	mu             sync.Mutex
 }
 
 // apiHandler holds dependencies for REST API handlers.
@@ -297,6 +307,51 @@ func (a *apiHandler) handlePostServiceAction(
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status": "ok",
 	})
+}
+
+// handleGetServiceLogs reads the log file for a service directly from disk
+// and returns its parsed lines. Used by the frontend to show crash logs for
+// stopped services without relying on the SSE/ring-buffer pipeline.
+func (a *apiHandler) handleGetServiceLogs(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	name := r.PathValue("name")
+	if name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "service name required",
+		})
+
+		return
+	}
+
+	logPath := filepath.Clean(a.orch.LogFilePath(name))
+
+	f, err := os.Open(logPath) //nolint:gosec // path is constructed by LogFilePath from internal config
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error": "log file not found",
+		})
+
+		return
+	}
+	defer f.Close()
+
+	var lines []tui.LogLine
+
+	scanner := bufio.NewScanner(f)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		lines = append(lines, tui.ParseLine(name, scanner.Text()))
+	}
+
+	if lines == nil {
+		lines = make([]tui.LogLine, 0)
+	}
+
+	writeJSON(w, http.StatusOK, lines)
 }
 
 // getServicesData builds the services response slice.

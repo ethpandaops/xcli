@@ -93,6 +93,11 @@ func NewOrchestrator(log logrus.FieldLogger, cfg *config.LabConfig, configPath s
 // StateDir returns the state directory path for reading config files.
 func (o *Orchestrator) StateDir() string { return o.stateDir }
 
+// LogFilePath returns the expected log file path for a service.
+func (o *Orchestrator) LogFilePath(name string) string {
+	return filepath.Join(o.stateDir, constants.DirLogs, fmt.Sprintf(constants.LogFileTemplate, name))
+}
+
 // SetVerbose sets verbose mode for build/setup command output.
 func (o *Orchestrator) SetVerbose(verbose bool) {
 	o.verbose = verbose
@@ -939,7 +944,7 @@ func (o *Orchestrator) GenerateConfigs() error {
 			return fmt.Errorf("failed to copy custom lab-backend config: %w", err)
 		}
 	} else {
-		backendConfig, err := generator.GenerateLabBackendConfig()
+		backendConfig, err := generator.GenerateLabBackendConfig(userOverridesPath)
 		if err != nil {
 			return fmt.Errorf("failed to generate lab-backend config: %w", err)
 		}

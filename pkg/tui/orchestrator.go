@@ -105,6 +105,12 @@ func (w *OrchestratorWrapper) GetServices() []ServiceInfo {
 			}
 		}
 
+		// Always expose the log file path so crash logs can be read
+		// even after the process has exited.
+		if info.LogFile == "" {
+			info.LogFile = w.orch.LogFilePath(name)
+		}
+
 		services = append(services, info)
 	}
 

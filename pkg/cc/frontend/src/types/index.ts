@@ -86,6 +86,7 @@ export interface StackStatus {
   runningServices: number;
   totalServices: number;
   error?: string;
+  progress?: StackProgressEvent[];
 }
 
 export interface StackProgressEvent {

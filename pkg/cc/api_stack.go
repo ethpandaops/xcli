@@ -21,10 +21,11 @@ const (
 
 // stackStatusResponse is the JSON response for GET /api/stack/status.
 type stackStatusResponse struct {
-	Status          string `json:"status"`
-	RunningServices int    `json:"runningServices"`
-	TotalServices   int    `json:"totalServices"`
-	Error           string `json:"error,omitempty"`
+	Status          string               `json:"status"`
+	RunningServices int                  `json:"runningServices"`
+	TotalServices   int                  `json:"totalServices"`
+	Error           string               `json:"error,omitempty"`
+	Progress        []stackProgressEvent `json:"progress,omitempty"`
 }
 
 // handlePostStackUp boots the full stack (equivalent to `xcli lab up`).
@@ -64,6 +65,7 @@ func (a *apiHandler) handlePostStackUp(w http.ResponseWriter, _ *http.Request) {
 
 	a.stack.status = stackStatusStarting
 	a.stack.lastError = ""
+	a.stack.progressEvents = nil
 	a.stack.mu.Unlock()
 
 	a.sseHub.Broadcast("stack_starting", nil)
@@ -86,6 +88,12 @@ func (a *apiHandler) handlePostStackUp(w http.ResponseWriter, _ *http.Request) {
 		a.log.Info("starting stack from CC dashboard")
 
 		progress := orchestrator.ProgressFunc(func(phase string, message string) {
+			evt := stackProgressEvent{Phase: phase, Message: message}
+
+			a.stack.mu.Lock()
+			a.stack.progressEvents = append(a.stack.progressEvents, evt)
+			a.stack.mu.Unlock()
+
 			a.sseHub.Broadcast("stack_progress", map[string]string{
 				"phase":   phase,
 				"message": message,
@@ -141,6 +149,7 @@ func (a *apiHandler) handlePostStackDown(
 
 	a.stack.status = stackStatusStopping
 	a.stack.lastError = ""
+	a.stack.progressEvents = nil
 	a.stack.mu.Unlock()
 
 	a.sseHub.Broadcast("stack_stopping", nil)
@@ -154,6 +163,12 @@ func (a *apiHandler) handlePostStackDown(
 		a.log.Info("tearing down stack from CC dashboard")
 
 		progress := orchestrator.ProgressFunc(func(phase string, message string) {
+			evt := stackProgressEvent{Phase: phase, Message: message}
+
+			a.stack.mu.Lock()
+			a.stack.progressEvents = append(a.stack.progressEvents, evt)
+			a.stack.mu.Unlock()
+
 			a.sseHub.Broadcast("stack_progress", map[string]string{
 				"phase":   phase,
 				"message": message,
@@ -209,12 +224,19 @@ func (a *apiHandler) handlePostStackRestart(
 
 	a.stack.status = stackStatusStopping
 	a.stack.lastError = ""
+	a.stack.progressEvents = nil
 	a.stack.mu.Unlock()
 
 	a.sseHub.Broadcast("stack_stopping", nil)
 
 	go func() {
 		progress := orchestrator.ProgressFunc(func(phase string, message string) {
+			evt := stackProgressEvent{Phase: phase, Message: message}
+
+			a.stack.mu.Lock()
+			a.stack.progressEvents = append(a.stack.progressEvents, evt)
+			a.stack.mu.Unlock()
+
 			a.sseHub.Broadcast("stack_progress", map[string]string{
 				"phase":   phase,
 				"message": message,
@@ -248,6 +270,7 @@ func (a *apiHandler) handlePostStackRestart(
 
 		a.stack.mu.Lock()
 		a.stack.status = stackStatusStarting
+		a.stack.progressEvents = nil
 		a.stack.mu.Unlock()
 
 		a.sseHub.Broadcast("stack_starting", nil)
@@ -298,6 +321,13 @@ func (a *apiHandler) getStackStatusData() stackStatusResponse {
 	a.stack.mu.Lock()
 	currentStatus := a.stack.status
 	lastErr := a.stack.lastError
+
+	var progress []stackProgressEvent
+	if len(a.stack.progressEvents) > 0 {
+		progress = make([]stackProgressEvent, len(a.stack.progressEvents))
+		copy(progress, a.stack.progressEvents)
+	}
+
 	a.stack.mu.Unlock()
 
 	services := a.wrapper.GetServices()
@@ -326,6 +356,7 @@ func (a *apiHandler) getStackStatusData() stackStatusResponse {
 		RunningServices: running,
 		TotalServices:   len(services),
 		Error:           lastErr,
+		Progress:        progress,
 	}
 }
 
@@ -362,6 +393,7 @@ func (a *apiHandler) handlePostStackCancel(
 
 	a.stack.status = stackStatusStopping
 	a.stack.cancelBoot = nil
+	a.stack.progressEvents = nil
 	a.stack.mu.Unlock()
 
 	a.sseHub.Broadcast("stack_stopping", nil)
@@ -376,6 +408,12 @@ func (a *apiHandler) handlePostStackCancel(
 		a.log.Info("cancelling boot — tearing down partial stack")
 
 		progress := orchestrator.ProgressFunc(func(phase string, message string) {
+			evt := stackProgressEvent{Phase: phase, Message: message}
+
+			a.stack.mu.Lock()
+			a.stack.progressEvents = append(a.stack.progressEvents, evt)
+			a.stack.mu.Unlock()
+
 			a.sseHub.Broadcast("stack_progress", map[string]string{
 				"phase":   phase,
 				"message": message,

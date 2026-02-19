@@ -7,6 +7,9 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 	"text/template"
 	"time"
 
@@ -216,14 +219,48 @@ func (g *Generator) GenerateCBTAPIConfig(network string) (string, error) {
 }
 
 // GenerateLabBackendConfig generates lab-backend configuration.
-func (g *Generator) GenerateLabBackendConfig() (string, error) {
+// In hybrid mode, userOverridesPath is used to determine which tables
+// should be routed to the local cbt-api instead of the external one.
+func (g *Generator) GenerateLabBackendConfig(
+	userOverridesPath string,
+) (string, error) {
+	isHybrid := g.cfg.Infrastructure.ClickHouse.Xatu.Mode == constants.InfraModeExternal
+
+	var localTables []string
+
+	if isHybrid && userOverridesPath != "" {
+		tables, err := g.getLocallyEnabledTables(userOverridesPath)
+		if err != nil {
+			g.log.WithError(err).Warn(
+				"failed to determine local tables, falling back to non-hybrid",
+			)
+
+			isHybrid = false
+		} else {
+			localTables = tables
+		}
+	}
+
 	networks := make([]map[string]interface{}, 0, len(g.cfg.Networks))
+
 	for _, net := range g.cfg.Networks {
-		networks = append(networks, map[string]interface{}{
+		entry := map[string]interface{}{
 			"Name":    net.Name,
 			"Port":    g.cfg.GetCBTAPIPort(net.Name),
 			"Enabled": net.Enabled,
-		})
+		}
+
+		if isHybrid {
+			if len(localTables) > 0 {
+				entry["IsHybrid"] = true
+				entry["LocalTables"] = localTables
+			} else {
+				// All models disabled — no local routing, pure Cartographoor.
+				entry["IsHybrid"] = true
+			}
+		}
+
+		networks = append(networks, entry)
 	}
 
 	data := map[string]interface{}{
@@ -232,7 +269,9 @@ func (g *Generator) GenerateLabBackendConfig() (string, error) {
 		"FrontendPort": g.cfg.Ports.LabFrontend,
 	}
 
-	tmpl, err := template.New("lab-backend-config").ParseFS(templatesFS, "templates/lab-backend.yaml.tmpl")
+	tmpl, err := template.New("lab-backend-config").ParseFS(
+		templatesFS, "templates/lab-backend.yaml.tmpl",
+	)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse lab-backend config template: %w", err)
 	}
@@ -243,4 +282,132 @@ func (g *Generator) GenerateLabBackendConfig() (string, error) {
 	}
 
 	return buf.String(), nil
+}
+
+// getLocallyEnabledTables discovers all models from the xatu-cbt repo and
+// returns those NOT explicitly disabled in the overrides file.
+// The overrides file is a deny list: it only contains disabled models.
+// So we discover all models, then subtract the disabled ones.
+func (g *Generator) getLocallyEnabledTables(overridesPath string) ([]string, error) {
+	xatuCBTPath := g.cfg.Repos.XatuCBT
+	if xatuCBTPath == "" {
+		return nil, fmt.Errorf("xatu-cbt repo path not configured")
+	}
+
+	// Discover all models from the xatu-cbt repo.
+	allModels, err := discoverAllModels(xatuCBTPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover models: %w", err)
+	}
+
+	if len(allModels) == 0 {
+		return nil, nil
+	}
+
+	// Load overrides to find disabled models.
+	disabled, err := loadDisabledModels(overridesPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load overrides: %w", err)
+	}
+
+	// Return all models that are NOT disabled.
+	tables := make([]string, 0, len(allModels))
+
+	for _, name := range allModels {
+		if !disabled[name] {
+			tables = append(tables, name)
+		}
+	}
+
+	return tables, nil
+}
+
+// discoverAllModels scans the xatu-cbt repo for external and transformation
+// model files, returning a sorted list of all model names.
+func discoverAllModels(xatuCBTPath string) ([]string, error) {
+	models := make([]string, 0, 64)
+
+	// Discover external models (.sql files).
+	externalDir := filepath.Join(xatuCBTPath, "models", "external")
+
+	entries, err := os.ReadDir(externalDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read external models directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		if strings.HasSuffix(name, ".sql") {
+			models = append(models, strings.TrimSuffix(name, ".sql"))
+		}
+	}
+
+	// Discover transformation models (.sql, .yml, .yaml files).
+	transformDir := filepath.Join(xatuCBTPath, "models", "transformations")
+
+	entries, err = os.ReadDir(transformDir)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"failed to read transformations directory: %w", err,
+		)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+
+		for _, ext := range []string{".sql", ".yml", ".yaml"} {
+			if strings.HasSuffix(name, ext) {
+				models = append(models, strings.TrimSuffix(name, ext))
+
+				break
+			}
+		}
+	}
+
+	sort.Strings(models)
+
+	return models, nil
+}
+
+// loadDisabledModels parses the overrides file and returns a set of model
+// names that are explicitly disabled (enabled: false).
+func loadDisabledModels(overridesPath string) (map[string]bool, error) {
+	data, err := os.ReadFile(overridesPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return make(map[string]bool, 0), nil
+		}
+
+		return nil, fmt.Errorf("failed to read overrides: %w", err)
+	}
+
+	var overrides struct {
+		Models struct {
+			Overrides map[string]struct {
+				Enabled *bool `yaml:"enabled"`
+			} `yaml:"overrides"`
+		} `yaml:"models"`
+	}
+
+	if err := yaml.Unmarshal(data, &overrides); err != nil {
+		return nil, fmt.Errorf("failed to parse overrides: %w", err)
+	}
+
+	disabled := make(map[string]bool, len(overrides.Models.Overrides))
+
+	for name, override := range overrides.Models.Overrides {
+		if override.Enabled != nil && !*override.Enabled {
+			disabled[name] = true
+		}
+	}
+
+	return disabled, nil
 }
