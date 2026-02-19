@@ -250,9 +250,14 @@ func (g *Generator) GenerateLabBackendConfig(
 			"Enabled": net.Enabled,
 		}
 
-		if isHybrid && len(localTables) > 0 {
-			entry["IsHybrid"] = true
-			entry["LocalTables"] = localTables
+		if isHybrid {
+			if len(localTables) > 0 {
+				entry["IsHybrid"] = true
+				entry["LocalTables"] = localTables
+			} else {
+				// All models disabled — no local routing, pure Cartographoor.
+				entry["IsHybrid"] = true
+			}
 		}
 
 		networks = append(networks, entry)

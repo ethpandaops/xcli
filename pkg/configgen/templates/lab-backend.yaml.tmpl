@@ -58,11 +58,13 @@ networks:
   - name: {{ .Name }}
     enabled: {{ .Enabled }}
 {{- if .IsHybrid }}
+{{- if .LocalTables }}
     local_overrides:
       target_url: "http://localhost:{{ .Port }}/api/v1"
       tables:
 {{- range .LocalTables }}
         - {{ . }}
+{{- end }}
 {{- end }}
 {{- else }}
     target_url: "http://localhost:{{ .Port }}/api/v1"
