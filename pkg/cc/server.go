@@ -17,11 +17,10 @@ import (
 
 // Server is the Command Center HTTP server.
 type Server struct {
-	log    logrus.FieldLogger
-	port   int
-	srv    *http.Server
-	wg     sync.WaitGroup
-	gitChk *git.Checker
+	log  logrus.FieldLogger
+	port int
+	srv  *http.Server
+	wg   sync.WaitGroup
 
 	stacks   map[string]*stackContext
 	stacksMu sync.RWMutex
@@ -29,9 +28,8 @@ type Server struct {
 
 // stackInfoResponse describes an available stack for the frontend switcher.
 type stackInfoResponse struct {
-	Name   string `json:"name"`
-	Label  string `json:"label"`
-	Status string `json:"status,omitempty"`
+	Name  string `json:"name"`
+	Label string `json:"label"`
 }
 
 // NewServer creates a new Command Center server from the full config.
@@ -47,7 +45,6 @@ func NewServer(
 	s := &Server{
 		log:    l,
 		port:   port,
-		gitChk: gitChk,
 		stacks: make(map[string]*stackContext, 2),
 	}
 
