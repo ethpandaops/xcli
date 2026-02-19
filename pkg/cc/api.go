@@ -445,24 +445,6 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%ds", s)
 }
 
-// stackInfoResponse describes an available stack for the frontend switcher.
-type stackInfoResponse struct {
-	Name   string `json:"name"`
-	Label  string `json:"label"`
-	Status string `json:"status,omitempty"`
-}
-
-// handleGetStacks returns the list of available stacks.
-// Currently only "lab" is supported; this endpoint exists so the frontend
-// can discover stacks dynamically when more are added.
-func (a *apiHandler) handleGetStacks(w http.ResponseWriter, _ *http.Request) {
-	stacks := []stackInfoResponse{
-		{Name: "lab", Label: "Lab"},
-	}
-
-	writeJSON(w, http.StatusOK, stacks)
-}
-
 // writeJSON writes a JSON response with the given status code.
 func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
