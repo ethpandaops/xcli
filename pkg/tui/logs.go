@@ -97,7 +97,7 @@ func (ls *LogStreamer) streamPipe(ctx context.Context, serviceName string, pipe 
 	scanner.Buffer(buf, 1024*1024)
 
 	for scanner.Scan() {
-		line := parseLine(serviceName, scanner.Text())
+		line := ParseLine(serviceName, scanner.Text())
 		select {
 		case ls.output <- line:
 		case <-ctx.Done():
@@ -232,9 +232,9 @@ func (ls *LogStreamer) Stop() {
 	close(ls.output)
 }
 
-// parseLine parses a log line into structured format.
+// ParseLine parses a log line into structured format.
 // Preserves full log content while extracting timestamp and level for display.
-func parseLine(service, raw string) LogLine {
+func ParseLine(service, raw string) LogLine {
 	// Strip ANSI color codes
 	stripped := stripansi.Strip(raw)
 

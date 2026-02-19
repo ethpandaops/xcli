@@ -15,6 +15,7 @@ export default function CBTOverridesEditor({
   const [saving, setSaving] = useState(false);
   const [showRestartPrompt, setShowRestartPrompt] = useState(false);
   const [restarting, setRestarting] = useState(false);
+  const [isHybrid, setIsHybrid] = useState(false);
   const [externalFilter, setExternalFilter] = useState("");
   const [transformFilter, setTransformFilter] = useState("");
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
@@ -25,6 +26,10 @@ export default function CBTOverridesEditor({
     fetchJSON<CBTOverridesState>("/api/config/overrides")
       .then(setState)
       .catch((err) => onToast(err.message, "error"));
+
+    fetchJSON<{ mode: string }>("/api/config")
+      .then((cfg) => setIsHybrid(cfg.mode === "hybrid"))
+      .catch(() => {}); // non-critical
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fetch once on mount only
   }, [fetchJSON]);
 
@@ -47,14 +52,15 @@ export default function CBTOverridesEditor({
       } else {
         onToast("Overrides saved and configs regenerated", "success");
 
-        // Only prompt restart if any cbt service is actually running
+        // Only prompt restart if any relevant service is actually running
         try {
           const status = await fetchJSON<{ services: { name: string; status: string }[] }>("/api/status");
-          const cbtRunning = status.services.some(
-            (s) => (s.name.startsWith("cbt-") || s.name.startsWith("cbt-api-")) && s.status === "running",
+          const relevantRunning = status.services.some(
+            (s) => ((s.name.startsWith("cbt-") || s.name.startsWith("cbt-api-")) ||
+              (isHybrid && s.name === "lab-backend")) && s.status === "running",
           );
 
-          if (cbtRunning) {
+          if (relevantRunning) {
             setShowRestartPrompt(true);
           }
         } catch {
@@ -72,7 +78,7 @@ export default function CBTOverridesEditor({
     }
   };
 
-  const restartCbtApis = async () => {
+  const restartServices = async () => {
     setRestarting(true);
 
     try {
@@ -85,10 +91,34 @@ export default function CBTOverridesEditor({
         await postAction(svc.name, "restart");
       }
 
+      // In hybrid mode, also restart lab-backend so it picks up updated local_overrides
+      let restartedBackend = false;
+
+      if (isHybrid) {
+        const backend = services.find(
+          (s) => s.name === "lab-backend" && s.status === "running",
+        );
+
+        if (backend) {
+          await postAction(backend.name, "restart");
+          restartedBackend = true;
+        }
+      }
+
+      const parts: string[] = [];
+
       if (cbtServices.length > 0) {
-        onToast(`Restarted ${cbtServices.length} xatu-cbt service${cbtServices.length > 1 ? "s" : ""}`, "success");
+        parts.push(`${cbtServices.length} xatu-cbt`);
+      }
+
+      if (restartedBackend) {
+        parts.push("lab-backend");
+      }
+
+      if (parts.length > 0) {
+        onToast(`Restarted ${parts.join(" + ")}`, "success");
       } else {
-        onToast("No running xatu-cbt services found", "error");
+        onToast("No running services found to restart", "error");
       }
     } catch (err) {
       onToast(
@@ -503,7 +533,9 @@ export default function CBTOverridesEditor({
             {restarting ? (
               <div className="flex flex-col items-center gap-3 py-4">
                 <div className="size-6 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
-                <span className="text-sm/5 text-indigo-300">Restarting xatu-cbt services...</span>
+                <span className="text-sm/5 text-indigo-300">
+                  Restarting {isHybrid ? "xatu-cbt + lab-backend" : "xatu-cbt"} services...
+                </span>
               </div>
             ) : (
               <>
@@ -516,7 +548,7 @@ export default function CBTOverridesEditor({
                   </h3>
                 </div>
                 <p className="mt-2 text-sm/5 text-gray-400">
-                  Restart xatu-cbt services to apply the new overrides?
+                  Restart {isHybrid ? "xatu-cbt and lab-backend" : "xatu-cbt services"} to apply the new overrides?
                 </p>
                 <div className="mt-5 flex justify-end gap-2">
                   <button
@@ -526,7 +558,7 @@ export default function CBTOverridesEditor({
                     Skip
                   </button>
                   <button
-                    onClick={restartCbtApis}
+                    onClick={restartServices}
                     className="rounded-xs bg-indigo-600 px-3 py-1.5 text-xs/4 font-medium text-white transition-colors hover:bg-indigo-500"
                   >
                     Restart
