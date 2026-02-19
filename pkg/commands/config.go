@@ -15,6 +15,65 @@ const (
 	stackLab = "lab"
 )
 
+// NewConfigCommand creates the config command (global - shows all stacks by default).
+func NewConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
+	var stackFilter string
+
+	cmd := &cobra.Command{
+		Use:   "config",
+		Short: "Manage configuration",
+		Long:  `View and validate configuration for all stacks or specific stack.`,
+	}
+
+	// Add --stack flag to parent command for inheritance
+	cmd.PersistentFlags().StringVar(&stackFilter, "stack", stackAll, "Filter by stack (all, lab)")
+
+	// config show subcommand
+	showCmd := &cobra.Command{
+		Use:   "show",
+		Short: "Show current configuration",
+		Long: `Show current configuration for all stacks or filtered by --stack flag.
+
+Examples:
+  xcli config show              # Show all stacks (default)
+  xcli config show --stack=lab  # Show only lab stack
+  xcli config show --stack=all  # Show all stacks (explicit)`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := config.Load(configPath)
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			return displayConfigForStack(result.Config, stackFilter)
+		},
+	}
+
+	// config validate subcommand
+	validateCmd := &cobra.Command{
+		Use:   "validate",
+		Short: "Validate configuration",
+		Long: `Validate configuration for all stacks or filtered by --stack flag.
+
+Examples:
+  xcli config validate              # Validate all stacks (default)
+  xcli config validate --stack=lab  # Validate only lab stack
+  xcli config validate --stack=all  # Validate all stacks (explicit)`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			result, err := config.Load(configPath)
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			return validateConfigForStack(result.Config, stackFilter)
+		},
+	}
+
+	cmd.AddCommand(showCmd)
+	cmd.AddCommand(validateCmd)
+
+	return cmd
+}
+
 // displayConfigForStack marshals and displays config for specified stack(s).
 // stack can be "all", "lab", or future stack names.
 func displayConfigForStack(cfg *config.Config, stack string) error {
@@ -104,63 +163,4 @@ func displayLabSummary(labCfg *config.LabConfig) {
 	}
 
 	fmt.Println()
-}
-
-// NewConfigCommand creates the config command (global - shows all stacks by default).
-func NewConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
-	var stackFilter string
-
-	cmd := &cobra.Command{
-		Use:   "config",
-		Short: "Manage configuration",
-		Long:  `View and validate configuration for all stacks or specific stack.`,
-	}
-
-	// Add --stack flag to parent command for inheritance
-	cmd.PersistentFlags().StringVar(&stackFilter, "stack", stackAll, "Filter by stack (all, lab)")
-
-	// config show subcommand
-	showCmd := &cobra.Command{
-		Use:   "show",
-		Short: "Show current configuration",
-		Long: `Show current configuration for all stacks or filtered by --stack flag.
-
-Examples:
-  xcli config show              # Show all stacks (default)
-  xcli config show --stack=lab  # Show only lab stack
-  xcli config show --stack=all  # Show all stacks (explicit)`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := config.Load(configPath)
-			if err != nil {
-				return fmt.Errorf("failed to load config: %w", err)
-			}
-
-			return displayConfigForStack(result.Config, stackFilter)
-		},
-	}
-
-	// config validate subcommand
-	validateCmd := &cobra.Command{
-		Use:   "validate",
-		Short: "Validate configuration",
-		Long: `Validate configuration for all stacks or filtered by --stack flag.
-
-Examples:
-  xcli config validate              # Validate all stacks (default)
-  xcli config validate --stack=lab  # Validate only lab stack
-  xcli config validate --stack=all  # Validate all stacks (explicit)`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			result, err := config.Load(configPath)
-			if err != nil {
-				return fmt.Errorf("failed to load config: %w", err)
-			}
-
-			return validateConfigForStack(result.Config, stackFilter)
-		},
-	}
-
-	cmd.AddCommand(showCmd)
-	cmd.AddCommand(validateCmd)
-
-	return cmd
 }

@@ -53,37 +53,6 @@ func AnalyzeDependencies(selected []string) (ordered []string, deps map[string]*
 	return ordered, deps, hasDeps
 }
 
-// topologicalSort returns projects in dependency order (dependencies first).
-func topologicalSort(projects []string, deps map[string]*DependencyInfo) []string {
-	result := make([]string, 0, len(projects))
-	visited := make(map[string]bool, len(projects))
-
-	var visit func(string)
-
-	visit = func(project string) {
-		if visited[project] {
-			return
-		}
-
-		visited[project] = true
-
-		// Visit dependencies first
-		if info, ok := deps[project]; ok {
-			for _, dep := range info.DependsOn {
-				visit(dep)
-			}
-		}
-
-		result = append(result, project)
-	}
-
-	for _, project := range projects {
-		visit(project)
-	}
-
-	return result
-}
-
 // CheckMissingDependencies checks if any selected project depends on
 // a project that is NOT selected. Returns info for prompting user.
 // Returns: map of dependent project -> missing dependencies.
@@ -146,4 +115,35 @@ func FormatDependencyMessage(project string, dependsOn []string) string {
 	}
 
 	return fmt.Sprintf("%s depends on %s", project, strings.Join(dependsOn, ", "))
+}
+
+// topologicalSort returns projects in dependency order (dependencies first).
+func topologicalSort(projects []string, deps map[string]*DependencyInfo) []string {
+	result := make([]string, 0, len(projects))
+	visited := make(map[string]bool, len(projects))
+
+	var visit func(string)
+
+	visit = func(project string) {
+		if visited[project] {
+			return
+		}
+
+		visited[project] = true
+
+		// Visit dependencies first
+		if info, ok := deps[project]; ok {
+			for _, dep := range info.DependsOn {
+				visit(dep)
+			}
+		}
+
+		result = append(result, project)
+	}
+
+	for _, project := range projects {
+		visit(project)
+	}
+
+	return result
 }

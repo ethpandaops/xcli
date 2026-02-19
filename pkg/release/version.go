@@ -6,15 +6,15 @@ import (
 	"strconv"
 )
 
+// semverRegex matches versions like "v1.2.3" or "1.2.3".
+var semverRegex = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)$`)
+
 // Version represents a parsed semantic version.
 type Version struct {
 	Major int
 	Minor int
 	Patch int
 }
-
-// semverRegex matches versions like "v1.2.3" or "1.2.3".
-var semverRegex = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)$`)
 
 // ParseVersion parses a version string like "v1.2.3" or "1.2.3".
 func ParseVersion(v string) (*Version, error) {

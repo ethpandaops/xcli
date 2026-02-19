@@ -72,56 +72,6 @@ func (ls *LogStreamer) Start(serviceName, logFile string) error {
 	return nil
 }
 
-func (ls *LogStreamer) streamLogs(ctx context.Context, serviceName string, stdout any) {
-	defer func() {
-		// Remove from map so the service can be re-tailed after restart
-		ls.mu.Lock()
-		delete(ls.services, serviceName)
-		ls.mu.Unlock()
-	}()
-
-	ls.streamPipe(ctx, serviceName, stdout)
-}
-
-// streamPipe reads lines from a pipe and sends them to the output channel.
-// Does not manage the services map — caller is responsible for cleanup.
-func (ls *LogStreamer) streamPipe(ctx context.Context, serviceName string, pipe any) {
-	reader, ok := pipe.(interface{ Read([]byte) (int, error) })
-	if !ok {
-		return
-	}
-
-	scanner := bufio.NewScanner(reader)
-	// Increase buffer size for long log lines
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
-
-	for scanner.Scan() {
-		line := ParseLine(serviceName, scanner.Text())
-		select {
-		case ls.output <- line:
-		case <-ctx.Done():
-			return
-		}
-	}
-
-	// If scanner exits, check for errors
-	if err := scanner.Err(); err != nil {
-		// Send error as a log line so it's visible
-		errLine := LogLine{
-			Service:   serviceName,
-			Timestamp: time.Now(),
-			Level:     "ERROR",
-			Message:   "Log scanner error: " + err.Error(),
-			Raw:       err.Error(),
-		}
-		select {
-		case ls.output <- errLine:
-		case <-ctx.Done():
-		}
-	}
-}
-
 // StartDocker begins tailing Docker container logs for a service.
 func (ls *LogStreamer) StartDocker(serviceName, containerName string) error {
 	ls.mu.Lock()
@@ -284,4 +234,54 @@ func ParseLine(service, raw string) LogLine {
 	}
 
 	return line
+}
+
+func (ls *LogStreamer) streamLogs(ctx context.Context, serviceName string, stdout any) {
+	defer func() {
+		// Remove from map so the service can be re-tailed after restart
+		ls.mu.Lock()
+		delete(ls.services, serviceName)
+		ls.mu.Unlock()
+	}()
+
+	ls.streamPipe(ctx, serviceName, stdout)
+}
+
+// streamPipe reads lines from a pipe and sends them to the output channel.
+// Does not manage the services map — caller is responsible for cleanup.
+func (ls *LogStreamer) streamPipe(ctx context.Context, serviceName string, pipe any) {
+	reader, ok := pipe.(interface{ Read([]byte) (int, error) })
+	if !ok {
+		return
+	}
+
+	scanner := bufio.NewScanner(reader)
+	// Increase buffer size for long log lines
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		line := ParseLine(serviceName, scanner.Text())
+		select {
+		case ls.output <- line:
+		case <-ctx.Done():
+			return
+		}
+	}
+
+	// If scanner exits, check for errors
+	if err := scanner.Err(); err != nil {
+		// Send error as a log line so it's visible
+		errLine := LogLine{
+			Service:   serviceName,
+			Timestamp: time.Now(),
+			Level:     "ERROR",
+			Message:   "Log scanner error: " + err.Error(),
+			Raw:       err.Error(),
+		}
+		select {
+		case ls.output <- errLine:
+		case <-ctx.Done():
+		}
+	}
 }

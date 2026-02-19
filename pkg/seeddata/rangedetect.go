@@ -28,6 +28,13 @@ var rangeColumnPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?:^|[^(])\bmax\s*\(\s*(\w+)\s*\)\s+as\s+max`),
 }
 
+// RangeColumnInfo contains information about a model's range column.
+type RangeColumnInfo struct {
+	Model       string
+	RangeColumn string
+	Detected    bool // true if detected from SQL, false if using default
+}
+
 // DetectRangeColumn parses an external model SQL file to detect the range column
 // used in bounds queries. It looks for patterns like toUnixTimestamp(min(column_name)).
 // Falls back to DefaultRangeColumn if detection fails.
@@ -74,13 +81,6 @@ func DetectRangeColumnForModel(model, xatuCBTPath string) (string, error) {
 	}
 
 	return DetectRangeColumn(modelPath)
-}
-
-// RangeColumnInfo contains information about a model's range column.
-type RangeColumnInfo struct {
-	Model       string
-	RangeColumn string
-	Detected    bool // true if detected from SQL, false if using default
 }
 
 // DetectRangeColumnsForModels detects range columns for multiple external models.

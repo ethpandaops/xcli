@@ -109,6 +109,69 @@ func (m *PatternMatcher) Match(result *BuildResult) *Diagnosis {
 	}
 }
 
+// AddPattern adds a custom pattern to the matcher.
+func (m *PatternMatcher) AddPattern(pattern ErrorPattern) {
+	m.patterns = append(m.patterns, pattern)
+}
+
+// MatchAll returns all patterns that match a build result, sorted by confidence.
+func (m *PatternMatcher) MatchAll(result *BuildResult) []*Diagnosis {
+	if result == nil {
+		return nil
+	}
+
+	// Combine stderr and stdout for matching
+	output := result.Stderr + "\n" + result.Stdout
+	if strings.TrimSpace(output) == "" {
+		return nil
+	}
+
+	lowerOutput := strings.ToLower(output)
+	diagnoses := make([]*Diagnosis, 0, 4)
+
+	for i := range m.patterns {
+		pattern := &m.patterns[i]
+
+		// Check service filter
+		if pattern.Service != "" && pattern.Service != result.Service {
+			continue
+		}
+
+		// Check phase filter
+		if pattern.Phase != "" && pattern.Phase != result.Phase {
+			continue
+		}
+
+		// Check if pattern matches
+		if m.calculateMatchScore(pattern, lowerOutput, output) > 0 {
+			diagnoses = append(diagnoses, &Diagnosis{
+				PatternName: pattern.Name,
+				Matched:     true,
+				Hint:        pattern.Hint,
+				Suggestion:  pattern.Suggestion,
+				Confidence:  pattern.Confidence,
+			})
+		}
+	}
+
+	// Sort by confidence
+	sortDiagnosesByConfidence(diagnoses)
+
+	return diagnoses
+}
+
+// DiagnoseOutput is a convenience function that creates a PatternMatcher and matches output.
+func DiagnoseOutput(service string, phase BuildPhase, stderr, stdout string) *Diagnosis {
+	matcher := NewPatternMatcher()
+
+	return matcher.Match(&BuildResult{
+		Service: service,
+		Phase:   phase,
+		Stderr:  stderr,
+		Stdout:  stdout,
+	})
+}
+
 // calculateMatchScore determines how well a pattern matches the output.
 // Returns 0 for no match, higher scores for better matches.
 func (m *PatternMatcher) calculateMatchScore(pattern *ErrorPattern, lowerOutput, originalOutput string) int {
@@ -157,11 +220,6 @@ func (m *PatternMatcher) calculateMatchScore(pattern *ErrorPattern, lowerOutput,
 	}
 
 	return score
-}
-
-// AddPattern adds a custom pattern to the matcher.
-func (m *PatternMatcher) AddPattern(pattern ErrorPattern) {
-	m.patterns = append(m.patterns, pattern)
 }
 
 // registerPatterns adds all built-in patterns.
@@ -749,52 +807,6 @@ Clean up: xcli lab down && xcli lab up`,
 	)
 }
 
-// MatchAll returns all patterns that match a build result, sorted by confidence.
-func (m *PatternMatcher) MatchAll(result *BuildResult) []*Diagnosis {
-	if result == nil {
-		return nil
-	}
-
-	// Combine stderr and stdout for matching
-	output := result.Stderr + "\n" + result.Stdout
-	if strings.TrimSpace(output) == "" {
-		return nil
-	}
-
-	lowerOutput := strings.ToLower(output)
-	diagnoses := make([]*Diagnosis, 0, 4)
-
-	for i := range m.patterns {
-		pattern := &m.patterns[i]
-
-		// Check service filter
-		if pattern.Service != "" && pattern.Service != result.Service {
-			continue
-		}
-
-		// Check phase filter
-		if pattern.Phase != "" && pattern.Phase != result.Phase {
-			continue
-		}
-
-		// Check if pattern matches
-		if m.calculateMatchScore(pattern, lowerOutput, output) > 0 {
-			diagnoses = append(diagnoses, &Diagnosis{
-				PatternName: pattern.Name,
-				Matched:     true,
-				Hint:        pattern.Hint,
-				Suggestion:  pattern.Suggestion,
-				Confidence:  pattern.Confidence,
-			})
-		}
-	}
-
-	// Sort by confidence
-	sortDiagnosesByConfidence(diagnoses)
-
-	return diagnoses
-}
-
 // sortDiagnosesByConfidence sorts diagnoses with high confidence first.
 func sortDiagnosesByConfidence(diagnoses []*Diagnosis) {
 	confidenceOrder := map[string]int{
@@ -812,16 +824,4 @@ func sortDiagnosesByConfidence(diagnoses []*Diagnosis) {
 			}
 		}
 	}
-}
-
-// DiagnoseOutput is a convenience function that creates a PatternMatcher and matches output.
-func DiagnoseOutput(service string, phase BuildPhase, stderr, stdout string) *Diagnosis {
-	matcher := NewPatternMatcher()
-
-	return matcher.Match(&BuildResult{
-		Service: service,
-		Phase:   phase,
-		Stderr:  stderr,
-		Stdout:  stdout,
-	})
 }

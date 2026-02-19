@@ -32,13 +32,6 @@ import (
 // phase is a short identifier, message is human-readable.
 type ProgressFunc func(phase string, message string)
 
-// reportProgress calls the progress callback if non-nil.
-func reportProgress(progress ProgressFunc, phase, message string) {
-	if progress != nil {
-		progress(phase, message)
-	}
-}
-
 // Orchestrator manages the complete lab stack.
 type Orchestrator struct {
 	log      logrus.FieldLogger
@@ -1691,4 +1684,11 @@ func (o *Orchestrator) startLabFrontend(ctx context.Context) error {
 	cmd.Env = os.Environ()
 
 	return o.proc.Start(ctx, constants.ServiceLabFrontend, cmd, nil)
+}
+
+// reportProgress calls the progress callback if non-nil.
+func reportProgress(progress ProgressFunc, phase, message string) {
+	if progress != nil {
+		progress(phase, message)
+	}
 }

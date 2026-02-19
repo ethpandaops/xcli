@@ -29,6 +29,14 @@ type ghRunInfo struct {
 	URL        string `json:"url"`
 }
 
+// workflowRun represents a GitHub Actions workflow run.
+type workflowRun struct {
+	HeadSha    string `json:"headSha"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion"`
+	CreatedAt  string `json:"createdAt"`
+}
+
 // CheckPrerequisites verifies gh CLI is installed and authenticated.
 func (s *service) CheckPrerequisites(ctx context.Context) error {
 	// Check if gh is installed
@@ -69,102 +77,6 @@ func (s *service) GetProjectInfo(ctx context.Context) ([]ProjectInfo, error) {
 	}
 
 	return projects, nil
-}
-
-// getProjectInfo fetches info for a single project.
-func (s *service) getProjectInfo(ctx context.Context, project string) (*ProjectInfo, error) {
-	repo := fmt.Sprintf("%s/%s", constants.GitHubOrg, project)
-	isSemver := slices.Contains(constants.SemverProjects, project)
-
-	info := &ProjectInfo{
-		Name:     project,
-		Repo:     repo,
-		IsSemver: isSemver,
-	}
-
-	if isSemver {
-		// Fetch latest release
-		output, err := s.runGH(ctx, "release", "list",
-			"--repo", repo,
-			"--limit", "10",
-			"--json", "tagName,isPrerelease,isDraft")
-		if err != nil {
-			return nil, fmt.Errorf("failed to list releases: %w", err)
-		}
-
-		var releases []ghRelease
-		if err := json.Unmarshal([]byte(output), &releases); err != nil {
-			return nil, fmt.Errorf("failed to parse releases: %w", err)
-		}
-
-		// Find first non-prerelease, non-draft release
-		info.CurrentVersion = "no releases"
-
-		for _, rel := range releases {
-			if !rel.IsPrerelease && !rel.IsDraft {
-				info.CurrentVersion = rel.TagName
-				info.Description = fmt.Sprintf("current: %s", rel.TagName)
-
-				break
-			}
-		}
-
-		if info.Description == "" {
-			info.Description = "no stable releases"
-		}
-	} else {
-		// xatu-cbt - no semver, just workflow dispatch
-		// Try to get the latest successful workflow run info
-		info.CurrentVersion, info.Description = s.getLatestWorkflowInfo(ctx, repo)
-	}
-
-	return info, nil
-}
-
-// workflowRun represents a GitHub Actions workflow run.
-type workflowRun struct {
-	HeadSha    string `json:"headSha"`
-	Status     string `json:"status"`
-	Conclusion string `json:"conclusion"`
-	CreatedAt  string `json:"createdAt"`
-}
-
-// getLatestWorkflowInfo fetches the latest successful docker.yml workflow run.
-// Returns (version, description) for display.
-func (s *service) getLatestWorkflowInfo(ctx context.Context, repo string) (string, string) {
-	// Try to get the latest successful workflow run for docker.yml
-	output, err := s.runGH(ctx, "run", "list",
-		"--repo", repo,
-		"--workflow", "docker.yml",
-		"--status", "success",
-		"--limit", "1",
-		"--json", "headSha,status,conclusion,createdAt")
-	if err != nil {
-		s.log.WithError(err).Debug("failed to get workflow runs")
-
-		return VersionNotAvailable, "workflow dispatch"
-	}
-
-	var runs []workflowRun
-
-	if err := json.Unmarshal([]byte(output), &runs); err != nil {
-		s.log.WithError(err).Debug("failed to parse workflow runs")
-
-		return VersionNotAvailable, "workflow dispatch"
-	}
-
-	if len(runs) == 0 {
-		return VersionNotAvailable, "no successful builds"
-	}
-
-	run := runs[0]
-	shortSha := run.HeadSha
-
-	if len(shortSha) > 12 {
-		shortSha = shortSha[:12]
-	}
-
-	return shortSha, fmt.Sprintf("last build: %s", run.CreatedAt[:10])
 }
 
 // ReleaseSemver creates a new semver release by creating a GitHub release.
@@ -294,6 +206,94 @@ func (s *service) ReleaseWorkflow(ctx context.Context, project string) (*Release
 	result.Success = true
 
 	return result, nil
+}
+
+// getProjectInfo fetches info for a single project.
+func (s *service) getProjectInfo(ctx context.Context, project string) (*ProjectInfo, error) {
+	repo := fmt.Sprintf("%s/%s", constants.GitHubOrg, project)
+	isSemver := slices.Contains(constants.SemverProjects, project)
+
+	info := &ProjectInfo{
+		Name:     project,
+		Repo:     repo,
+		IsSemver: isSemver,
+	}
+
+	if isSemver {
+		// Fetch latest release
+		output, err := s.runGH(ctx, "release", "list",
+			"--repo", repo,
+			"--limit", "10",
+			"--json", "tagName,isPrerelease,isDraft")
+		if err != nil {
+			return nil, fmt.Errorf("failed to list releases: %w", err)
+		}
+
+		var releases []ghRelease
+		if err := json.Unmarshal([]byte(output), &releases); err != nil {
+			return nil, fmt.Errorf("failed to parse releases: %w", err)
+		}
+
+		// Find first non-prerelease, non-draft release
+		info.CurrentVersion = "no releases"
+
+		for _, rel := range releases {
+			if !rel.IsPrerelease && !rel.IsDraft {
+				info.CurrentVersion = rel.TagName
+				info.Description = fmt.Sprintf("current: %s", rel.TagName)
+
+				break
+			}
+		}
+
+		if info.Description == "" {
+			info.Description = "no stable releases"
+		}
+	} else {
+		// xatu-cbt - no semver, just workflow dispatch
+		// Try to get the latest successful workflow run info
+		info.CurrentVersion, info.Description = s.getLatestWorkflowInfo(ctx, repo)
+	}
+
+	return info, nil
+}
+
+// getLatestWorkflowInfo fetches the latest successful docker.yml workflow run.
+// Returns (version, description) for display.
+func (s *service) getLatestWorkflowInfo(ctx context.Context, repo string) (string, string) {
+	// Try to get the latest successful workflow run for docker.yml
+	output, err := s.runGH(ctx, "run", "list",
+		"--repo", repo,
+		"--workflow", "docker.yml",
+		"--status", "success",
+		"--limit", "1",
+		"--json", "headSha,status,conclusion,createdAt")
+	if err != nil {
+		s.log.WithError(err).Debug("failed to get workflow runs")
+
+		return VersionNotAvailable, "workflow dispatch"
+	}
+
+	var runs []workflowRun
+
+	if err := json.Unmarshal([]byte(output), &runs); err != nil {
+		s.log.WithError(err).Debug("failed to parse workflow runs")
+
+		return VersionNotAvailable, "workflow dispatch"
+	}
+
+	if len(runs) == 0 {
+		return VersionNotAvailable, "no successful builds"
+	}
+
+	run := runs[0]
+	shortSha := run.HeadSha
+
+	if len(shortSha) > 12 {
+		shortSha = shortSha[:12]
+	}
+
+	return shortSha, fmt.Sprintf("last build: %s", run.CreatedAt[:10])
 }
 
 // getLatestWorkflowRun gets the most recent workflow run for a repo.

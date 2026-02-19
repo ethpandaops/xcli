@@ -64,19 +64,6 @@ const (
 	GitHubURLTemplate = "https://github.com/%s/%s.git"
 )
 
-// GetGitHubURL returns the GitHub clone URL for a repository.
-func GetGitHubURL(repo string) string {
-	return fmt.Sprintf(GitHubURLTemplate, GitHubOrg, repo)
-}
-
-// Network genesis timestamps (Unix seconds).
-var NetworkGenesisTimestamps = map[string]uint64{
-	"mainnet": 1606824023, // Dec 1, 2020
-	"sepolia": 1655733600, // Jun 20, 2022
-	"hoodi":   1742213400, // Mar 15, 2025 (approximate)
-	"holesky": 1695902400, // Sep 28, 2023 (legacy, use hoodi)
-}
-
 // Releasable projects.
 const (
 	ProjectCBT        = "cbt"
@@ -90,6 +77,47 @@ const (
 const (
 	WorkflowXatuCBTDocker = "docker.yml"
 )
+
+// Observability stack.
+const (
+	// Service names.
+	ServicePrometheus = "prometheus"
+	ServiceGrafana    = "grafana"
+
+	// Docker images.
+	PrometheusImage = "prom/prometheus:v3.0.1"
+	GrafanaImage    = "grafana/grafana:11.3.1"
+
+	// Default ports.
+	DefaultPrometheusPort = 9090
+	DefaultGrafanaPort    = 3000
+
+	// Container names.
+	ContainerPrometheus = "xcli-prometheus"
+	ContainerGrafana    = "xcli-grafana"
+
+	// Volume names.
+	VolumePrometheus = "xcli-prometheus-data"
+	VolumeGrafana    = "xcli-grafana-data"
+)
+
+// PID file template.
+const (
+	PIDFileTemplate = "%s.pid"
+)
+
+// Log file template.
+const (
+	LogFileTemplate = "%s.log"
+)
+
+// Network genesis timestamps (Unix seconds).
+var NetworkGenesisTimestamps = map[string]uint64{
+	"mainnet": 1606824023, // Dec 1, 2020
+	"sepolia": 1655733600, // Jun 20, 2022
+	"hoodi":   1742213400, // Mar 15, 2025 (approximate)
+	"holesky": 1695902400, // Sep 28, 2023 (legacy, use hoodi)
+}
 
 // ReleasableProjects lists all projects that can be released via xcli.
 var ReleasableProjects = []string{
@@ -113,6 +141,20 @@ var SemverProjects = []string{
 var ProjectDependencies = map[string][]string{
 	ProjectXatuCBT:    {ProjectCBT}, // xatu-cbt imports cbt
 	ProjectLabBackend: {ProjectLab}, // lab-backend bundles lab frontend
+}
+
+// ProjectRepoNames maps project names to their repository directory names.
+// Used to look up local repo paths from LabReposConfig.
+var ProjectRepoNames = map[string]string{
+	ProjectCBT:        "cbt",
+	ProjectXatuCBT:    "xatuCbt",
+	ProjectCBTAPI:     "cbtApi",
+	ProjectLabBackend: "labBackend",
+}
+
+// GetGitHubURL returns the GitHub clone URL for a repository.
+func GetGitHubURL(repo string) string {
+	return fmt.Sprintf(GitHubURLTemplate, GitHubOrg, repo)
 }
 
 // GetDependencies returns the projects that the given project depends on.
@@ -153,15 +195,6 @@ func HasDependency(dependent, dependency string) bool {
 	return false
 }
 
-// ProjectRepoNames maps project names to their repository directory names.
-// Used to look up local repo paths from LabReposConfig.
-var ProjectRepoNames = map[string]string{
-	ProjectCBT:        "cbt",
-	ProjectXatuCBT:    "xatuCbt",
-	ProjectCBTAPI:     "cbtApi",
-	ProjectLabBackend: "labBackend",
-}
-
 // GetRepoConfigKey returns the config key for a project's repo path.
 func GetRepoConfigKey(project string) string {
 	if key, ok := ProjectRepoNames[project]; ok {
@@ -170,39 +203,6 @@ func GetRepoConfigKey(project string) string {
 
 	return ""
 }
-
-// Observability stack.
-const (
-	// Service names.
-	ServicePrometheus = "prometheus"
-	ServiceGrafana    = "grafana"
-
-	// Docker images.
-	PrometheusImage = "prom/prometheus:v3.0.1"
-	GrafanaImage    = "grafana/grafana:11.3.1"
-
-	// Default ports.
-	DefaultPrometheusPort = 9090
-	DefaultGrafanaPort    = 3000
-
-	// Container names.
-	ContainerPrometheus = "xcli-prometheus"
-	ContainerGrafana    = "xcli-grafana"
-
-	// Volume names.
-	VolumePrometheus = "xcli-prometheus-data"
-	VolumeGrafana    = "xcli-grafana-data"
-)
-
-// PID file template.
-const (
-	PIDFileTemplate = "%s.pid"
-)
-
-// Log file template.
-const (
-	LogFileTemplate = "%s.log"
-)
 
 // Service name helpers.
 // ServiceName returns the full service name for a network-specific service.

@@ -37,6 +37,17 @@ type Process struct {
 	Started time.Time
 }
 
+// PIDFileData represents the JSON structure of a persisted PID file
+// containing process metadata for crash recovery and monitoring.
+type PIDFileData struct {
+	Version   int       `json:"version"` // Format version (currently 1)
+	PID       int       `json:"pid"`
+	LogFile   string    `json:"logFile"`
+	Command   string    `json:"command"`   // Binary path
+	Args      []string  `json:"args"`      // Command arguments
+	StartedAt time.Time `json:"startedAt"` // ISO8601 timestamp
+}
+
 // manager implements the Manager interface.
 type manager struct {
 	log       logrus.FieldLogger
@@ -57,17 +68,6 @@ func NewManager(log logrus.FieldLogger, stateDir string) Manager {
 	m.loadPIDs()
 
 	return m
-}
-
-// PIDFileData represents the JSON structure of a persisted PID file
-// containing process metadata for crash recovery and monitoring.
-type PIDFileData struct {
-	Version   int       `json:"version"` // Format version (currently 1)
-	PID       int       `json:"pid"`
-	LogFile   string    `json:"logFile"`
-	Command   string    `json:"command"`   // Binary path
-	Args      []string  `json:"args"`      // Command arguments
-	StartedAt time.Time `json:"startedAt"` // ISO8601 timestamp
 }
 
 // Start starts a new process with optional health checking.
@@ -360,26 +360,6 @@ func (m *manager) Get(name string) (*Process, bool) {
 	return p, exists
 }
 
-// isRunning checks if a process is actually running.
-// Handles both manager-started processes (Cmd != nil) and PID-loaded processes (Cmd == nil).
-func (m *manager) isRunning(p *Process) bool {
-	if p.Cmd != nil && p.Cmd.Process != nil {
-		return p.Cmd.Process.Signal(syscall.Signal(0)) == nil
-	}
-
-	// PID-loaded process (Cmd is nil) — check via PID directly
-	if p.PID <= 0 {
-		return false
-	}
-
-	proc, err := os.FindProcess(p.PID)
-	if err != nil {
-		return false
-	}
-
-	return proc.Signal(syscall.Signal(0)) == nil
-}
-
 // IsRunning checks if a process with the given name is running.
 // Public method that implements Manager interface.
 func (m *manager) IsRunning(name string) bool {
@@ -444,62 +424,34 @@ func (m *manager) CleanLogs() error {
 	return nil
 }
 
-// loadPID loads a single PID from disk (JSON format only).
-func (m *manager) loadPID(name string) {
-	pidFile := filepath.Join(m.stateDir, constants.DirPIDs, fmt.Sprintf(constants.PIDFileTemplate, name))
+// ReloadPIDs re-scans the PID directory for new or changed PID files.
+// Safe to call concurrently. Discovers processes started externally (e.g. by `xcli lab up`)
+// and removes stale entries for processes that have exited.
+func (m *manager) ReloadPIDs() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	content, err := os.ReadFile(pidFile)
+	m.loadPIDsLocked()
+}
+
+// isRunning checks if a process is actually running.
+// Handles both manager-started processes (Cmd != nil) and PID-loaded processes (Cmd == nil).
+func (m *manager) isRunning(p *Process) bool {
+	if p.Cmd != nil && p.Cmd.Process != nil {
+		return p.Cmd.Process.Signal(syscall.Signal(0)) == nil
+	}
+
+	// PID-loaded process (Cmd is nil) — check via PID directly
+	if p.PID <= 0 {
+		return false
+	}
+
+	proc, err := os.FindProcess(p.PID)
 	if err != nil {
-		m.log.WithFields(logrus.Fields{
-			"name":    name,
-			"pidFile": pidFile,
-		}).Debug("failed to read PID file")
-
-		return
+		return false
 	}
 
-	var data PIDFileData
-	if unmarshalErr := json.Unmarshal(content, &data); unmarshalErr != nil {
-		m.log.WithFields(logrus.Fields{
-			"name": name,
-		}).Warn("failed to parse PID file, removing stale file")
-		m.removePID(name)
-
-		return
-	}
-
-	if data.Version != pidFileVersion {
-		m.log.WithField("version", data.Version).Warn("unknown PID file version")
-	}
-
-	// Validate process exists
-	process, err := os.FindProcess(data.PID)
-	if err != nil {
-		m.removePID(name)
-
-		return
-	}
-
-	if err := process.Signal(syscall.Signal(0)); err != nil {
-		// Process doesn't exist - remove stale PID file
-		m.removePID(name)
-
-		return
-	}
-
-	// Add to processes map (without Cmd since we can't reconstruct it perfectly)
-	m.processes[name] = &Process{
-		Name:    name,
-		Cmd:     nil, // Can't reconstruct
-		PID:     data.PID,
-		LogFile: data.LogFile,
-		Started: data.StartedAt,
-	}
-
-	m.log.WithFields(logrus.Fields{
-		"name": name,
-		"pid":  data.PID,
-	}).Debug("loaded process from PID file")
+	return proc.Signal(syscall.Signal(0)) == nil
 }
 
 // monitor watches a process and cleans up when it exits.
@@ -567,16 +519,6 @@ func (m *manager) removePID(name string) {
 	os.Remove(pidFile)
 }
 
-// ReloadPIDs re-scans the PID directory for new or changed PID files.
-// Safe to call concurrently. Discovers processes started externally (e.g. by `xcli lab up`)
-// and removes stale entries for processes that have exited.
-func (m *manager) ReloadPIDs() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.loadPIDsLocked()
-}
-
 // loadPIDs loads PIDs from disk and checks if processes are still running.
 func (m *manager) loadPIDs() {
 	m.loadPIDsLocked()
@@ -619,4 +561,62 @@ func (m *manager) loadPIDsLocked() {
 		// New PID file not yet in m.processes — load it
 		m.loadPID(name)
 	}
+}
+
+// loadPID loads a single PID from disk (JSON format only).
+func (m *manager) loadPID(name string) {
+	pidFile := filepath.Join(m.stateDir, constants.DirPIDs, fmt.Sprintf(constants.PIDFileTemplate, name))
+
+	content, err := os.ReadFile(pidFile)
+	if err != nil {
+		m.log.WithFields(logrus.Fields{
+			"name":    name,
+			"pidFile": pidFile,
+		}).Debug("failed to read PID file")
+
+		return
+	}
+
+	var data PIDFileData
+	if unmarshalErr := json.Unmarshal(content, &data); unmarshalErr != nil {
+		m.log.WithFields(logrus.Fields{
+			"name": name,
+		}).Warn("failed to parse PID file, removing stale file")
+		m.removePID(name)
+
+		return
+	}
+
+	if data.Version != pidFileVersion {
+		m.log.WithField("version", data.Version).Warn("unknown PID file version")
+	}
+
+	// Validate process exists
+	process, err := os.FindProcess(data.PID)
+	if err != nil {
+		m.removePID(name)
+
+		return
+	}
+
+	if err := process.Signal(syscall.Signal(0)); err != nil {
+		// Process doesn't exist - remove stale PID file
+		m.removePID(name)
+
+		return
+	}
+
+	// Add to processes map (without Cmd since we can't reconstruct it perfectly)
+	m.processes[name] = &Process{
+		Name:    name,
+		Cmd:     nil, // Can't reconstruct
+		PID:     data.PID,
+		LogFile: data.LogFile,
+		Started: data.StartedAt,
+	}
+
+	m.log.WithFields(logrus.Fields{
+		"name": name,
+		"pid":  data.PID,
+	}).Debug("loaded process from PID file")
 }

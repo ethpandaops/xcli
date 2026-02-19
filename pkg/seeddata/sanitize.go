@@ -17,6 +17,29 @@ const (
 	saltLength = 32
 )
 
+// ColumnInfo represents a column's name and type from ClickHouse schema.
+type ColumnInfo struct {
+	Name string
+	Type string
+}
+
+// SanitizedColumnResult contains the result of building a sanitized column list.
+type SanitizedColumnResult struct {
+	ColumnExpr       string   // Comma-separated column expressions for SELECT
+	SanitizedColumns []string // Names of columns that were sanitized (for display)
+}
+
+// describeTableResponse represents the ClickHouse DESCRIBE TABLE JSON response.
+type describeTableResponse struct {
+	Data []describeTableRow `json:"data"`
+}
+
+// describeTableRow represents a single row from DESCRIBE TABLE.
+type describeTableRow struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
 // GenerateSalt creates a cryptographically random salt for IP sanitization.
 // The salt should be generated once per seed data generation run and shared
 // across all models to ensure consistent IP anonymization.
@@ -28,12 +51,6 @@ func GenerateSalt() (string, error) {
 	}
 
 	return hex.EncodeToString(bytes), nil
-}
-
-// ColumnInfo represents a column's name and type from ClickHouse schema.
-type ColumnInfo struct {
-	Name string
-	Type string
 }
 
 // DescribeTable queries ClickHouse to get the schema for a table.
@@ -88,15 +105,39 @@ func (g *Generator) DescribeTable(ctx context.Context, model string) ([]ColumnIn
 	return columns, nil
 }
 
-// describeTableResponse represents the ClickHouse DESCRIBE TABLE JSON response.
-type describeTableResponse struct {
-	Data []describeTableRow `json:"data"`
-}
+// BuildSanitizedColumnList builds a complete SELECT column list with IP sanitization.
+// Returns the column expressions and a list of which columns were sanitized.
+func (g *Generator) BuildSanitizedColumnList(ctx context.Context, model, salt string) (*SanitizedColumnResult, error) {
+	columns, err := g.DescribeTable(ctx, model)
+	if err != nil {
+		return nil, fmt.Errorf("failed to describe table %s: %w", model, err)
+	}
 
-// describeTableRow represents a single row from DESCRIBE TABLE.
-type describeTableRow struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
+	if len(columns) == 0 {
+		return nil, fmt.Errorf("table %s has no columns", model)
+	}
+
+	// Find IP columns for reporting
+	sanitizedCols := make([]string, 0, len(columns))
+
+	for _, col := range columns {
+		if IsIPColumn(col.Type) {
+			sanitizedCols = append(sanitizedCols, fmt.Sprintf("%s (%s)", col.Name, col.Type))
+		}
+	}
+
+	// Build column expressions
+	exprs := make([]string, 0, len(columns))
+
+	for _, col := range columns {
+		expr := BuildSanitizedColumnExpr(col, salt)
+		exprs = append(exprs, expr)
+	}
+
+	return &SanitizedColumnResult{
+		ColumnExpr:       strings.Join(exprs, ", "),
+		SanitizedColumns: sanitizedCols,
+	}, nil
 }
 
 // IsIPColumn checks if a column type is an IP address type (IPv4 or IPv6).
@@ -179,47 +220,6 @@ func BuildSanitizedColumnExpr(col ColumnInfo, salt string) string {
 			"CAST(reinterpret(sipHash128(%s, '%s'), 'FixedString(16)') AS IPv6)) AS %s",
 		col.Name, col.Name, escapedSalt, col.Name, escapedSalt, col.Name,
 	)
-}
-
-// SanitizedColumnResult contains the result of building a sanitized column list.
-type SanitizedColumnResult struct {
-	ColumnExpr       string   // Comma-separated column expressions for SELECT
-	SanitizedColumns []string // Names of columns that were sanitized (for display)
-}
-
-// BuildSanitizedColumnList builds a complete SELECT column list with IP sanitization.
-// Returns the column expressions and a list of which columns were sanitized.
-func (g *Generator) BuildSanitizedColumnList(ctx context.Context, model, salt string) (*SanitizedColumnResult, error) {
-	columns, err := g.DescribeTable(ctx, model)
-	if err != nil {
-		return nil, fmt.Errorf("failed to describe table %s: %w", model, err)
-	}
-
-	if len(columns) == 0 {
-		return nil, fmt.Errorf("table %s has no columns", model)
-	}
-
-	// Find IP columns for reporting
-	sanitizedCols := make([]string, 0, len(columns))
-
-	for _, col := range columns {
-		if IsIPColumn(col.Type) {
-			sanitizedCols = append(sanitizedCols, fmt.Sprintf("%s (%s)", col.Name, col.Type))
-		}
-	}
-
-	// Build column expressions
-	exprs := make([]string, 0, len(columns))
-
-	for _, col := range columns {
-		expr := BuildSanitizedColumnExpr(col, salt)
-		exprs = append(exprs, expr)
-	}
-
-	return &SanitizedColumnResult{
-		ColumnExpr:       strings.Join(exprs, ", "),
-		SanitizedColumns: sanitizedCols,
-	}, nil
 }
 
 // CountIPColumns counts the number of IP columns in a table schema.

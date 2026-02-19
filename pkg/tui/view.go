@@ -389,22 +389,6 @@ func (m Model) renderStatusBar() string {
 	return StyleStatusBar.Render(status)
 }
 
-func formatDuration(d time.Duration) string {
-	if d == 0 {
-		return "-"
-	}
-
-	if d < time.Minute {
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	}
-
-	if d < time.Hour {
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	}
-
-	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
-}
-
 // formatLogLineWithHighlight formats a log line, highlighting filter matches if active.
 func (m Model) formatLogLineWithHighlight(line LogLine) string {
 	// Color the level indicator
@@ -687,4 +671,20 @@ func wrapText(text string, width int) []string {
 	}
 
 	return lines
+}
+
+func formatDuration(d time.Duration) string {
+	if d == 0 {
+		return "-"
+	}
+
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+
+	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
 }
