@@ -43,8 +43,8 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
   const [progressPhases, setProgressPhases] = useState<StackProgressEvent[]>([]);
   const [stackError, setStackError] = useState<string | null>(null);
 
-  // Initial data load
-  useEffect(() => {
+  // Fetch all REST data — called on mount and whenever SSE (re)connects
+  const loadAllData = useCallback(() => {
     fetchJSON<StatusResponse>('/api/status')
       .then(data => {
         setServices(data.services);
@@ -59,7 +59,6 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
       })
       .catch(console.error);
 
-    // Fetch log history so we have logs from before SSE connected
     fetchJSON<LogLine[]>('/api/logs')
       .then(data => {
         if (data.length > 0) {
@@ -69,7 +68,6 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
       })
       .catch(console.error);
 
-    // Seed stack status and progress; subsequent updates arrive via SSE
     fetchJSON<StackStatus>('/api/stack/status')
       .then(data => {
         setStackStatus(data.status);
@@ -83,8 +81,12 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
         }
       })
       .catch(console.error);
+  }, [fetchJSON]);
 
-    // Refresh git status every 60s
+  // Initial data load + periodic git refresh
+  useEffect(() => {
+    loadAllData();
+
     const gitInterval = setInterval(() => {
       fetchJSON<GitResponse>('/api/git')
         .then(data => {
@@ -96,7 +98,7 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
     return () => {
       clearInterval(gitInterval);
     };
-  }, [fetchJSON]);
+  }, [fetchJSON, loadAllData]);
 
   // SSE handler
   const handleSSE = useCallback(
@@ -179,7 +181,7 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
     [notify]
   );
 
-  useSSE(handleSSE);
+  useSSE(handleSSE, loadAllData);
   useFavicon(stackStatus, !!stackError);
 
   // Fetch log file from disk when a stopped service with a log file is selected

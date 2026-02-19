@@ -2,12 +2,18 @@ import { useEffect, useRef, useCallback } from 'react';
 
 type SSEHandler = (event: string, data: unknown) => void;
 
-export function useSSE(handler: SSEHandler) {
+export function useSSE(handler: SSEHandler, onConnect?: () => void) {
   const handlerRef = useRef(handler);
   handlerRef.current = handler;
+  const onConnectRef = useRef(onConnect);
+  onConnectRef.current = onConnect;
 
   const connect = useCallback(() => {
     const es = new EventSource('/api/events');
+
+    es.onopen = () => {
+      onConnectRef.current?.();
+    };
 
     const onEvent = (eventName: string) => (e: MessageEvent) => {
       try {
