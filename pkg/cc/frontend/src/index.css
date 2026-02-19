@@ -7,6 +7,7 @@
   --color-border: oklch(0.30 0.025 260);
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco,
     Consolas, 'Liberation Mono', 'Courier New', monospace;
+  --color-bg: oklch(0.13 0.015 260);
   --animate-wobble: wobble 0.5s ease-in-out;
 }
 
@@ -16,4 +17,24 @@
   50% { transform: rotate(-10deg); }
   75% { transform: rotate(5deg); }
   100% { transform: rotate(0deg); }
+}
+
+/* Toast entrance animation */
+.animate-in {
+  animation: animate-in 200ms ease-out;
+}
+
+.slide-in-from-bottom-2 {
+  --tw-enter-translate-y: 0.5rem;
+}
+
+.fade-in {
+  --tw-enter-opacity: 0;
+}
+
+@keyframes animate-in {
+  from {
+    opacity: var(--tw-enter-opacity, 1);
+    transform: translateY(var(--tw-enter-translate-y, 0));
+  }
 }

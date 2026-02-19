@@ -70,7 +70,18 @@ func (a *apiHandler) handlePostStackUp(w http.ResponseWriter, _ *http.Request) {
 
 	// Run Up() in a background goroutine — terminal UI output goes to server stdout
 	go func() {
-		ctx := context.Background()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		a.stack.mu.Lock()
+		a.stack.cancelBoot = cancel
+		a.stack.mu.Unlock()
+
+		defer func() {
+			a.stack.mu.Lock()
+			a.stack.cancelBoot = nil
+			a.stack.mu.Unlock()
+		}()
 
 		a.log.Info("starting stack from CC dashboard")
 
@@ -241,7 +252,18 @@ func (a *apiHandler) handlePostStackRestart(
 
 		a.sseHub.Broadcast("stack_starting", nil)
 
-		upCtx := context.Background()
+		upCtx, upCancel := context.WithCancel(context.Background())
+		defer upCancel()
+
+		a.stack.mu.Lock()
+		a.stack.cancelBoot = upCancel
+		a.stack.mu.Unlock()
+
+		defer func() {
+			a.stack.mu.Lock()
+			a.stack.cancelBoot = nil
+			a.stack.mu.Unlock()
+		}()
 
 		if err := a.orch.Up(upCtx, false, false, progress); err != nil {
 			a.log.WithError(err).Error("stack boot failed during restart")
@@ -271,11 +293,8 @@ func (a *apiHandler) handlePostStackRestart(
 	})
 }
 
-// handleGetStackStatus returns the current stack-level status.
-func (a *apiHandler) handleGetStackStatus(
-	w http.ResponseWriter,
-	_ *http.Request,
-) {
+// getStackStatusData builds the current stack status snapshot.
+func (a *apiHandler) getStackStatusData() stackStatusResponse {
 	a.stack.mu.Lock()
 	currentStatus := a.stack.status
 	lastErr := a.stack.lastError
@@ -302,10 +321,92 @@ func (a *apiHandler) handleGetStackStatus(
 		status = stackStatusRunning
 	}
 
-	writeJSON(w, http.StatusOK, stackStatusResponse{
+	return stackStatusResponse{
 		Status:          status,
 		RunningServices: running,
 		TotalServices:   len(services),
 		Error:           lastErr,
+	}
+}
+
+// handleGetStackStatus returns the current stack-level status.
+func (a *apiHandler) handleGetStackStatus(
+	w http.ResponseWriter,
+	_ *http.Request,
+) {
+	writeJSON(w, http.StatusOK, a.getStackStatusData())
+}
+
+// handlePostStackCancel aborts an in-progress boot and tears down any
+// dangling services/infra that were already started.
+func (a *apiHandler) handlePostStackCancel(
+	w http.ResponseWriter,
+	_ *http.Request,
+) {
+	a.stack.mu.Lock()
+
+	if a.stack.status != stackStatusStarting {
+		a.stack.mu.Unlock()
+
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "stack is not currently starting",
+		})
+
+		return
+	}
+
+	// Cancel the boot context so the orchestrator's Up() returns early.
+	if a.stack.cancelBoot != nil {
+		a.stack.cancelBoot()
+	}
+
+	a.stack.status = stackStatusStopping
+	a.stack.cancelBoot = nil
+	a.stack.mu.Unlock()
+
+	a.sseHub.Broadcast("stack_stopping", nil)
+
+	// Tear down any partially-started services/infra in the background.
+	go func() {
+		ctx, cancel := context.WithTimeout(
+			context.Background(), stackShutdownTimeout,
+		)
+		defer cancel()
+
+		a.log.Info("cancelling boot — tearing down partial stack")
+
+		progress := orchestrator.ProgressFunc(func(phase string, message string) {
+			a.sseHub.Broadcast("stack_progress", map[string]string{
+				"phase":   phase,
+				"message": message,
+			})
+		})
+
+		if err := a.orch.Down(ctx, progress); err != nil {
+			a.log.WithError(err).Error("teardown after cancel failed")
+
+			a.stack.mu.Lock()
+			a.stack.status = stackStatusIdle
+			a.stack.lastError = err.Error()
+			a.stack.mu.Unlock()
+
+			a.sseHub.Broadcast("stack_error", map[string]string{
+				"error": err.Error(),
+			})
+
+			return
+		}
+
+		a.stack.mu.Lock()
+		a.stack.status = stackStatusIdle
+		a.stack.lastError = ""
+		a.stack.mu.Unlock()
+
+		a.log.Info("boot cancelled and stack torn down successfully")
+		a.sseHub.Broadcast("stack_stopped", nil)
+	}()
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status": stackStatusStopping,
 	})
 }

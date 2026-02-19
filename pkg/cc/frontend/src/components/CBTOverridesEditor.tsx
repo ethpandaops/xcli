@@ -282,35 +282,61 @@ export default function CBTOverridesEditor({
     return <Spinner text="Loading overrides" centered />;
   }
 
+  const extEnabled = state.externalModels.filter((m) => m.enabled).length;
+  const transEnabled = state.transformationModels.filter((m) => m.enabled).length;
+
   return (
-    <div className="mx-auto max-w-5xl">
-      <div className="flex flex-col gap-6">
+    <div className="mx-auto max-w-6xl">
+      <div className="flex flex-col gap-5">
         {/* Toolbar */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowEnvVars((v) => !v)}
-            className={`rounded-xs px-3 py-1 text-xs/4 font-medium transition-colors ${
-              showEnvVars
-                ? "bg-indigo-600 text-white"
-                : "bg-surface-lighter text-gray-400 hover:text-white"
-            }`}
-          >
-            {showEnvVars ? "Hide environment variables" : "Show environment variables"}
-          </button>
-          <button
-            onClick={() => setShowEnabledOnly((v) => !v)}
-            className={`rounded-xs px-3 py-1 text-xs/4 font-medium transition-colors ${
-              showEnabledOnly
-                ? "bg-indigo-600 text-white"
-                : "bg-surface-lighter text-gray-400 hover:text-white"
-            }`}
-          >
-            {showEnabledOnly ? "Showing enabled only" : "Show enabled only"}
-          </button>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowEnabledOnly((v) => !v)}
+              className={`flex items-center gap-1.5 rounded-xs px-3 py-1.5 text-xs/4 font-medium transition-colors ${
+                showEnabledOnly
+                  ? "bg-indigo-500/15 text-indigo-400 ring-1 ring-indigo-500/25"
+                  : "text-gray-500 hover:bg-white/5 hover:text-gray-300"
+              }`}
+            >
+              <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 0 1-.659 1.591l-5.432 5.432a2.25 2.25 0 0 0-.659 1.591v2.927a2.25 2.25 0 0 1-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 0 0-.659-1.591L3.659 7.409A2.25 2.25 0 0 1 3 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0 1 12 3Z" />
+              </svg>
+              {showEnabledOnly ? "Enabled only" : "Show all"}
+            </button>
+            <button
+              onClick={() => setShowEnvVars((v) => !v)}
+              className={`flex items-center gap-1.5 rounded-xs px-3 py-1.5 text-xs/4 font-medium transition-colors ${
+                showEnvVars
+                  ? "bg-indigo-500/15 text-indigo-400 ring-1 ring-indigo-500/25"
+                  : "text-gray-500 hover:bg-white/5 hover:text-gray-300"
+              }`}
+            >
+              <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.745 3A23.933 23.933 0 0 0 3 12c0 3.183.62 6.22 1.745 9M19.5 3c.967 2.78 1.5 5.817 1.5 9s-.533 6.22-1.5 9M8.25 8.885l1.444-.89a.75.75 0 0 1 1.105.402l2.402 7.206a.75.75 0 0 0 1.104.401l1.445-.889" />
+              </svg>
+              Environment
+            </button>
+          </div>
+
+          {missingDepCount > 0 && (
+            <button
+              onClick={enableMissingDeps}
+              className="flex items-center gap-1.5 rounded-xs bg-amber-500/10 px-3 py-1.5 text-xs/4 font-medium text-amber-400 ring-1 ring-amber-500/20 transition-colors hover:bg-amber-500/20"
+            >
+              <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+              </svg>
+              {missingDepCount} missing dep{missingDepCount > 1 ? "s" : ""} — fix
+            </button>
+          )}
         </div>
 
         {showEnvVars && (
-          <div className="rounded-xs border border-border bg-surface p-4">
+          <div className="rounded-sm border border-border bg-surface-light p-4">
+            <div className="mb-3 text-xs/4 font-semibold uppercase tracking-wider text-gray-500">
+              Environment Variables
+            </div>
             <div className="flex flex-col gap-3">
               <EnvVarField
                 label="EXTERNAL_MODEL_MIN_TIMESTAMP"
@@ -338,56 +364,19 @@ export default function CBTOverridesEditor({
           </div>
         )}
 
-        {/* Enable missing deps banner */}
-        {missingDepCount > 0 && (
-          <div className="flex items-center justify-between rounded-xs border border-amber-500/30 bg-amber-500/10 px-4 py-3">
-            <span className="text-sm/5 text-amber-300">
-              {missingDepCount} missing {missingDepCount === 1 ? "dependency" : "dependencies"} detected
-            </span>
-            <button
-              onClick={enableMissingDeps}
-              className="rounded-xs bg-amber-600/40 px-3 py-1 text-xs/4 font-medium text-amber-200 transition-colors hover:bg-amber-600/60"
-            >
-              Enable All Deps
-            </button>
-          </div>
-        )}
-
-        {/* Models */}
-        <div className="grid grid-cols-2 gap-4">
+        {/* Models grid */}
+        <div className="grid grid-cols-2 gap-0 overflow-hidden rounded-sm border border-border">
           {/* External Models */}
-          <div className="rounded-xs border border-border bg-surface p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm/5 font-semibold text-gray-300">
-                External Models
-                <span className="ml-2 text-xs/4 font-normal text-gray-500">
-                  ({state.externalModels.filter((m) => m.enabled).length}/
-                  {state.externalModels.length})
-                </span>
-              </h3>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setAllModels("externalModels", true)}
-                  className="rounded-xs bg-emerald-600/30 px-2 py-0.5 text-xs/4 text-emerald-400 transition-colors hover:bg-emerald-600/50"
-                >
-                  All
-                </button>
-                <button
-                  onClick={() => setAllModels("externalModels", false)}
-                  className="rounded-xs bg-red-600/30 px-2 py-0.5 text-xs/4 text-red-400 transition-colors hover:bg-red-600/50"
-                >
-                  None
-                </button>
-              </div>
-            </div>
-            <input
-              type="text"
-              value={externalFilter}
-              onChange={(e) => setExternalFilter(e.target.value)}
-              placeholder="Filter models..."
-              className="mb-2 w-full rounded-xs border border-border bg-surface-light px-3 py-1.5 text-sm/5 text-white placeholder:text-gray-600"
-            />
-            <div className="flex max-h-96 flex-col gap-1 overflow-y-auto">
+          <ModelColumn
+            title="External Models"
+            enabledCount={extEnabled}
+            totalCount={state.externalModels.length}
+            filter={externalFilter}
+            onFilterChange={setExternalFilter}
+            onEnableAll={() => setAllModels("externalModels", true)}
+            onDisableAll={() => setAllModels("externalModels", false)}
+          >
+            <div className="flex flex-col">
               {(filteredExternalModels ?? state.externalModels.map((m, i) => ({ ...m, originalIndex: i }))).map(
                 (model) => (
                   <ModelRow
@@ -407,49 +396,20 @@ export default function CBTOverridesEditor({
                 ),
               )}
             </div>
-          </div>
+          </ModelColumn>
 
           {/* Transformation Models */}
-          <div className="rounded-xs border border-border bg-surface p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm/5 font-semibold text-gray-300">
-                Transformation Models
-                <span className="ml-2 text-xs/4 font-normal text-gray-500">
-                  (
-                  {
-                    state.transformationModels.filter((m) => m.enabled)
-                      .length
-                  }
-                  /{state.transformationModels.length})
-                </span>
-              </h3>
-              <div className="flex gap-2">
-                <button
-                  onClick={() =>
-                    setAllModels("transformationModels", true)
-                  }
-                  className="rounded-xs bg-emerald-600/30 px-2 py-0.5 text-xs/4 text-emerald-400 transition-colors hover:bg-emerald-600/50"
-                >
-                  All
-                </button>
-                <button
-                  onClick={() =>
-                    setAllModels("transformationModels", false)
-                  }
-                  className="rounded-xs bg-red-600/30 px-2 py-0.5 text-xs/4 text-red-400 transition-colors hover:bg-red-600/50"
-                >
-                  None
-                </button>
-              </div>
-            </div>
-            <input
-              type="text"
-              value={transformFilter}
-              onChange={(e) => setTransformFilter(e.target.value)}
-              placeholder="Filter models..."
-              className="mb-2 w-full rounded-xs border border-border bg-surface-light px-3 py-1.5 text-sm/5 text-white placeholder:text-gray-600"
-            />
-            <div className="flex max-h-96 flex-col gap-1 overflow-y-auto">
+          <ModelColumn
+            title="Transformation Models"
+            enabledCount={transEnabled}
+            totalCount={state.transformationModels.length}
+            filter={transformFilter}
+            onFilterChange={setTransformFilter}
+            onEnableAll={() => setAllModels("transformationModels", true)}
+            onDisableAll={() => setAllModels("transformationModels", false)}
+            borderLeft
+          >
+            <div className="flex flex-col">
               {(filteredTransformModels ?? state.transformationModels.map((m, i) => ({ ...m, originalIndex: i }))).map(
                 (model) => (
                   <ModelRow
@@ -473,84 +433,212 @@ export default function CBTOverridesEditor({
                 ),
               )}
             </div>
-          </div>
+          </ModelColumn>
         </div>
 
         {/* Selected model deps panel */}
         {selectedModel && selectedDeps && (
-          <div className="rounded-xs border border-border bg-surface p-4">
-            <h3 className="mb-2 text-sm/5 font-semibold text-gray-300">
-              Dependencies of{" "}
-              <span className="font-mono text-indigo-400">{selectedModel}</span>
-            </h3>
-            <div className="flex flex-wrap gap-2">
+          <div className="rounded-sm border border-border bg-surface-light p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <svg className="size-4 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" />
+              </svg>
+              <span className="text-xs/4 font-medium text-gray-400">
+                Dependencies of
+              </span>
+              <code className="rounded-xs bg-indigo-500/10 px-1.5 py-0.5 text-xs/4 text-indigo-400">
+                {selectedModel}
+              </code>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
               {selectedDeps.map((dep) => (
                 <span
                   key={dep.name}
-                  className={`rounded-xs px-2 py-1 font-mono text-xs/4 ${
+                  className={`flex items-center gap-1 rounded-xs px-2 py-1 font-mono text-xs/4 ${
                     dep.enabled
-                      ? "bg-emerald-600/20 text-emerald-400"
-                      : "bg-red-600/20 text-red-400"
+                      ? "bg-emerald-500/10 text-emerald-400"
+                      : "bg-red-500/10 text-red-400"
                   }`}
                 >
-                  {dep.enabled ? "\u2713" : "\u2717"} {dep.name}
+                  {dep.enabled ? (
+                    <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                    </svg>
+                  ) : (
+                    <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                    </svg>
+                  )}
+                  {dep.name}
                 </span>
               ))}
             </div>
           </div>
         )}
 
-        {/* Restart modal */}
-        {showRestartPrompt && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-            <div className="w-full max-w-sm rounded-sm border border-border bg-surface-light p-6 shadow-xl">
-              {restarting ? (
-                <div className="flex flex-col items-center gap-3 py-4">
-                  <div className="size-6 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
-                  <span className="text-sm/5 text-indigo-300">Restarting xatu-cbt services...</span>
-                </div>
-              ) : (
-                <>
-                  <h3 className="text-sm/5 font-semibold text-white">
-                    Restart Services
-                  </h3>
-                  <p className="mt-2 text-sm/5 text-gray-400">
-                    Restart xatu-cbt services to apply the new overrides?
-                  </p>
-                  <div className="mt-5 flex justify-end gap-2">
-                    <button
-                      onClick={() => setShowRestartPrompt(false)}
-                      className="rounded-xs bg-surface-lighter px-3 py-1.5 text-xs/4 font-medium text-gray-300 transition-colors hover:bg-gray-600"
-                    >
-                      Skip
-                    </button>
-                    <button
-                      onClick={restartCbtApis}
-                      className="rounded-xs bg-indigo-600 px-3 py-1.5 text-xs/4 font-medium text-white transition-colors hover:bg-indigo-500"
-                    >
-                      Restart
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Save */}
-        <div className="flex justify-end">
+        {/* Save bar */}
+        <div className="flex items-center justify-between rounded-sm border border-border bg-surface-light px-4 py-3">
+          <span className="text-xs/4 text-gray-600">
+            {extEnabled + transEnabled} model{extEnabled + transEnabled !== 1 ? "s" : ""} enabled
+            {missingDepCount > 0 && (
+              <span className="ml-1 text-amber-500">
+                ({missingDepCount} missing dep{missingDepCount > 1 ? "s" : ""})
+              </span>
+            )}
+          </span>
           <button
             onClick={handleSave}
             disabled={saving}
-            className="rounded-xs bg-indigo-600 px-4 py-2 text-sm/5 font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
+            className="rounded-xs bg-indigo-600 px-4 py-1.5 text-sm/5 font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save Overrides"}
           </button>
         </div>
       </div>
+
+      {/* Restart modal */}
+      {showRestartPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="w-full max-w-sm rounded-sm border border-border bg-surface-light p-6 shadow-xl">
+            {restarting ? (
+              <div className="flex flex-col items-center gap-3 py-4">
+                <div className="size-6 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
+                <span className="text-sm/5 text-indigo-300">Restarting xatu-cbt services...</span>
+              </div>
+            ) : (
+              <>
+                <div className="mb-2 flex items-center gap-2">
+                  <svg className="size-5 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182M2.985 19.644l3.181-3.183" />
+                  </svg>
+                  <h3 className="text-sm/5 font-semibold text-white">
+                    Restart Services
+                  </h3>
+                </div>
+                <p className="mt-2 text-sm/5 text-gray-400">
+                  Restart xatu-cbt services to apply the new overrides?
+                </p>
+                <div className="mt-5 flex justify-end gap-2">
+                  <button
+                    onClick={() => setShowRestartPrompt(false)}
+                    className="rounded-xs px-3 py-1.5 text-xs/4 font-medium text-gray-500 transition-colors hover:text-gray-300"
+                  >
+                    Skip
+                  </button>
+                  <button
+                    onClick={restartCbtApis}
+                    className="rounded-xs bg-indigo-600 px-3 py-1.5 text-xs/4 font-medium text-white transition-colors hover:bg-indigo-500"
+                  >
+                    Restart
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+/* ── Model column ──────────────────────────────────────────────── */
+
+function ModelColumn({
+  title,
+  enabledCount,
+  totalCount,
+  filter,
+  onFilterChange,
+  onEnableAll,
+  onDisableAll,
+  borderLeft,
+  children,
+}: {
+  title: string;
+  enabledCount: number;
+  totalCount: number;
+  filter: string;
+  onFilterChange: (v: string) => void;
+  onEnableAll: () => void;
+  onDisableAll: () => void;
+  borderLeft?: boolean;
+  children: React.ReactNode;
+}) {
+  const pct = totalCount > 0 ? (enabledCount / totalCount) * 100 : 0;
+
+  return (
+    <div className={`flex flex-col bg-surface ${borderLeft ? "border-l border-border" : ""}`}>
+      {/* Header */}
+      <div className="border-b border-border px-4 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-baseline gap-2">
+            <h3 className="text-sm/5 font-semibold text-gray-200">
+              {title}
+            </h3>
+            <span className="font-mono text-xs/4 text-gray-600">
+              {enabledCount}/{totalCount}
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={onEnableAll}
+              className="rounded-xs px-2 py-0.5 text-xs/4 font-medium text-gray-500 transition-colors hover:bg-white/5 hover:text-emerald-400"
+            >
+              All
+            </button>
+            <span className="text-gray-700">/</span>
+            <button
+              onClick={onDisableAll}
+              className="rounded-xs px-2 py-0.5 text-xs/4 font-medium text-gray-500 transition-colors hover:bg-white/5 hover:text-red-400"
+            >
+              None
+            </button>
+          </div>
+        </div>
+        {/* Progress bar */}
+        <div className="mt-2 h-0.5 w-full rounded-full bg-surface-lighter">
+          <div
+            className="h-full rounded-full bg-indigo-500/60 transition-all duration-300"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Search */}
+      <div className="border-b border-border/50 px-4 py-2">
+        <div className="flex items-center gap-2 rounded-xs bg-surface-light px-2.5 py-1.5">
+          <svg className="size-3.5 shrink-0 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+          </svg>
+          <input
+            type="text"
+            value={filter}
+            onChange={(e) => onFilterChange(e.target.value)}
+            placeholder="Filter..."
+            className="w-full bg-transparent text-sm/5 text-white placeholder:text-gray-600 focus:outline-hidden"
+          />
+          {filter && (
+            <button
+              onClick={() => onFilterChange("")}
+              className="shrink-0 text-gray-600 hover:text-gray-400"
+            >
+              <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Model list */}
+      <div className="max-h-[28rem] overflow-y-auto">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/* ── Model row ─────────────────────────────────────────────────── */
 
 function ModelRow({
   model,
@@ -569,25 +657,43 @@ function ModelRow({
 }) {
   return (
     <div
-      className={`flex items-center gap-2 rounded-xs px-2 py-1 transition-colors hover:bg-white/5 ${
-        isSelected ? "bg-indigo-500/10" : ""
+      className={`group flex items-center gap-3 border-b border-border/30 px-4 py-2 transition-colors last:border-b-0 ${
+        isSelected ? "bg-indigo-500/5" : "hover:bg-white/[0.02]"
       }`}
     >
+      {/* Toggle */}
       <button
         onClick={onToggle}
-        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        className="relative shrink-0"
+        aria-label={`Toggle ${model.name}`}
       >
-        <span
-          className={`size-3 shrink-0 rounded-full border ${
+        <div
+          className={`h-4 w-7 rounded-full transition-colors ${
             model.enabled
-              ? "border-emerald-500 bg-emerald-500"
+              ? "bg-emerald-500/80"
               : needed
-                ? "border-amber-500 bg-transparent"
-                : "border-gray-600 bg-transparent"
+                ? "bg-amber-500/30"
+                : "bg-surface-lighter"
           }`}
         />
+        <div
+          className={`absolute top-0.5 left-0.5 size-3 rounded-full transition-all ${
+            model.enabled
+              ? "translate-x-3 bg-white"
+              : needed
+                ? "bg-amber-400"
+                : "bg-gray-500"
+          }`}
+        />
+      </button>
+
+      {/* Name */}
+      <button
+        onClick={onToggle}
+        className="min-w-0 flex-1 text-left"
+      >
         <span
-          className={`truncate text-xs/4 ${
+          className={`truncate font-mono text-xs/4 ${
             model.enabled
               ? "text-gray-200"
               : needed
@@ -597,32 +703,36 @@ function ModelRow({
         >
           {model.name}
         </span>
-        {needed && !model.enabled && (
-          <span className="shrink-0 text-xs/4 text-amber-500" title="Needed by an enabled model">!</span>
-        )}
       </button>
+
+      {/* Needed indicator */}
+      {needed && !model.enabled && (
+        <span className="shrink-0 text-xs/4 font-medium text-amber-500" title="Required by an enabled model">
+          !
+        </span>
+      )}
+
+      {/* Deps button */}
       {hasDeps && (
         <button
           onClick={onSelect}
-          className={`shrink-0 rounded-xs p-0.5 transition-colors hover:bg-white/10 ${
-            isSelected ? "text-indigo-400" : "text-gray-600 hover:text-gray-400"
+          className={`shrink-0 rounded-xs p-0.5 transition-colors ${
+            isSelected
+              ? "text-indigo-400"
+              : "text-gray-700 hover:text-gray-400"
           }`}
           title="View dependencies"
         >
-          {isSelected ? (
-            <svg className="size-3.5" viewBox="0 0 24 24" fill="currentColor">
-              <path fillRule="evenodd" d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12Zm8.706-1.442c1.146-.573 2.437.463 2.126 1.706l-.709 2.836.042-.02a.75.75 0 0 1 .67 1.34l-.04.022c-1.147.573-2.438-.463-2.127-1.706l.71-2.836-.042.02a.75.75 0 1 1-.671-1.34l.041-.022ZM12 9a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z" clipRule="evenodd" />
-            </svg>
-          ) : (
-            <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
-            </svg>
-          )}
+          <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z" />
+          </svg>
         </button>
       )}
     </div>
   );
 }
+
+/* ── Env var field ──────────────────────────────────────────────── */
 
 function EnvVarField({
   label,
@@ -639,21 +749,31 @@ function EnvVarField({
 }) {
   return (
     <div className="flex items-center gap-3">
-      <input
-        type="checkbox"
-        checked={enabled}
-        onChange={(e) => onEnabledChange(e.target.checked)}
-        className="rounded-xs"
-      />
-      <label className="w-72 shrink-0 text-xs/4 font-mono text-gray-400">
+      <button
+        onClick={() => onEnabledChange(!enabled)}
+        className="relative shrink-0"
+        aria-label={`Toggle ${label}`}
+      >
+        <div
+          className={`h-4 w-7 rounded-full transition-colors ${
+            enabled ? "bg-indigo-500/80" : "bg-surface-lighter"
+          }`}
+        />
+        <div
+          className={`absolute top-0.5 left-0.5 size-3 rounded-full transition-all ${
+            enabled ? "translate-x-3 bg-white" : "bg-gray-500"
+          }`}
+        />
+      </button>
+      <code className={`w-72 shrink-0 text-xs/4 ${enabled ? "text-gray-300" : "text-gray-600"}`}>
         {label}
-      </label>
+      </code>
       <input
         type="text"
         value={value}
         onChange={(e) => onValueChange(e.target.value)}
         disabled={!enabled}
-        className="flex-1 rounded-xs border border-border bg-surface px-3 py-1.5 text-sm/5 text-white disabled:opacity-40"
+        className="flex-1 rounded-xs border border-border bg-surface px-3 py-1.5 font-mono text-sm/5 text-white placeholder:text-gray-600 disabled:opacity-30"
         placeholder="0"
       />
     </div>

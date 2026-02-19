@@ -42,19 +42,6 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
   );
   const [stackError, setStackError] = useState<string | null>(null);
 
-  // Poll stack status
-  const refreshStackStatus = useCallback(() => {
-    fetchJSON<StackStatus>("/api/stack/status")
-      .then((data) => {
-        setStackStatus(data.status);
-
-        if (data.error) {
-          setStackError(data.error);
-        }
-      })
-      .catch(console.error);
-  }, [fetchJSON]);
-
   // Initial data load
   useEffect(() => {
     fetchJSON<StatusResponse>("/api/status").then((data) => {
@@ -75,22 +62,28 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
       }
     }).catch(console.error);
 
-    refreshStackStatus();
+    // Seed stack status; subsequent updates arrive via SSE
+    fetchJSON<StackStatus>("/api/stack/status")
+      .then((data) => {
+        setStackStatus(data.status);
 
-    // Refresh git status every 60s, stack status every 3s
+        if (data.error) {
+          setStackError(data.error);
+        }
+      })
+      .catch(console.error);
+
+    // Refresh git status every 60s
     const gitInterval = setInterval(() => {
       fetchJSON<GitResponse>("/api/git").then((data) => {
         setRepos(data.repos);
       }).catch(console.error);
     }, 60000);
 
-    const stackInterval = setInterval(refreshStackStatus, 3000);
-
     return () => {
       clearInterval(gitInterval);
-      clearInterval(stackInterval);
     };
-  }, [fetchJSON, refreshStackStatus]);
+  }, [fetchJSON]);
 
   // SSE handler
   const handleSSE = useCallback((event: string, data: unknown) => {
@@ -137,12 +130,11 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
         setStackError(null);
         break;
       case "stack_started":
-        refreshStackStatus();
+        setStackStatus("running");
         break;
       case "stack_error": {
         const errData = data as { error?: string };
         setStackError(errData?.error ?? "Unknown error");
-        refreshStackStatus();
         break;
       }
       case "stack_stopping":
@@ -155,10 +147,24 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
         setProgressPhases([]);
         setStackError(null);
         break;
+      case "stack_status": {
+        const status = data as StackStatus;
+        setStackStatus(status.status);
+
+        if (status.error) {
+          setStackError(status.error);
+        }
+
+        break;
+      }
     }
-  }, [refreshStackStatus]);
+  }, []);
 
   useSSE(handleSSE);
+
+  const handleCancelBoot = useCallback(() => {
+    postJSON<{ status: string }>("/api/stack/cancel").catch(console.error);
+  }, [postJSON]);
 
   const handleStackAction = useCallback(() => {
     if (!stackStatus || stackStatus === "starting" || stackStatus === "stopping") return;
@@ -243,6 +249,7 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
               )}
               error={stackError}
               title={stackStatus === "stopping" ? "Stopping Stack" : "Booting Stack"}
+              onCancel={stackStatus === "starting" ? handleCancelBoot : undefined}
             />
           ) : stackError ? (
             progressPhases.length > 0 ? (

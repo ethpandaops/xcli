@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,25 +17,37 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const gitCacheTTL = 2 * time.Minute
+
+// gitCache holds the last successful git status response to avoid
+// repeated expensive git operations on every poll.
+type gitCache struct {
+	resp      *gitResponse
+	fetchedAt time.Time
+	mu        sync.RWMutex
+}
+
 // stackState tracks background stack operations to prevent concurrent boots/stops.
 type stackState struct {
-	status    string // "idle", "starting", "stopping"
-	lastError string // last boot/stop error, cleared on next operation
-	mu        sync.Mutex
+	status     string             // "idle", "starting", "stopping"
+	lastError  string             // last boot/stop error, cleared on next operation
+	cancelBoot context.CancelFunc // cancels the in-progress boot context; nil when not booting
+	mu         sync.Mutex
 }
 
 // apiHandler holds dependencies for REST API handlers.
 type apiHandler struct {
-	log     logrus.FieldLogger
-	wrapper *tui.OrchestratorWrapper
-	health  *tui.HealthMonitor
-	orch    *orchestrator.Orchestrator
-	labCfg  *config.LabConfig
-	cfgPath string
-	gitChk  *git.Checker
-	sseHub  *SSEHub
-	stack   stackState
-	mu      sync.RWMutex
+	log      logrus.FieldLogger
+	wrapper  *tui.OrchestratorWrapper
+	health   *tui.HealthMonitor
+	orch     *orchestrator.Orchestrator
+	labCfg   *config.LabConfig
+	cfgPath  string
+	gitChk   *git.Checker
+	sseHub   *SSEHub
+	stack    stackState
+	gitCache gitCache
+	mu       sync.RWMutex
 }
 
 // recreateOrchestrator rebuilds the orchestrator with the current config.
@@ -151,8 +165,22 @@ func (a *apiHandler) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, a.getConfigData())
 }
 
-// handleGetGit returns git status for all repos.
+// handleGetGit returns git status for all repos, caching successful
+// responses for 2 minutes to avoid repeated expensive git operations.
 func (a *apiHandler) handleGetGit(w http.ResponseWriter, r *http.Request) {
+	a.gitCache.mu.RLock()
+
+	if a.gitCache.resp != nil && time.Since(a.gitCache.fetchedAt) < gitCacheTTL {
+		cached := *a.gitCache.resp
+		a.gitCache.mu.RUnlock()
+
+		writeJSON(w, http.StatusOK, cached)
+
+		return
+	}
+
+	a.gitCache.mu.RUnlock()
+
 	repos := map[string]string{
 		"cbt":         a.labCfg.Repos.CBT,
 		"xatu-cbt":    a.labCfg.Repos.XatuCBT,
@@ -189,6 +217,28 @@ func (a *apiHandler) handleGetGit(w http.ResponseWriter, r *http.Request) {
 		}
 
 		resp.Repos = append(resp.Repos, info)
+	}
+
+	slices.SortFunc(resp.Repos, func(a, b repoInfo) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
+	// Cache successful responses (no repos had errors).
+	hasErrors := false
+
+	for _, ri := range resp.Repos {
+		if ri.Error != "" {
+			hasErrors = true
+
+			break
+		}
+	}
+
+	if !hasErrors {
+		a.gitCache.mu.Lock()
+		a.gitCache.resp = &resp
+		a.gitCache.fetchedAt = time.Now()
+		a.gitCache.mu.Unlock()
 	}
 
 	writeJSON(w, http.StatusOK, resp)

@@ -197,6 +197,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/stack/up", s.api.handlePostStackUp)
 	mux.HandleFunc("POST /api/stack/down", s.api.handlePostStackDown)
 	mux.HandleFunc("POST /api/stack/restart", s.api.handlePostStackRestart)
+	mux.HandleFunc("POST /api/stack/cancel", s.api.handlePostStackCancel)
 	mux.HandleFunc("GET /api/stack/status", s.api.handleGetStackStatus)
 
 	// Logs
@@ -299,6 +300,9 @@ func (s *Server) broadcastLoop(ctx context.Context) {
 
 			infra := s.api.getInfraData()
 			s.sseHub.Broadcast("infrastructure", infra)
+
+			stackStatus := s.api.getStackStatusData()
+			s.sseHub.Broadcast("stack_status", stackStatus)
 
 			// Start log streaming for any newly running services
 			s.startLogStreaming()

@@ -28,6 +28,7 @@ interface StackProgressProps {
   error: string | null;
   title?: string;
   onRetry?: () => void;
+  onCancel?: () => void;
 }
 
 export function derivePhaseStates(
@@ -85,6 +86,7 @@ export default function StackProgress({
   error,
   title = "Booting Stack",
   onRetry,
+  onCancel,
 }: StackProgressProps) {
   return (
     <div className="flex h-full items-center justify-center">
@@ -180,6 +182,15 @@ export default function StackProgress({
             className="mt-6 w-full rounded-md bg-emerald-500/20 px-4 py-2 text-sm font-medium text-emerald-400 transition-colors hover:bg-emerald-500/30"
           >
             Retry
+          </button>
+        )}
+
+        {!error && onCancel && (
+          <button
+            onClick={onCancel}
+            className="mt-6 text-xs font-medium text-gray-500 transition-colors hover:text-red-400"
+          >
+            Cancel Boot
           </button>
         )}
       </div>
