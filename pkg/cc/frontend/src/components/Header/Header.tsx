@@ -35,41 +35,41 @@ export default function Header({
 
   if (stackStatus === 'starting') {
     buttonLabel = currentPhase ? `Starting: ${currentPhase}` : 'Starting...';
-    buttonClass += 'cursor-not-allowed bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20';
+    buttonClass += 'cursor-not-allowed bg-warning/10 text-warning ring-1 ring-warning/20';
   } else if (stackStatus === 'stopping') {
     buttonLabel = currentPhase ? `Stopping: ${currentPhase}` : 'Stopping...';
-    buttonClass += 'cursor-not-allowed bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20';
+    buttonClass += 'cursor-not-allowed bg-warning/10 text-warning ring-1 ring-warning/20';
   } else if (isRunning) {
     buttonLabel = 'Stop Stack';
-    buttonClass += 'bg-red-500/10 text-red-400 ring-1 ring-red-500/20 hover:bg-red-500/20';
+    buttonClass += 'bg-error/10 text-error ring-1 ring-error/20 hover:bg-error/20';
   } else {
     buttonLabel = 'Boot Stack';
-    buttonClass += 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20 hover:bg-emerald-500/20';
+    buttonClass += 'bg-success/10 text-success ring-1 ring-success/20 hover:bg-success/20';
   }
 
   return (
     <header className="flex items-center justify-between border-b border-border bg-surface px-5 py-2.5">
       <div className="flex items-center gap-3">
-        <h1 className="group text-sm/5 font-bold tracking-tight text-white">
+        <h1 className="group text-sm/5 font-bold tracking-tight text-text-primary">
           <span className="inline-block origin-bottom transition-transform group-hover:animate-wobble">🍆</span> xcli
         </h1>
-        <span className="rounded-xs bg-indigo-500/15 px-1.5 py-0.5 text-xs/3 font-medium text-indigo-400">
+        <span className="rounded-xs bg-accent/15 px-1.5 py-0.5 text-xs/3 font-medium text-accent-light">
           {mode || '—'}
         </span>
       </div>
 
-      <div className="flex items-center gap-4 text-xs/4 text-gray-500">
+      <div className="flex items-center gap-4 text-xs/4 text-text-muted">
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1.5">
-            <span className={`size-1.5 rounded-full ${running > 0 ? 'bg-emerald-500' : 'bg-gray-600'}`} />
+            <span className={`size-1.5 rounded-full ${running > 0 ? 'bg-success' : 'bg-text-disabled'}`} />
             {running}/{services.length}
           </span>
           <span className="flex items-center gap-1.5">
-            <span className={`size-1.5 rounded-full ${healthy > 0 ? 'bg-sky-500' : 'bg-gray-600'}`} />
+            <span className={`size-1.5 rounded-full ${healthy > 0 ? 'bg-info' : 'bg-text-disabled'}`} />
             {healthy} healthy
           </span>
           <span className="flex items-center gap-1.5">
-            <span className={`size-1.5 rounded-full ${infraRunning > 0 ? 'bg-violet-500' : 'bg-gray-600'}`} />
+            <span className={`size-1.5 rounded-full ${infraRunning > 0 ? 'bg-accent' : 'bg-text-disabled'}`} />
             {infraRunning}/{infrastructure.length} infra
           </span>
         </div>
@@ -94,7 +94,7 @@ export default function Header({
         <button
           onClick={onToggleNotifications}
           className={`rounded-xs p-1.5 transition-colors hover:bg-white/5 ${
-            notificationsEnabled ? 'text-amber-400' : 'text-gray-500 hover:text-gray-300'
+            notificationsEnabled ? 'text-warning' : 'text-text-muted hover:text-text-secondary'
           }`}
           title={notificationsEnabled ? 'Disable notifications' : 'Enable notifications'}
         >
@@ -121,7 +121,7 @@ export default function Header({
         {onNavigateConfig && (
           <button
             onClick={onNavigateConfig}
-            className="rounded-xs p-1.5 text-gray-500 transition-colors hover:bg-white/5 hover:text-gray-300"
+            className="rounded-xs p-1.5 text-text-muted transition-colors hover:bg-white/5 hover:text-text-secondary"
             title="Config Management"
           >
             <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">

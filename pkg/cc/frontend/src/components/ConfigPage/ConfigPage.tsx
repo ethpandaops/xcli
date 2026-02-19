@@ -95,7 +95,7 @@ export default function ConfigPage({ onBack }: ConfigPageProps) {
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
-            className="group flex items-center gap-2 rounded-xs py-1 pr-2 text-gray-400 transition-colors hover:text-white"
+            className="group flex items-center gap-2 rounded-xs py-1 pr-2 text-text-tertiary transition-colors hover:text-text-primary"
             title="Back to Dashboard"
           >
             <svg
@@ -109,14 +109,14 @@ export default function ConfigPage({ onBack }: ConfigPageProps) {
             </svg>
             <span className="text-sm/5 font-medium">Dashboard</span>
           </button>
-          <span className="text-gray-700">/</span>
-          <h1 className="text-sm/5 font-semibold text-white">Config Management</h1>
+          <span className="text-border">{'/'}</span>
+          <h1 className="text-sm/5 font-semibold text-text-primary">Config Management</h1>
         </div>
 
         <button
           onClick={handleRegenerate}
           disabled={regenerating}
-          className="flex items-center gap-1.5 rounded-xs border border-border px-3 py-1.5 text-xs/4 font-medium text-gray-300 transition-colors hover:border-gray-500 hover:text-white disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-xs border border-border px-3 py-1.5 text-xs/4 font-medium text-text-secondary transition-colors hover:border-text-muted hover:text-text-primary disabled:opacity-50"
         >
           <svg
             className={`size-3.5 ${regenerating ? 'animate-spin' : ''}`}
@@ -148,12 +148,12 @@ export default function ConfigPage({ onBack }: ConfigPageProps) {
                 aria-selected={isActive}
                 onClick={() => setActiveTab(tab.key)}
                 className={`relative flex items-center gap-2 px-4 py-3 text-sm/5 font-medium transition-colors ${
-                  isActive ? 'text-white' : 'text-gray-500 hover:text-gray-300'
+                  isActive ? 'text-text-primary' : 'text-text-muted hover:text-text-secondary'
                 }`}
               >
-                <span className={isActive ? 'text-indigo-400' : 'text-gray-600'}>{tab.icon}</span>
+                <span className={isActive ? 'text-accent-light' : 'text-text-disabled'}>{tab.icon}</span>
                 {tab.label}
-                {isActive && <span className="absolute inset-x-4 -bottom-px h-0.5 rounded-full bg-indigo-500" />}
+                {isActive && <span className="absolute inset-x-4 -bottom-px h-0.5 rounded-full bg-accent" />}
               </button>
             );
           })}
@@ -172,8 +172,8 @@ export default function ConfigPage({ onBack }: ConfigPageProps) {
         <div
           className={`animate-in slide-in-from-bottom-2 fade-in fixed right-6 bottom-6 flex items-center gap-2 rounded-sm px-4 py-2.5 text-sm/5 font-medium shadow-lg duration-200 ${
             toast.type === 'success'
-              ? 'bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/25'
-              : 'bg-red-500/15 text-red-400 ring-1 ring-red-500/25'
+              ? 'bg-success/15 text-success ring-1 ring-success/25'
+              : 'bg-error/15 text-error ring-1 ring-error/25'
           }`}
         >
           {toast.type === 'success' ? (

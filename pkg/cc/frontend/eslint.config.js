@@ -6,6 +6,7 @@ import reactPlugin from 'eslint-plugin-react';
 import reactHooksPlugin from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 import prettier from 'eslint-plugin-prettier/recommended';
+import betterTailwindcss from 'eslint-plugin-better-tailwindcss';
 import ccRules from './eslint-rules/index.cjs';
 
 export default tseslint.config(
@@ -25,6 +26,7 @@ export default tseslint.config(
       'react-hooks': reactHooksPlugin,
       'react-refresh': reactRefresh,
       cc: ccRules,
+      'better-tailwindcss': betterTailwindcss,
     },
     rules: {
       ...reactPlugin.configs.recommended.rules,
@@ -49,8 +51,13 @@ export default tseslint.config(
           allowDirectConstAssertionInArrowFunctions: true,
         },
       ],
-      'cc/no-hardcoded-colors': 'warn',
-      'cc/no-primitive-color-scales': 'warn',
+      'cc/no-hardcoded-colors': 'error',
+      'cc/no-primitive-color-scales': 'error',
+      ...betterTailwindcss.configs['recommended'].rules,
+      'better-tailwindcss/enforce-consistent-class-order': 'off',
+      'better-tailwindcss/enforce-consistent-line-wrapping': 'off',
+      'better-tailwindcss/no-unnecessary-whitespace': 'off',
+      'better-tailwindcss/no-unknown-classes': 'off',
     },
     settings: {
       react: {

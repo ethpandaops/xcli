@@ -2,17 +2,18 @@
  * @fileoverview Ban primitive color scales in Tailwind classes
  *
  * This rule prevents developers from using primitive color scales directly
- * (neutral-*) in Tailwind className strings.
- * All UI colors should use semantic tokens defined in src/index.css.
+ * in Tailwind className strings. All UI colors should use semantic tokens
+ * defined in src/index.css (success, warning, error, info, accent, text-*, etc).
  *
  * Examples of incorrect code:
- *   className="bg-neutral-700"
- *   className="text-neutral-500"
+ *   className="bg-emerald-400"
+ *   className="text-gray-500"
+ *   className="border-red-500/20"
  *
  * Examples of correct code:
- *   className="bg-primary"
- *   className="text-foreground"
- *   className="border-border"
+ *   className="bg-success"
+ *   className="text-text-muted"
+ *   className="border-error/20"
  */
 
 /** @type {import('eslint').Rule.RuleModule} */
@@ -27,15 +28,38 @@ module.exports = {
     messages: {
       primitiveColorScale:
         'Primitive color scale "{{scale}}" detected in "{{match}}". Use semantic tokens instead:\n' +
+        '  \u2022 Status: success, warning, error, info\n' +
+        '  \u2022 Accent: accent, accent-light\n' +
+        '  \u2022 Text: text-primary, text-secondary, text-tertiary, text-muted, text-disabled\n' +
         '  \u2022 Surface: bg, surface, surface-light, surface-lighter, border\n' +
-        '  \u2022 State: success, warning, danger\n' +
+        '  \u2022 Overlay: overlay\n' +
         '  \u2022 Custom: define new tokens in src/index.css @theme',
     },
     schema: [],
   },
 
   create(context) {
-    const primitiveScales = ['neutral'];
+    const primitiveScales = [
+      'neutral',
+      'gray',
+      'red',
+      'orange',
+      'amber',
+      'yellow',
+      'lime',
+      'green',
+      'emerald',
+      'teal',
+      'cyan',
+      'sky',
+      'blue',
+      'indigo',
+      'violet',
+      'purple',
+      'fuchsia',
+      'pink',
+      'rose',
+    ];
 
     const primitivePattern = new RegExp(
       `\\b(?:bg|text|border|from|via|to|ring|outline|decoration|divide|accent|caret|fill|stroke|shadow)-(?:${primitiveScales.join('|')})(?:-(?:50|100|200|300|400|500|600|700|800|900|950))?(?:\\/\\d+)?\\b`,

@@ -102,7 +102,7 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabCon
   };
 
   if (error && !config) {
-    return <div className="rounded-xs border border-red-500/30 bg-red-500/10 p-4 text-sm/5 text-red-400">{error}</div>;
+    return <div className="rounded-xs border border-error/30 bg-error/10 p-4 text-sm/5 text-error">{error}</div>;
   }
 
   if (!config) {
@@ -136,14 +136,16 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabCon
                     setConfig(updated);
                   }}
                   className={`rounded-xs px-4 py-1.5 text-sm/5 font-medium transition-colors ${
-                    config.mode === m ? 'bg-indigo-600 text-white' : 'bg-surface-lighter text-gray-400 hover:text-white'
+                    config.mode === m
+                      ? 'bg-accent text-text-primary'
+                      : 'bg-surface-lighter text-text-tertiary hover:text-text-primary'
                   }`}
                 >
                   {m}
                 </button>
               ))}
             </div>
-            <p className="mt-3 text-xs/4 text-gray-600">
+            <p className="mt-3 text-xs/4 text-text-disabled">
               {isHybrid ? 'External Xatu ClickHouse with local CBT processing' : 'Fully local development environment'}
             </p>
           </Section>
@@ -169,10 +171,10 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabCon
                   }
                   className="peer sr-only"
                 />
-                <div className="h-5 w-9 rounded-full bg-surface-lighter transition-colors peer-checked:bg-indigo-600" />
-                <div className="absolute top-0.5 left-0.5 size-4 rounded-full bg-gray-400 transition-all peer-checked:translate-x-4 peer-checked:bg-white" />
+                <div className="h-5 w-9 rounded-full bg-surface-lighter transition-colors peer-checked:bg-accent" />
+                <div className="absolute top-0.5 left-0.5 size-4 rounded-full bg-text-tertiary transition-all peer-checked:translate-x-4 peer-checked:bg-text-primary" />
               </div>
-              <span className="text-sm/5 text-gray-300">
+              <span className="text-sm/5 text-text-secondary">
                 {config.infrastructure.Observability.Enabled ? 'Prometheus & Grafana enabled' : 'Disabled'}
               </span>
             </label>
@@ -194,16 +196,16 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabCon
                     setConfig({ ...config, networks });
                   }}
                   className={`group flex items-center justify-between rounded-xs border px-4 py-3 text-left transition-all ${
-                    enabled ? 'border-indigo-500/40 bg-indigo-500/10' : 'border-border bg-surface hover:border-gray-600'
+                    enabled ? 'border-accent/40 bg-accent/10' : 'border-border bg-surface hover:border-text-disabled'
                   }`}
                 >
                   <div>
-                    <div className={`text-sm/5 font-medium ${enabled ? 'text-white' : 'text-gray-500'}`}>
+                    <div className={`text-sm/5 font-medium ${enabled ? 'text-text-primary' : 'text-text-muted'}`}>
                       {net.Name}
                     </div>
-                    <div className="text-xs/4 text-gray-600">port offset +{net.PortOffset}</div>
+                    <div className="text-xs/4 text-text-disabled">port offset +{net.PortOffset}</div>
                   </div>
-                  <div className={`size-2 rounded-full ${enabled ? 'bg-indigo-500' : 'bg-gray-700'}`} />
+                  <div className={`size-2 rounded-full ${enabled ? 'bg-accent' : 'bg-border'}`} />
                 </button>
               );
             })}
@@ -285,7 +287,7 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabCon
         {config.mode === 'local' && (
           <Section title="Dev Settings" icon={devIcon}>
             <div className="max-w-xs">
-              <label className="mb-1.5 block text-xs/4 font-medium text-gray-500">Xatu Ref</label>
+              <label className="mb-1.5 block text-xs/4 font-medium text-text-muted">{`Xatu Ref`}</label>
               <input
                 type="text"
                 value={config.dev.XatuRef ?? ''}
@@ -296,24 +298,22 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabCon
                   })
                 }
                 placeholder="master"
-                className="w-full rounded-xs border border-border bg-surface px-3 py-2 text-sm/5 text-white placeholder:text-gray-600 focus:border-indigo-500 focus:outline-hidden"
+                className="w-full rounded-xs border border-border bg-surface px-3 py-2 text-sm/5 text-text-primary placeholder:text-text-disabled focus:border-accent focus:outline-hidden"
               />
             </div>
           </Section>
         )}
 
         {/* Error */}
-        {error && (
-          <div className="rounded-xs border border-red-500/30 bg-red-500/10 p-3 text-sm/5 text-red-400">{error}</div>
-        )}
+        {error && <div className="rounded-xs border border-error/30 bg-error/10 p-3 text-sm/5 text-error">{error}</div>}
 
         {/* Confirm modal */}
         {showConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/60">
             <div className="w-full max-w-sm rounded-sm border border-border bg-surface-light p-6 shadow-xl">
               <div className="mb-2 flex items-center gap-2">
                 <svg
-                  className="size-5 text-rose-400"
+                  className="size-5 text-error"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -325,27 +325,27 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabCon
                     d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
                   />
                 </svg>
-                <h3 className="text-sm/5 font-semibold text-white">Restart Required</h3>
+                <h3 className="text-sm/5 font-semibold text-text-primary">Restart Required</h3>
               </div>
-              <p className="mb-5 text-sm/5 text-gray-400">
+              <p className="mb-5 text-sm/5 text-text-tertiary">
                 Lab config changes require a full stack restart. The stack will be torn down and rebooted.
               </p>
               <div className="flex justify-end gap-2">
                 <button
                   onClick={() => setShowConfirm(false)}
-                  className="rounded-xs px-3 py-1.5 text-xs/4 text-gray-500 transition-colors hover:text-gray-300"
+                  className="rounded-xs px-3 py-1.5 text-xs/4 text-text-muted transition-colors hover:text-text-secondary"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleSaveOnly}
-                  className="rounded-xs bg-surface-lighter px-3 py-1.5 text-xs/4 font-medium text-gray-300 transition-colors hover:bg-gray-600"
+                  className="rounded-xs bg-surface-lighter px-3 py-1.5 text-xs/4 font-medium text-text-secondary transition-colors hover:bg-text-disabled"
                 >
                   Save Only
                 </button>
                 <button
                   onClick={handleConfirmRestart}
-                  className="rounded-xs bg-rose-600 px-3 py-1.5 text-xs/4 font-medium text-white transition-colors hover:bg-rose-500"
+                  className="rounded-xs bg-error px-3 py-1.5 text-xs/4 font-medium text-text-primary transition-colors hover:bg-error/80"
                 >
                   Save & Restart
                 </button>
@@ -359,7 +359,7 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabCon
           <button
             onClick={handleSave}
             disabled={saving}
-            className="rounded-xs bg-indigo-600 px-5 py-2 text-sm/5 font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
+            className="rounded-xs bg-accent px-5 py-2 text-sm/5 font-medium text-text-primary transition-colors hover:bg-accent-light disabled:opacity-50"
           >
             {saving ? 'Saving...' : 'Save & Regenerate'}
           </button>
@@ -375,8 +375,8 @@ function Section({ title, icon, children }: { title: string; icon: React.ReactNo
   return (
     <div className="rounded-sm border border-border bg-surface-light p-5">
       <div className="mb-4 flex items-center gap-2.5">
-        <span className="text-gray-500">{icon}</span>
-        <h3 className="text-sm/5 font-semibold text-gray-300">{title}</h3>
+        <span className="text-text-muted">{icon}</span>
+        <h3 className="text-sm/5 font-semibold text-text-secondary">{title}</h3>
       </div>
       {children}
     </div>
@@ -388,12 +388,12 @@ function Section({ title, icon, children }: { title: string; icon: React.ReactNo
 function PortField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
   return (
     <div>
-      <label className="mb-1.5 block text-xs/4 font-medium text-gray-500">{label}</label>
+      <label className="mb-1.5 block text-xs/4 font-medium text-text-muted">{label}</label>
       <input
         type="number"
         value={value}
         onChange={e => onChange(parseInt(e.target.value, 10) || 0)}
-        className="w-full rounded-xs border border-border bg-surface px-3 py-2 text-sm/5 text-white focus:border-indigo-500 focus:outline-hidden"
+        className="w-full rounded-xs border border-border bg-surface px-3 py-2 text-sm/5 text-text-primary focus:border-accent focus:outline-hidden"
       />
     </div>
   );
@@ -424,8 +424,8 @@ function ClusterCard({
     <div className="flex flex-col gap-3 rounded-xs border border-border/50 bg-surface p-4">
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-sm/5 font-medium text-white">{label}</div>
-          <div className="text-xs/4 text-gray-600">{description}</div>
+          <div className="text-sm/5 font-medium text-text-primary">{label}</div>
+          <div className="text-xs/4 text-text-disabled">{description}</div>
         </div>
         <div className="flex gap-1">
           {['local', 'external'].map(m => (
@@ -433,7 +433,9 @@ function ClusterCard({
               key={m}
               onClick={() => onChange({ ...cluster, Mode: m })}
               className={`rounded-xs px-2.5 py-1 text-xs/4 font-medium transition-colors ${
-                cluster.Mode === m ? 'bg-indigo-600 text-white' : 'bg-surface-lighter text-gray-500 hover:text-gray-300'
+                cluster.Mode === m
+                  ? 'bg-accent text-text-primary'
+                  : 'bg-surface-lighter text-text-muted hover:text-text-secondary'
               }`}
             >
               {m}
@@ -485,12 +487,12 @@ function SmallInput({
 }) {
   return (
     <div>
-      <label className="mb-1 block text-xs/4 text-gray-600">{label}</label>
+      <label className="mb-1 block text-xs/4 text-text-disabled">{label}</label>
       <input
         type={type}
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-full rounded-xs border border-border bg-surface-light px-2.5 py-1.5 text-xs/4 text-white focus:border-indigo-500 focus:outline-hidden"
+        className="w-full rounded-xs border border-border bg-surface-light px-2.5 py-1.5 text-xs/4 text-text-primary focus:border-accent focus:outline-hidden"
       />
     </div>
   );

@@ -228,7 +228,7 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
       <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar - Services + Infra */}
         <div className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border bg-surface p-3">
-          <div className="text-xs/4 font-semibold tracking-wider text-gray-500 uppercase">Services</div>
+          <div className="text-xs/4 font-semibold tracking-wider text-text-muted uppercase">Services</div>
           {services.map(svc => (
             <ServiceCard
               key={svc.name}
@@ -240,16 +240,18 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
 
           {infrastructure.length > 0 && (
             <>
-              <div className="mt-2 text-xs/4 font-semibold tracking-wider text-gray-500 uppercase">Infrastructure</div>
+              <div className="mt-2 text-xs/4 font-semibold tracking-wider text-text-muted uppercase">
+                Infrastructure
+              </div>
               {infrastructure.map(item => (
                 <div
                   key={item.name}
                   className="flex items-center justify-between rounded-sm border border-border bg-surface-light p-3"
                 >
-                  <span className="text-sm/5 font-medium text-white">{item.name}</span>
+                  <span className="text-sm/5 font-medium text-text-primary">{item.name}</span>
                   <span
                     className={`text-xs/4 font-medium ${
-                      item.status === 'running' ? 'text-emerald-400' : 'text-gray-500'
+                      item.status === 'running' ? 'text-success' : 'text-text-muted'
                     }`}
                   >
                     {item.status}
@@ -290,7 +292,7 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-4">
                 <svg
-                  className="size-12 text-red-500"
+                  className="size-12 text-error"
                   fill="none"
                   viewBox="0 0 24 24"
                   strokeWidth={1.5}
@@ -302,14 +304,14 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
                     d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
                   />
                 </svg>
-                <p className="text-sm font-medium text-red-400">Stack boot failed</p>
-                <p className="max-w-md text-center font-mono text-xs/5 text-red-400/70">{stackError}</p>
+                <p className="text-sm font-medium text-error">Stack boot failed</p>
+                <p className="max-w-md text-center font-mono text-xs/5 text-error/70">{stackError}</p>
                 <button
                   onClick={() => {
                     setStackError(null);
                     handleStackAction();
                   }}
-                  className="mt-2 rounded-md bg-emerald-500/20 px-4 py-2 text-sm font-medium text-emerald-400 transition-colors hover:bg-emerald-500/30"
+                  className="mt-2 rounded-md bg-success/20 px-4 py-2 text-sm font-medium text-success transition-colors hover:bg-success/30"
                 >
                   Retry Boot
                 </button>
@@ -318,9 +320,9 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
           ) : services.some(s => s.status === 'running') || selectedService ? (
             <LogViewer logs={logs} selectedService={selectedService} />
           ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-4 text-gray-500">
+            <div className="flex h-full flex-col items-center justify-center gap-4 text-text-muted">
               <svg
-                className="size-16 text-gray-700"
+                className="size-16 text-border"
                 fill="none"
                 viewBox="0 0 24 24"
                 strokeWidth={1}
@@ -335,7 +337,7 @@ export default function Dashboard({ onNavigateConfig }: DashboardProps) {
               <p className="text-sm">Stack is not running</p>
               <button
                 onClick={handleStackAction}
-                className="rounded-md bg-emerald-500/20 px-4 py-2 text-sm font-medium text-emerald-400 transition-colors hover:bg-emerald-500/30"
+                className="rounded-md bg-success/20 px-4 py-2 text-sm font-medium text-success transition-colors hover:bg-success/30"
               >
                 Boot Stack
               </button>

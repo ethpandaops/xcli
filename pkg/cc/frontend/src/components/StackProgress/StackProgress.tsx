@@ -103,7 +103,7 @@ export default function StackProgress({
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div
           className={`absolute top-1/2 left-1/2 size-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-[0.07] blur-[120px] ${
-            hasError ? 'bg-red-500' : activePhase ? 'bg-emerald-500' : 'bg-indigo-500'
+            hasError ? 'bg-error' : activePhase ? 'bg-success' : 'bg-accent'
           }`}
         />
       </div>
@@ -111,8 +111,8 @@ export default function StackProgress({
       <div className="relative w-full max-w-sm">
         {/* Header */}
         <div className="flex items-baseline justify-between">
-          <h2 className="text-xs/4 font-semibold tracking-widest text-gray-500 uppercase">{title}</h2>
-          <span className="font-mono text-xs/4 text-gray-600">
+          <h2 className="text-xs/4 font-semibold tracking-widest text-text-muted uppercase">{title}</h2>
+          <span className="font-mono text-xs/4 text-text-disabled">
             {doneCount}/{phases.length}
           </span>
         </div>
@@ -120,7 +120,7 @@ export default function StackProgress({
         {/* Progress rail */}
         <div className="mt-3 h-px w-full bg-border">
           <div
-            className={`h-full transition-all duration-700 ease-out ${hasError ? 'bg-red-500' : 'bg-emerald-500'}`}
+            className={`h-full transition-all duration-700 ease-out ${hasError ? 'bg-error' : 'bg-success'}`}
             style={{ width: `${progress}%` }}
           />
         </div>
@@ -136,7 +136,7 @@ export default function StackProgress({
                 {i < phases.length - 1 && (
                   <div
                     className={`absolute top-5 left-[11px] h-full w-px transition-colors duration-300 ${
-                      phase.status === 'done' ? 'bg-emerald-500/30' : 'bg-border'
+                      phase.status === 'done' ? 'bg-success/30' : 'bg-border'
                     }`}
                   />
                 )}
@@ -144,9 +144,9 @@ export default function StackProgress({
                 {/* Step indicator */}
                 <div className="relative z-10 flex size-[22px] shrink-0 items-center justify-center">
                   {phase.status === 'done' && (
-                    <span className="flex size-[22px] items-center justify-center rounded-full bg-emerald-500/15">
+                    <span className="flex size-[22px] items-center justify-center rounded-full bg-success/15">
                       <svg
-                        className="size-3 text-emerald-400"
+                        className="size-3 text-success"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
@@ -158,15 +158,15 @@ export default function StackProgress({
                   )}
                   {phase.status === 'active' && (
                     <span className="relative flex size-[22px] items-center justify-center">
-                      <span className="absolute size-[22px] animate-ping rounded-full bg-amber-400/20" />
-                      <span className="absolute size-[22px] rounded-full bg-amber-400/10" />
-                      <span className="relative size-2 rounded-full bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.6)]" />
+                      <span className="absolute size-[22px] animate-ping rounded-full bg-warning/20" />
+                      <span className="absolute size-[22px] rounded-full bg-warning/10" />
+                      <span className="relative size-2 rounded-full bg-warning shadow-[0_0_10px_var(--color-warning)]" />
                     </span>
                   )}
                   {phase.status === 'error' && (
-                    <span className="flex size-[22px] items-center justify-center rounded-full bg-red-500/15">
+                    <span className="flex size-[22px] items-center justify-center rounded-full bg-error/15">
                       <svg
-                        className="size-3 text-red-400"
+                        className="size-3 text-error"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
@@ -178,7 +178,7 @@ export default function StackProgress({
                   )}
                   {phase.status === 'pending' && (
                     <span className="flex size-[22px] items-center justify-center">
-                      <span className="size-1.5 rounded-full bg-gray-700" />
+                      <span className="size-1.5 rounded-full bg-border" />
                     </span>
                   )}
                 </div>
@@ -189,12 +189,12 @@ export default function StackProgress({
                     <span
                       className={`font-mono text-xs/4 ${
                         phase.status === 'done'
-                          ? 'text-emerald-500/50'
+                          ? 'text-success/50'
                           : phase.status === 'active'
-                            ? 'text-amber-400/60'
+                            ? 'text-warning/60'
                             : phase.status === 'error'
-                              ? 'text-red-400/60'
-                              : 'text-gray-700'
+                              ? 'text-error/60'
+                              : 'text-border'
                       }`}
                     >
                       {stepNum}
@@ -202,12 +202,12 @@ export default function StackProgress({
                     <span
                       className={`text-sm/5 font-medium ${
                         phase.status === 'done'
-                          ? 'text-emerald-400/80'
+                          ? 'text-success/80'
                           : phase.status === 'active'
-                            ? 'text-white'
+                            ? 'text-text-primary'
                             : phase.status === 'error'
-                              ? 'text-red-400'
-                              : 'text-gray-600'
+                              ? 'text-error'
+                              : 'text-text-disabled'
                       }`}
                     >
                       {phase.label}
@@ -216,12 +216,12 @@ export default function StackProgress({
 
                   {/* Active phase message */}
                   {phase.status === 'active' && phase.message && (
-                    <p className="mt-1 truncate font-mono text-xs/4 text-amber-400/50">{phase.message}</p>
+                    <p className="mt-1 truncate font-mono text-xs/4 text-warning/50">{phase.message}</p>
                   )}
 
                   {/* Error message */}
                   {phase.status === 'error' && error && (
-                    <p className="mt-1 truncate font-mono text-xs/4 text-red-400/60">{error}</p>
+                    <p className="mt-1 truncate font-mono text-xs/4 text-error/60">{error}</p>
                   )}
                 </div>
               </div>
@@ -233,14 +233,14 @@ export default function StackProgress({
         {error && onRetry && (
           <button
             onClick={onRetry}
-            className="mt-6 rounded-xs bg-emerald-500/10 px-4 py-2 text-xs/4 font-medium text-emerald-400 ring-1 ring-emerald-500/20 transition-colors hover:bg-emerald-500/20"
+            className="mt-6 rounded-xs bg-success/10 px-4 py-2 text-xs/4 font-medium text-success ring-1 ring-success/20 transition-colors hover:bg-success/20"
           >
             Retry
           </button>
         )}
 
         {!error && onCancel && (
-          <button onClick={onCancel} className="mt-5 text-xs/4 text-gray-600 transition-colors hover:text-red-400">
+          <button onClick={onCancel} className="mt-5 text-xs/4 text-text-disabled transition-colors hover:text-error">
             Cancel Boot
           </button>
         )}

@@ -10,22 +10,22 @@ interface ServiceCardProps {
 
 const healthIcons: Record<string, { color: string; title: string; path: string }> = {
   healthy: {
-    color: 'text-emerald-400',
+    color: 'text-success',
     title: 'Healthy',
     path: 'M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
   },
   unhealthy: {
-    color: 'text-red-400',
+    color: 'text-error',
     title: 'Unhealthy',
     path: 'm9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
   },
   degraded: {
-    color: 'text-amber-400',
+    color: 'text-warning',
     title: 'Degraded',
     path: 'M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z',
   },
   unknown: {
-    color: 'text-gray-600',
+    color: 'text-text-disabled',
     title: 'Unknown',
     path: 'M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z',
   },
@@ -63,7 +63,7 @@ export default function ServiceCard({ service, selected, onSelect }: ServiceCard
     rebuild: 'Rebuilding',
   };
 
-  const statusColor = isRunning ? 'bg-emerald-500' : service.status === 'crashed' ? 'bg-red-500' : 'bg-gray-600';
+  const statusColor = isRunning ? 'bg-success' : service.status === 'crashed' ? 'bg-error' : 'bg-text-disabled';
 
   const icon = healthIcons[service.health] ?? healthIcons.unknown;
 
@@ -71,14 +71,14 @@ export default function ServiceCard({ service, selected, onSelect }: ServiceCard
     <div
       onClick={onSelect}
       className={`group relative cursor-pointer rounded-xs transition-colors ${
-        selected ? 'bg-indigo-500/10 ring-1 ring-indigo-500/30' : 'hover:bg-white/[0.03]'
+        selected ? 'bg-accent/10 ring-1 ring-accent/30' : 'hover:bg-white/[0.03]'
       }`}
     >
       {loading && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden rounded-xs bg-gray-900/80">
+        <div className="absolute inset-0 z-10 flex items-center justify-center overflow-hidden rounded-xs bg-overlay/80">
           <div className="flex items-center gap-2">
-            <div className="size-3.5 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
-            <span className="text-xs/4 font-medium text-amber-400">{actionLabels[loading] ?? loading}...</span>
+            <div className="size-3.5 animate-spin rounded-full border-2 border-warning border-t-transparent" />
+            <span className="text-xs/4 font-medium text-warning">{actionLabels[loading] ?? loading}...</span>
           </div>
         </div>
       )}
@@ -87,7 +87,7 @@ export default function ServiceCard({ service, selected, onSelect }: ServiceCard
         {/* Top row: status + name + health */}
         <div className="flex items-center gap-2.5">
           <span className={`size-1.5 shrink-0 rounded-full ${statusColor}`} />
-          <span className="min-w-0 flex-1 truncate text-sm/5 font-medium text-gray-200">{service.name}</span>
+          <span className="min-w-0 flex-1 truncate text-sm/5 font-medium text-text-secondary">{service.name}</span>
           <svg
             className={`size-3.5 shrink-0 ${icon.color}`}
             viewBox="0 0 24 24"
@@ -101,7 +101,7 @@ export default function ServiceCard({ service, selected, onSelect }: ServiceCard
         </div>
 
         {/* Meta row: uptime, PID, open link */}
-        <div className="mt-1 flex items-center gap-2 pl-4 text-xs/4 text-gray-600">
+        <div className="mt-1 flex items-center gap-2 pl-4 text-xs/4 text-text-disabled">
           {service.uptime && <span>{service.uptime}</span>}
           {service.pid > 0 && <span>PID {service.pid}</span>}
           {isRunning && service.url && service.name !== 'lab-backend' && (
@@ -110,7 +110,7 @@ export default function ServiceCard({ service, selected, onSelect }: ServiceCard
               target="_blank"
               rel="noreferrer"
               onClick={e => e.stopPropagation()}
-              className="inline-flex items-center gap-0.5 text-indigo-400/70 hover:text-indigo-400"
+              className="inline-flex items-center gap-0.5 text-accent-light/70 hover:text-accent-light"
             >
               open
               <svg className="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
@@ -151,7 +151,7 @@ function ActionBtn({ label, onClick }: { label: string; onClick: () => void }) {
         e.stopPropagation();
         onClick();
       }}
-      className="rounded-xs bg-white/5 px-2 py-0.5 text-xs/4 text-gray-400 transition-colors hover:bg-white/10 hover:text-white"
+      className="rounded-xs bg-white/5 px-2 py-0.5 text-xs/4 text-text-tertiary transition-colors hover:bg-white/10 hover:text-text-primary"
     >
       {label}
     </button>

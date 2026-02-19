@@ -21,7 +21,7 @@ import Spinner from '@/components/Spinner';
 
 - Display errors inline with red styling
 - Provide actionable feedback (retry buttons, error messages)
-- Use `text-red-400` and `bg-red-500/10` for error styling
+- Use `text-error` and `bg-error/10` for error styling
 
 ## Stack progress
 

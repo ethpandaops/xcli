@@ -28,20 +28,46 @@ src/
   main.tsx                    # Entry point
   index.css                   # Global styles, theme tokens, animations
 
-  components/                 # All UI components (flat structure)
-    Dashboard.tsx             # Main dashboard with services, logs, stack controls
-    ConfigPage.tsx            # Config management with tabs
-    ConfigPanel.tsx           # Right sidebar config summary
-    Header.tsx                # Top header bar with stack controls
-    ServiceCard.tsx           # Service card with actions
-    GitStatus.tsx             # Git repo status panel
-    LogViewer.tsx             # Log viewer with filters
-    StackProgress.tsx         # Boot/stop progress timeline
-    LabConfigEditor.tsx       # Lab config form editor
-    ServiceConfigViewer.tsx   # Service config file viewer/editor
-    CBTOverridesEditor.tsx    # CBT model overrides manager
-    InfraPanel.tsx            # Infrastructure status panel
-    Spinner.tsx               # Loading spinner component
+  components/                 # Directory-per-component with barrel exports
+    Dashboard/
+      Dashboard.tsx           # Main dashboard with services, logs, stack controls
+      index.ts
+    ConfigPage/
+      ConfigPage.tsx          # Config management with tabs
+      index.ts
+    ConfigPanel/
+      ConfigPanel.tsx         # Right sidebar config summary
+      index.ts
+    Header/
+      Header.tsx              # Top header bar with stack controls
+      index.ts
+    ServiceCard/
+      ServiceCard.tsx         # Service card with actions
+      index.ts
+    GitStatus/
+      GitStatus.tsx           # Git repo status panel
+      index.ts
+    LogViewer/
+      LogViewer.tsx           # Log viewer with filters
+      index.ts
+    StackProgress/
+      StackProgress.tsx       # Boot/stop progress timeline
+      index.ts
+    LabConfigEditor/
+      LabConfigEditor.tsx     # Lab config form editor
+      index.ts
+    ServiceConfigViewer/
+      ServiceConfigViewer.tsx # Service config file viewer/editor
+      index.ts
+    CBTOverridesEditor/
+      CBTOverridesEditor.tsx  # CBT model overrides manager
+      index.ts
+    InfraPanel/
+      InfraPanel.tsx          # Infrastructure status panel
+      index.ts
+    Spinner/
+      Spinner.tsx             # Loading spinner component
+      index.ts
 
   hooks/                      # Custom React hooks
     useAPI.ts                 # API fetch/post/put/delete helpers
@@ -67,12 +93,14 @@ import Header from '@/components/Header';
 
 ### Color System
 
-Custom color tokens defined in `src/index.css` via `@theme`:
-- `surface`, `surface-light`, `surface-lighter` — background layers
-- `border` — border color
-- `bg` — page background
+Semantic color tokens defined in `src/index.css` via `@theme`:
+- **Surface**: `bg`, `surface`, `surface-light`, `surface-lighter`, `border`
+- **Status**: `success`, `warning`, `error`, `info`
+- **Accent**: `accent`, `accent-light`
+- **Text**: `text-primary`, `text-secondary`, `text-tertiary`, `text-muted`, `text-disabled`
+- **Overlay**: `overlay` (use with opacity, e.g. `bg-overlay/60`)
 
-Custom ESLint rules (`cc/no-hardcoded-colors`, `cc/no-primitive-color-scales`) warn on non-token usage.
+Custom ESLint rules (`cc/no-hardcoded-colors`, `cc/no-primitive-color-scales`) **error** on non-token usage. See `.claude/rules/theming.md` for full details.
 
 ### State Management
 

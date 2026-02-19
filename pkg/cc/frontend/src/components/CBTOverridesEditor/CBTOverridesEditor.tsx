@@ -307,8 +307,8 @@ export default function CBTOverridesEditor({ onToast }: CBTOverridesEditorProps)
               onClick={() => setShowEnabledOnly(v => !v)}
               className={`flex items-center gap-1.5 rounded-xs px-3 py-1.5 text-xs/4 font-medium transition-colors ${
                 showEnabledOnly
-                  ? 'bg-indigo-500/15 text-indigo-400 ring-1 ring-indigo-500/25'
-                  : 'text-gray-500 hover:bg-white/5 hover:text-gray-300'
+                  ? 'bg-accent/15 text-accent-light ring-1 ring-accent/25'
+                  : 'text-text-muted hover:bg-white/5 hover:text-text-secondary'
               }`}
             >
               <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -324,8 +324,8 @@ export default function CBTOverridesEditor({ onToast }: CBTOverridesEditorProps)
               onClick={() => setShowEnvVars(v => !v)}
               className={`flex items-center gap-1.5 rounded-xs px-3 py-1.5 text-xs/4 font-medium transition-colors ${
                 showEnvVars
-                  ? 'bg-indigo-500/15 text-indigo-400 ring-1 ring-indigo-500/25'
-                  : 'text-gray-500 hover:bg-white/5 hover:text-gray-300'
+                  ? 'bg-accent/15 text-accent-light ring-1 ring-accent/25'
+                  : 'text-text-muted hover:bg-white/5 hover:text-text-secondary'
               }`}
             >
               <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -342,7 +342,7 @@ export default function CBTOverridesEditor({ onToast }: CBTOverridesEditorProps)
           {missingDepCount > 0 && (
             <button
               onClick={enableMissingDeps}
-              className="flex items-center gap-1.5 rounded-xs bg-amber-500/10 px-3 py-1.5 text-xs/4 font-medium text-amber-400 ring-1 ring-amber-500/20 transition-colors hover:bg-amber-500/20"
+              className="flex items-center gap-1.5 rounded-xs bg-warning/10 px-3 py-1.5 text-xs/4 font-medium text-warning ring-1 ring-warning/20 transition-colors hover:bg-warning/20"
             >
               <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <path
@@ -358,7 +358,7 @@ export default function CBTOverridesEditor({ onToast }: CBTOverridesEditorProps)
 
         {showEnvVars && (
           <div className="rounded-sm border border-border bg-surface-light p-4">
-            <div className="mb-3 text-xs/4 font-semibold tracking-wider text-gray-500 uppercase">
+            <div className="mb-3 text-xs/4 font-semibold tracking-wider text-text-muted uppercase">
               Environment Variables
             </div>
             <div className="flex flex-col gap-3">
@@ -442,7 +442,7 @@ export default function CBTOverridesEditor({ onToast }: CBTOverridesEditorProps)
           <div className="rounded-sm border border-border bg-surface-light p-4">
             <div className="mb-3 flex items-center gap-2">
               <svg
-                className="size-4 text-gray-500"
+                className="size-4 text-text-muted"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -454,17 +454,15 @@ export default function CBTOverridesEditor({ onToast }: CBTOverridesEditorProps)
                   d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z"
                 />
               </svg>
-              <span className="text-xs/4 font-medium text-gray-400">Dependencies of</span>
-              <code className="rounded-xs bg-indigo-500/10 px-1.5 py-0.5 text-xs/4 text-indigo-400">
-                {selectedModel}
-              </code>
+              <span className="text-xs/4 font-medium text-text-tertiary">Dependencies of</span>
+              <code className="rounded-xs bg-accent/10 px-1.5 py-0.5 text-xs/4 text-accent-light">{selectedModel}</code>
             </div>
             <div className="flex flex-wrap gap-1.5">
               {selectedDeps.map(dep => (
                 <span
                   key={dep.name}
                   className={`flex items-center gap-1 rounded-xs px-2 py-1 font-mono text-xs/4 ${
-                    dep.enabled ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
+                    dep.enabled ? 'bg-success/10 text-success' : 'bg-error/10 text-error'
                   }`}
                 >
                   {dep.enabled ? (
@@ -485,10 +483,10 @@ export default function CBTOverridesEditor({ onToast }: CBTOverridesEditorProps)
 
         {/* Save bar */}
         <div className="flex items-center justify-between rounded-sm border border-border bg-surface-light px-4 py-3">
-          <span className="text-xs/4 text-gray-600">
+          <span className="text-xs/4 text-text-disabled">
             {extEnabled + transEnabled} model{extEnabled + transEnabled !== 1 ? 's' : ''} enabled
             {missingDepCount > 0 && (
-              <span className="ml-1 text-amber-500">
+              <span className="ml-1 text-warning">
                 ({missingDepCount} missing dep{missingDepCount > 1 ? 's' : ''})
               </span>
             )}
@@ -496,7 +494,7 @@ export default function CBTOverridesEditor({ onToast }: CBTOverridesEditorProps)
           <button
             onClick={handleSave}
             disabled={saving}
-            className="rounded-xs bg-indigo-600 px-4 py-1.5 text-sm/5 font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-50"
+            className="rounded-xs bg-accent px-4 py-1.5 text-sm/5 font-medium text-text-primary transition-colors hover:bg-accent-light disabled:opacity-50"
           >
             {saving ? 'Saving...' : 'Save Overrides'}
           </button>
@@ -505,12 +503,12 @@ export default function CBTOverridesEditor({ onToast }: CBTOverridesEditorProps)
 
       {/* Restart modal */}
       {showRestartPrompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/60">
           <div className="w-full max-w-sm rounded-sm border border-border bg-surface-light p-6 shadow-xl">
             {restarting ? (
               <div className="flex flex-col items-center gap-3 py-4">
-                <div className="size-6 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
-                <span className="text-sm/5 text-indigo-300">
+                <div className="size-6 animate-spin rounded-full border-2 border-accent-light border-t-transparent" />
+                <span className="text-sm/5 text-accent-light">
                   Restarting {isHybrid ? 'xatu-cbt + lab-backend' : 'xatu-cbt'} services...
                 </span>
               </div>
@@ -518,7 +516,7 @@ export default function CBTOverridesEditor({ onToast }: CBTOverridesEditorProps)
               <>
                 <div className="mb-2 flex items-center gap-2">
                   <svg
-                    className="size-5 text-indigo-400"
+                    className="size-5 text-accent-light"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -530,21 +528,21 @@ export default function CBTOverridesEditor({ onToast }: CBTOverridesEditorProps)
                       d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182M2.985 19.644l3.181-3.183"
                     />
                   </svg>
-                  <h3 className="text-sm/5 font-semibold text-white">Restart Services</h3>
+                  <h3 className="text-sm/5 font-semibold text-text-primary">Restart Services</h3>
                 </div>
-                <p className="mt-2 text-sm/5 text-gray-400">
+                <p className="mt-2 text-sm/5 text-text-tertiary">
                   Restart {isHybrid ? 'xatu-cbt and lab-backend' : 'xatu-cbt services'} to apply the new overrides?
                 </p>
                 <div className="mt-5 flex justify-end gap-2">
                   <button
                     onClick={() => setShowRestartPrompt(false)}
-                    className="rounded-xs px-3 py-1.5 text-xs/4 font-medium text-gray-500 transition-colors hover:text-gray-300"
+                    className="rounded-xs px-3 py-1.5 text-xs/4 font-medium text-text-muted transition-colors hover:text-text-secondary"
                   >
                     Skip
                   </button>
                   <button
                     onClick={restartServices}
-                    className="rounded-xs bg-indigo-600 px-3 py-1.5 text-xs/4 font-medium text-white transition-colors hover:bg-indigo-500"
+                    className="rounded-xs bg-accent px-3 py-1.5 text-xs/4 font-medium text-text-primary transition-colors hover:bg-accent-light"
                   >
                     Restart
                   </button>
@@ -589,22 +587,22 @@ function ModelColumn({
       <div className="border-b border-border px-4 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-baseline gap-2">
-            <h3 className="text-sm/5 font-semibold text-gray-200">{title}</h3>
-            <span className="font-mono text-xs/4 text-gray-600">
+            <h3 className="text-sm/5 font-semibold text-text-secondary">{title}</h3>
+            <span className="font-mono text-xs/4 text-text-disabled">
               {enabledCount}/{totalCount}
             </span>
           </div>
           <div className="flex items-center gap-1">
             <button
               onClick={onEnableAll}
-              className="rounded-xs px-2 py-0.5 text-xs/4 font-medium text-gray-500 transition-colors hover:bg-white/5 hover:text-emerald-400"
+              className="rounded-xs px-2 py-0.5 text-xs/4 font-medium text-text-muted transition-colors hover:bg-white/5 hover:text-success"
             >
               All
             </button>
-            <span className="text-gray-700">/</span>
+            <span className="text-border">{'/'}</span>
             <button
               onClick={onDisableAll}
-              className="rounded-xs px-2 py-0.5 text-xs/4 font-medium text-gray-500 transition-colors hover:bg-white/5 hover:text-red-400"
+              className="rounded-xs px-2 py-0.5 text-xs/4 font-medium text-text-muted transition-colors hover:bg-white/5 hover:text-error"
             >
               None
             </button>
@@ -612,10 +610,7 @@ function ModelColumn({
         </div>
         {/* Progress bar */}
         <div className="mt-2 h-0.5 w-full rounded-full bg-surface-lighter">
-          <div
-            className="h-full rounded-full bg-indigo-500/60 transition-all duration-300"
-            style={{ width: `${pct}%` }}
-          />
+          <div className="h-full rounded-full bg-accent/60 transition-all duration-300" style={{ width: `${pct}%` }} />
         </div>
       </div>
 
@@ -623,7 +618,7 @@ function ModelColumn({
       <div className="border-b border-border/50 px-4 py-2">
         <div className="flex items-center gap-2 rounded-xs bg-surface-light px-2.5 py-1.5">
           <svg
-            className="size-3.5 shrink-0 text-gray-600"
+            className="size-3.5 shrink-0 text-text-disabled"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -640,10 +635,10 @@ function ModelColumn({
             value={filter}
             onChange={e => onFilterChange(e.target.value)}
             placeholder="Filter..."
-            className="w-full bg-transparent text-sm/5 text-white placeholder:text-gray-600 focus:outline-hidden"
+            className="w-full bg-transparent text-sm/5 text-text-primary placeholder:text-text-disabled focus:outline-hidden"
           />
           {filter && (
-            <button onClick={() => onFilterChange('')} className="shrink-0 text-gray-600 hover:text-gray-400">
+            <button onClick={() => onFilterChange('')} className="shrink-0 text-text-disabled hover:text-text-tertiary">
               <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
               </svg>
@@ -678,19 +673,19 @@ function ModelRow({
   return (
     <div
       className={`group flex items-center gap-3 border-b border-border/30 px-4 py-2 transition-colors last:border-b-0 ${
-        isSelected ? 'bg-indigo-500/5' : 'hover:bg-white/[0.02]'
+        isSelected ? 'bg-accent/5' : 'hover:bg-white/[0.02]'
       }`}
     >
       {/* Toggle */}
       <button onClick={onToggle} className="relative shrink-0" aria-label={`Toggle ${model.name}`}>
         <div
           className={`h-4 w-7 rounded-full transition-colors ${
-            model.enabled ? 'bg-emerald-500/80' : needed ? 'bg-amber-500/30' : 'bg-surface-lighter'
+            model.enabled ? 'bg-success/80' : needed ? 'bg-warning/30' : 'bg-surface-lighter'
           }`}
         />
         <div
           className={`absolute top-0.5 left-0.5 size-3 rounded-full transition-all ${
-            model.enabled ? 'translate-x-3 bg-white' : needed ? 'bg-amber-400' : 'bg-gray-500'
+            model.enabled ? 'translate-x-3 bg-text-primary' : needed ? 'bg-warning' : 'bg-text-muted'
           }`}
         />
       </button>
@@ -699,7 +694,7 @@ function ModelRow({
       <button onClick={onToggle} className="min-w-0 flex-1 text-left">
         <span
           className={`truncate font-mono text-xs/4 ${
-            model.enabled ? 'text-gray-200' : needed ? 'text-amber-400' : 'text-gray-500'
+            model.enabled ? 'text-text-secondary' : needed ? 'text-warning' : 'text-text-muted'
           }`}
         >
           {model.name}
@@ -708,7 +703,7 @@ function ModelRow({
 
       {/* Needed indicator */}
       {needed && !model.enabled && (
-        <span className="shrink-0 text-xs/4 font-medium text-amber-500" title="Required by an enabled model">
+        <span className="shrink-0 text-xs/4 font-medium text-warning" title="Required by an enabled model">
           !
         </span>
       )}
@@ -718,7 +713,7 @@ function ModelRow({
         <button
           onClick={onSelect}
           className={`shrink-0 rounded-xs p-0.5 transition-colors ${
-            isSelected ? 'text-indigo-400' : 'text-gray-700 hover:text-gray-400'
+            isSelected ? 'text-accent-light' : 'text-border hover:text-text-tertiary'
           }`}
           title="View dependencies"
         >
@@ -753,22 +748,22 @@ function EnvVarField({
   return (
     <div className="flex items-center gap-3">
       <button onClick={() => onEnabledChange(!enabled)} className="relative shrink-0" aria-label={`Toggle ${label}`}>
-        <div
-          className={`h-4 w-7 rounded-full transition-colors ${enabled ? 'bg-indigo-500/80' : 'bg-surface-lighter'}`}
-        />
+        <div className={`h-4 w-7 rounded-full transition-colors ${enabled ? 'bg-accent/80' : 'bg-surface-lighter'}`} />
         <div
           className={`absolute top-0.5 left-0.5 size-3 rounded-full transition-all ${
-            enabled ? 'translate-x-3 bg-white' : 'bg-gray-500'
+            enabled ? 'translate-x-3 bg-text-primary' : 'bg-text-muted'
           }`}
         />
       </button>
-      <code className={`w-72 shrink-0 text-xs/4 ${enabled ? 'text-gray-300' : 'text-gray-600'}`}>{label}</code>
+      <code className={`w-72 shrink-0 text-xs/4 ${enabled ? 'text-text-secondary' : 'text-text-disabled'}`}>
+        {label}
+      </code>
       <input
         type="text"
         value={value}
         onChange={e => onValueChange(e.target.value)}
         disabled={!enabled}
-        className="flex-1 rounded-xs border border-border bg-surface px-3 py-1.5 font-mono text-sm/5 text-white placeholder:text-gray-600 disabled:opacity-30"
+        className="flex-1 rounded-xs border border-border bg-surface px-3 py-1.5 font-mono text-sm/5 text-text-primary placeholder:text-text-disabled disabled:opacity-30"
         placeholder="0"
       />
     </div>

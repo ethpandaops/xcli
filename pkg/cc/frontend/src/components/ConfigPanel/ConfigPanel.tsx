@@ -11,7 +11,7 @@ export default function ConfigPanel({ config, services, onNavigateConfig }: Conf
   if (!config) {
     return (
       <div className="rounded-xs border border-border bg-surface-light p-4">
-        <h3 className="mb-2 text-sm/5 font-semibold text-gray-400">Config</h3>
+        <h3 className="mb-2 text-sm/5 font-semibold text-text-tertiary">Config</h3>
         <Spinner />
       </div>
     );
@@ -38,11 +38,11 @@ export default function ConfigPanel({ config, services, onNavigateConfig }: Conf
   return (
     <div className="rounded-xs border border-border bg-surface-light p-4">
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm/5 font-semibold text-gray-400">Config</h3>
+        <h3 className="text-sm/5 font-semibold text-text-tertiary">Config</h3>
         {onNavigateConfig && (
           <button
             onClick={onNavigateConfig}
-            className="text-xs/4 text-indigo-400 transition-colors hover:text-indigo-300"
+            className="text-xs/4 text-accent-light transition-colors hover:text-accent-light/80"
           >
             Manage
           </button>
@@ -52,9 +52,9 @@ export default function ConfigPanel({ config, services, onNavigateConfig }: Conf
       <div className="flex flex-col gap-3 text-xs/4">
         {/* Mode + Networks inline */}
         <div className="flex items-center gap-2">
-          <span className="rounded-xs bg-indigo-500/20 px-2 py-0.5 font-medium text-indigo-400">{config.mode}</span>
+          <span className="rounded-xs bg-accent/20 px-2 py-0.5 font-medium text-accent-light">{config.mode}</span>
           {enabledNetworks.map(n => (
-            <span key={n.name} className="rounded-xs bg-emerald-500/20 px-2 py-0.5 text-emerald-400">
+            <span key={n.name} className="rounded-xs bg-success/20 px-2 py-0.5 text-success">
               {n.name}
             </span>
           ))}
@@ -62,7 +62,7 @@ export default function ConfigPanel({ config, services, onNavigateConfig }: Conf
 
         {/* Services — per-network ports */}
         <div className="border-t border-border/50 pt-3">
-          <div className="mb-2 text-[10px]/3 font-semibold tracking-wider text-gray-600 uppercase">Services</div>
+          <div className="mb-2 text-[10px]/3 font-semibold tracking-wider text-text-disabled uppercase">Services</div>
           <div className="flex flex-col gap-0.5">
             <PortRow
               label="Lab Frontend"
@@ -100,7 +100,9 @@ export default function ConfigPanel({ config, services, onNavigateConfig }: Conf
 
         {/* Infrastructure */}
         <div className="border-t border-border/50 pt-3">
-          <div className="mb-2 text-[10px]/3 font-semibold tracking-wider text-gray-600 uppercase">Infrastructure</div>
+          <div className="mb-2 text-[10px]/3 font-semibold tracking-wider text-text-disabled uppercase">
+            Infrastructure
+          </div>
           <div className="flex flex-col gap-0.5">
             <PortRow
               label="ClickHouse CBT"
@@ -120,7 +122,9 @@ export default function ConfigPanel({ config, services, onNavigateConfig }: Conf
 
         {/* Observability */}
         <div className="border-t border-border/50 pt-3">
-          <div className="mb-2 text-[10px]/3 font-semibold tracking-wider text-gray-600 uppercase">Observability</div>
+          <div className="mb-2 text-[10px]/3 font-semibold tracking-wider text-text-disabled uppercase">
+            Observability
+          </div>
           <div className="flex flex-col gap-0.5">
             <PortRow
               label="Prometheus"
@@ -141,18 +145,18 @@ function PortRow({ label, port, href }: { label: string; port: number; href?: st
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-gray-400 transition-colors hover:text-indigo-400"
+      className="text-text-tertiary transition-colors hover:text-accent-light"
     >
       {label}
     </a>
   ) : (
-    <span className="text-gray-400">{label}</span>
+    <span className="text-text-tertiary">{label}</span>
   );
 
   return (
     <div className="flex items-center justify-between py-0.5">
       {labelEl}
-      <span className="font-mono text-gray-300">{port}</span>
+      <span className="font-mono text-text-secondary">{port}</span>
     </div>
   );
 }

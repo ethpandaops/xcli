@@ -188,7 +188,7 @@ func (a *apiHandler) handlePutLabConfig(w http.ResponseWriter, r *http.Request) 
 	// Regenerate configs.
 	var regenErr string
 
-	if err := a.orch.GenerateConfigs(); err != nil {
+	if err := a.orch.GenerateConfigs(r.Context()); err != nil {
 		a.log.WithError(err).Error(
 			"Failed to regenerate configs after config update",
 		)
@@ -355,7 +355,7 @@ func (a *apiHandler) handlePutConfigFileOverride(
 	// Regenerate configs.
 	var regenErr string
 
-	if err := a.orch.GenerateConfigs(); err != nil {
+	if err := a.orch.GenerateConfigs(r.Context()); err != nil {
 		a.log.WithError(err).Error(
 			"Failed to regenerate configs after override save",
 		)
@@ -400,7 +400,7 @@ func (a *apiHandler) handleDeleteConfigFileOverride(
 	// Regenerate configs.
 	var regenErr string
 
-	if err := a.orch.GenerateConfigs(); err != nil {
+	if err := a.orch.GenerateConfigs(r.Context()); err != nil {
 		a.log.WithError(err).Error(
 			"Failed to regenerate configs after override delete",
 		)
@@ -575,7 +575,7 @@ func (a *apiHandler) handlePutOverrides(
 	// Regenerate configs.
 	var regenErr string
 
-	if err := a.orch.GenerateConfigs(); err != nil {
+	if err := a.orch.GenerateConfigs(r.Context()); err != nil {
 		a.log.WithError(err).Error(
 			"Failed to regenerate configs after overrides save",
 		)
@@ -594,9 +594,9 @@ func (a *apiHandler) handlePutOverrides(
 // handlePostRegenerate triggers config regeneration.
 func (a *apiHandler) handlePostRegenerate(
 	w http.ResponseWriter,
-	_ *http.Request,
+	r *http.Request,
 ) {
-	if err := a.orch.GenerateConfigs(); err != nil {
+	if err := a.orch.GenerateConfigs(r.Context()); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error": fmt.Sprintf(
 				"failed to regenerate configs: %v", err,

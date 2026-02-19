@@ -11,14 +11,6 @@ ComponentName/
   index.ts
 ```
 
-Or for flat components:
-
-```
-components/
-  Dashboard.tsx
-  Dashboard.stories.tsx
-```
-
 ## Decorators
 
 Add a background wrapper decorator to new stories:
