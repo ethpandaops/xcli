@@ -17,16 +17,6 @@ type OrchestratorWrapper struct {
 	orch *orchestrator.Orchestrator
 }
 
-// SetOrchestrator replaces the underlying orchestrator (e.g. after config reload).
-func (w *OrchestratorWrapper) SetOrchestrator(orch *orchestrator.Orchestrator) {
-	w.orch = orch
-}
-
-// NewOrchestratorWrapper creates a wrapper.
-func NewOrchestratorWrapper(orch *orchestrator.Orchestrator) *OrchestratorWrapper {
-	return &OrchestratorWrapper{orch: orch}
-}
-
 // ServiceInfo contains service status information.
 type ServiceInfo struct {
 	Name    string
@@ -44,6 +34,16 @@ type InfraInfo struct {
 	Name   string
 	Status string // "running", "stopped"
 	Type   string // "clickhouse", "redis"
+}
+
+// NewOrchestratorWrapper creates a wrapper.
+func NewOrchestratorWrapper(orch *orchestrator.Orchestrator) *OrchestratorWrapper {
+	return &OrchestratorWrapper{orch: orch}
+}
+
+// SetOrchestrator replaces the underlying orchestrator (e.g. after config reload).
+func (w *OrchestratorWrapper) SetOrchestrator(orch *orchestrator.Orchestrator) {
+	w.orch = orch
 }
 
 // GetServices returns current service statuses.

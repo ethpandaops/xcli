@@ -246,6 +246,15 @@ func (m *ObservabilityManager) Status(ctx context.Context) (map[string]Container
 	return status, nil
 }
 
+// Close closes the Docker client.
+func (m *ObservabilityManager) Close() error {
+	if m.docker != nil {
+		return m.docker.Close()
+	}
+
+	return nil
+}
+
 // startPrometheus starts the Prometheus container.
 func (m *ObservabilityManager) startPrometheus(ctx context.Context) error {
 	containerName := constants.ContainerPrometheus
@@ -580,15 +589,6 @@ func (m *ObservabilityManager) getContainerStatus(ctx context.Context, name stri
 func (m *ObservabilityManager) removeVolume(ctx context.Context, name string) error {
 	if err := m.docker.VolumeRemove(ctx, name, true); err != nil {
 		return fmt.Errorf("failed to remove volume %s: %w", name, err)
-	}
-
-	return nil
-}
-
-// Close closes the Docker client.
-func (m *ObservabilityManager) Close() error {
-	if m.docker != nil {
-		return m.docker.Close()
 	}
 
 	return nil

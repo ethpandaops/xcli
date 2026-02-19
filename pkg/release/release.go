@@ -9,6 +9,31 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	// BumpPatch represents a patch version bump (x.y.Z).
+	BumpPatch BumpType = "patch"
+	// BumpMinor represents a minor version bump (x.Y.z).
+	BumpMinor BumpType = "minor"
+	// BumpMajor represents a major version bump (X.y.z).
+	BumpMajor BumpType = "major"
+)
+
+// Status constants for workflow runs and releases.
+const (
+	// StatusSuccess indicates a successful workflow or release.
+	StatusSuccess = "success"
+	// StatusFailed indicates a failed workflow or release.
+	StatusFailed = "failed"
+	// StatusTimedOut indicates the workflow exceeded its timeout.
+	StatusTimedOut = "timed_out"
+	// StatusSkipped indicates the release was skipped.
+	StatusSkipped = "skipped"
+	// StatusPending indicates the workflow is still running.
+	StatusPending = "pending"
+	// StatusReleased indicates the release was published.
+	StatusReleased = "released"
+)
+
 // ProjectInfo contains information about a releasable project.
 type ProjectInfo struct {
 	Name           string // e.g., "cbt"
@@ -44,43 +69,10 @@ type WatchResult struct {
 // BumpType represents the type of version bump.
 type BumpType string
 
-const (
-	// BumpPatch represents a patch version bump (x.y.Z).
-	BumpPatch BumpType = "patch"
-	// BumpMinor represents a minor version bump (x.Y.z).
-	BumpMinor BumpType = "minor"
-	// BumpMajor represents a major version bump (X.y.z).
-	BumpMajor BumpType = "major"
-)
-
-// Status constants for workflow runs and releases.
-const (
-	// StatusSuccess indicates a successful workflow or release.
-	StatusSuccess = "success"
-	// StatusFailed indicates a failed workflow or release.
-	StatusFailed = "failed"
-	// StatusTimedOut indicates the workflow exceeded its timeout.
-	StatusTimedOut = "timed_out"
-	// StatusSkipped indicates the release was skipped.
-	StatusSkipped = "skipped"
-	// StatusPending indicates the workflow is still running.
-	StatusPending = "pending"
-	// StatusReleased indicates the release was published.
-	StatusReleased = "released"
-)
-
 // WatchOptions configures the watch behavior.
 type WatchOptions struct {
 	Timeout      time.Duration // Max time to wait (default: 30m)
 	PollInterval time.Duration // How often to poll (default: 30s)
-}
-
-// DefaultWatchOptions returns sensible defaults for watching.
-func DefaultWatchOptions() WatchOptions {
-	return WatchOptions{
-		Timeout:      30 * time.Minute,
-		PollInterval: 30 * time.Second,
-	}
 }
 
 // Service provides release operations.
@@ -106,17 +98,6 @@ type Service interface {
 	WatchMultiple(ctx context.Context, items []WatchItem, opts WatchOptions, onUpdate func(project string, status string)) (*MultiWatchResult, error)
 }
 
-// NewService creates a new release service.
-func NewService(log logrus.FieldLogger) Service {
-	return &service{
-		log: log.WithField("package", "release"),
-	}
-}
-
-type service struct {
-	log logrus.FieldLogger
-}
-
 // ProjectReleaseConfig holds release configuration for a single project.
 type ProjectReleaseConfig struct {
 	Project    string       // Project name (e.g., "cbt")
@@ -130,6 +111,25 @@ type MultiReleaseResult struct {
 	Results   []ReleaseResult // Individual release results
 	StartTime time.Time       // When the multi-release started
 	EndTime   time.Time       // When the multi-release finished
+}
+
+type service struct {
+	log logrus.FieldLogger
+}
+
+// NewService creates a new release service.
+func NewService(log logrus.FieldLogger) Service {
+	return &service{
+		log: log.WithField("package", "release"),
+	}
+}
+
+// DefaultWatchOptions returns sensible defaults for watching.
+func DefaultWatchOptions() WatchOptions {
+	return WatchOptions{
+		Timeout:      30 * time.Minute,
+		PollInterval: 30 * time.Second,
+	}
 }
 
 // Succeeded returns the count of successful releases.

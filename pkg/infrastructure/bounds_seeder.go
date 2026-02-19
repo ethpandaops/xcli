@@ -27,15 +27,15 @@ const (
 	luaDumpExternalBounds = `local keys = redis.call('KEYS', ARGV[1]) local result = {} for i, key in ipairs(keys) do result[#result + 1] = key result[#result + 1] = redis.call('GET', key) end return result`
 )
 
-// prodRedisDetails returns the production Redis pod name and password k8s secret name for a network.
-func prodRedisDetails(network string) (podName, secretName string) {
-	return fmt.Sprintf("%s-xatu-cbt-redis-node-0", network),
-		fmt.Sprintf("%s-xatu-cbt-redis", network)
-}
-
 // BoundsSeeder handles seeding CBT external bounds from production Redis.
 type BoundsSeeder struct {
 	log logrus.FieldLogger
+}
+
+// redisBound represents a key-value pair from Redis.
+type redisBound struct {
+	Key   string
+	Value string
 }
 
 // NewBoundsSeeder creates a new bounds seeder.
@@ -43,12 +43,6 @@ func NewBoundsSeeder(log logrus.FieldLogger) *BoundsSeeder {
 	return &BoundsSeeder{
 		log: log.WithField("component", "bounds_seeder"),
 	}
-}
-
-// redisBound represents a key-value pair from Redis.
-type redisBound struct {
-	Key   string
-	Value string
 }
 
 // SeedFromProduction fetches external model bounds from production Redis
@@ -96,6 +90,28 @@ func (s *BoundsSeeder) SeedFromProduction(ctx context.Context, network string, r
 	}).Info("External bounds seeded from production")
 
 	return nil
+}
+
+// CheckNeedsSeeding checks if local Redis has any external bounds for the given network.
+func (s *BoundsSeeder) CheckNeedsSeeding(ctx context.Context, redisDB int) (bool, error) {
+	args := []string{
+		"exec", localRedisContainer,
+		"redis-cli",
+		"-n", fmt.Sprintf("%d", redisDB),
+		"KEYS", redisBoundsKeyPrefix + "*",
+	}
+
+	cmd := exec.CommandContext(ctx, "docker", args...)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("redis KEYS failed: %w\nOutput: %s", err, string(output))
+	}
+
+	result := strings.TrimSpace(string(output))
+
+	// Empty result or "(empty array)" means no keys exist
+	return result == "" || strings.Contains(result, "empty"), nil
 }
 
 // checkKubectl verifies kubectl is available.
@@ -201,31 +217,6 @@ func (s *BoundsSeeder) parseLuaEvalOutput(output string) ([]redisBound, error) {
 	return bounds, nil
 }
 
-// stripRedisPrefix removes the "N) " prefix that redis-cli adds to array elements.
-func stripRedisPrefix(s string) string {
-	// Look for pattern like "1) " or "42) "
-	idx := strings.Index(s, ") ")
-	if idx > 0 && idx < 6 {
-		// Verify everything before ") " is digits
-		prefix := s[:idx]
-		allDigits := true
-
-		for _, c := range prefix {
-			if c < '0' || c > '9' {
-				allDigits = false
-
-				break
-			}
-		}
-
-		if allDigits {
-			return s[idx+2:]
-		}
-	}
-
-	return s
-}
-
 // bulkInsertLocal inserts all bounds into local Redis using --pipe for efficiency.
 // This sends all SET commands in a single docker exec call.
 func (s *BoundsSeeder) bulkInsertLocal(ctx context.Context, redisDB int, bounds []redisBound) error {
@@ -258,24 +249,33 @@ func (s *BoundsSeeder) bulkInsertLocal(ctx context.Context, redisDB int, bounds 
 	return nil
 }
 
-// CheckNeedsSeeding checks if local Redis has any external bounds for the given network.
-func (s *BoundsSeeder) CheckNeedsSeeding(ctx context.Context, redisDB int) (bool, error) {
-	args := []string{
-		"exec", localRedisContainer,
-		"redis-cli",
-		"-n", fmt.Sprintf("%d", redisDB),
-		"KEYS", redisBoundsKeyPrefix + "*",
+// prodRedisDetails returns the production Redis pod name and password k8s secret name for a network.
+func prodRedisDetails(network string) (podName, secretName string) {
+	return fmt.Sprintf("%s-xatu-cbt-redis-node-0", network),
+		fmt.Sprintf("%s-xatu-cbt-redis", network)
+}
+
+// stripRedisPrefix removes the "N) " prefix that redis-cli adds to array elements.
+func stripRedisPrefix(s string) string {
+	// Look for pattern like "1) " or "42) "
+	idx := strings.Index(s, ") ")
+	if idx > 0 && idx < 6 {
+		// Verify everything before ") " is digits
+		prefix := s[:idx]
+		allDigits := true
+
+		for _, c := range prefix {
+			if c < '0' || c > '9' {
+				allDigits = false
+
+				break
+			}
+		}
+
+		if allDigits {
+			return s[idx+2:]
+		}
 	}
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return false, fmt.Errorf("redis KEYS failed: %w\nOutput: %s", err, string(output))
-	}
-
-	result := strings.TrimSpace(string(output))
-
-	// Empty result or "(empty array)" means no keys exist
-	return result == "" || strings.Contains(result, "empty"), nil
+	return s
 }

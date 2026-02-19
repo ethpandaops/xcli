@@ -46,6 +46,21 @@ type S3Uploader struct {
 	prefix       string
 }
 
+// UploadOptions contains options for uploading to S3.
+type UploadOptions struct {
+	LocalPath string // Path to local file
+	Network   string // Network name (e.g., "mainnet", "sepolia")
+	Spec      string // Fork spec (e.g., "pectra", "fusaka")
+	Model     string // Model name (e.g., "beacon_api_eth_v1_events_block")
+	Filename  string // Custom filename (without .parquet extension, defaults to Model)
+}
+
+// UploadResult contains the result of an S3 upload.
+type UploadResult struct {
+	S3URL     string // S3 URL (s3://bucket/path)
+	PublicURL string // Public HTTPS URL
+}
+
 // NewS3Uploader creates a new S3 uploader.
 // It reads AWS credentials from environment variables or AWS_PROFILE.
 // For S3-compatible services (DigitalOcean Spaces, MinIO, etc.), set S3_ENDPOINT.
@@ -85,21 +100,6 @@ func NewS3Uploader(ctx context.Context, log logrus.FieldLogger) (*S3Uploader, er
 		publicDomain: DefaultS3PublicDomain,
 		prefix:       DefaultS3Prefix,
 	}, nil
-}
-
-// UploadOptions contains options for uploading to S3.
-type UploadOptions struct {
-	LocalPath string // Path to local file
-	Network   string // Network name (e.g., "mainnet", "sepolia")
-	Spec      string // Fork spec (e.g., "pectra", "fusaka")
-	Model     string // Model name (e.g., "beacon_api_eth_v1_events_block")
-	Filename  string // Custom filename (without .parquet extension, defaults to Model)
-}
-
-// UploadResult contains the result of an S3 upload.
-type UploadResult struct {
-	S3URL     string // S3 URL (s3://bucket/path)
-	PublicURL string // Public HTTPS URL
 }
 
 // Upload uploads a parquet file to S3.

@@ -36,6 +36,13 @@ type generateTransformationTestOptions struct {
 	parallel        int
 }
 
+// batchModelResult holds the result of processing a single model in batch mode.
+type batchModelResult struct {
+	Model   string
+	Success bool
+	Error   error
+}
+
 // NewLabXatuCBTGenerateTransformationTestCommand creates the command.
 func NewLabXatuCBTGenerateTransformationTestCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
 	var (
@@ -1015,13 +1022,6 @@ func generateAIAssertions(ctx context.Context, log logrus.FieldLogger, model str
 	aiSpinner.Success(fmt.Sprintf("Generated %d assertions", len(assertions)))
 
 	return assertions, nil
-}
-
-// batchModelResult holds the result of processing a single model in batch mode.
-type batchModelResult struct {
-	Model   string
-	Success bool
-	Error   error
 }
 
 // runBatchGenerateTransformationTest processes multiple models with parallel support.

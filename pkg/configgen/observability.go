@@ -13,6 +13,31 @@ import (
 	"github.com/ethpandaops/xcli/pkg/configgen/dashboards"
 )
 
+// grafanaDatasourceConfig is the static Grafana datasource provisioning YAML.
+const grafanaDatasourceConfig = `apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://host.docker.internal:9090
+    isDefault: true
+    editable: false
+`
+
+// grafanaDashboardProvider is the static Grafana dashboard provider YAML.
+const grafanaDashboardProvider = `apiVersion: 1
+providers:
+  - name: 'Lab Dashboards'
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards
+`
+
 // PrometheusTarget represents a scrape target for Prometheus.
 type PrometheusTarget struct {
 	JobName string
@@ -260,31 +285,6 @@ func (g *Generator) copyEmbeddedDashboards(dstDir string) error {
 
 	return nil
 }
-
-// grafanaDatasourceConfig is the static Grafana datasource provisioning YAML.
-const grafanaDatasourceConfig = `apiVersion: 1
-datasources:
-  - name: Prometheus
-    type: prometheus
-    uid: prometheus
-    access: proxy
-    url: http://host.docker.internal:9090
-    isDefault: true
-    editable: false
-`
-
-// grafanaDashboardProvider is the static Grafana dashboard provider YAML.
-const grafanaDashboardProvider = `apiVersion: 1
-providers:
-  - name: 'Lab Dashboards'
-    orgId: 1
-    folder: ''
-    type: file
-    disableDeletion: false
-    editable: true
-    options:
-      path: /var/lib/grafana/dashboards
-`
 
 // generateLabDashboard creates a pre-built Grafana dashboard for lab services.
 func (g *Generator) generateLabDashboard(outputPath string) error {

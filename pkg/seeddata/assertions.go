@@ -108,6 +108,19 @@ func (c *ClaudeAssertionClient) GenerateAssertions(ctx context.Context, transfor
 	return c.parseAssertionResponse(response, modelName)
 }
 
+// GetDefaultAssertions returns basic default assertions when Claude is not available.
+func GetDefaultAssertions(modelName string) []Assertion {
+	return []Assertion{
+		{
+			Name: "Row count should be greater than zero",
+			SQL:  fmt.Sprintf(`SELECT COUNT(*) AS count FROM %s FINAL`, modelName),
+			Assertions: []AssertionCheck{
+				{Type: "greater_than", Column: "count", Value: 0},
+			},
+		},
+	}
+}
+
 // buildAssertionPrompt creates the prompt for Claude to generate assertions.
 func (c *ClaudeAssertionClient) buildAssertionPrompt(transformationSQL string, externalModels []string, modelName string) string {
 	var sb strings.Builder
@@ -296,17 +309,4 @@ func findClaudeBinaryPath() (string, error) {
 	}
 
 	return "", fmt.Errorf("claude binary not found in PATH or common locations")
-}
-
-// GetDefaultAssertions returns basic default assertions when Claude is not available.
-func GetDefaultAssertions(modelName string) []Assertion {
-	return []Assertion{
-		{
-			Name: "Row count should be greater than zero",
-			SQL:  fmt.Sprintf(`SELECT COUNT(*) AS count FROM %s FINAL`, modelName),
-			Assertions: []AssertionCheck{
-				{Type: "greater_than", Column: "count", Value: 0},
-			},
-		},
-	}
 }

@@ -77,16 +77,6 @@ func Run(xatuCBTPath, overridesPath string) error {
 	return nil
 }
 
-// isatty checks if stdout is a terminal.
-func isatty() bool {
-	fileInfo, err := os.Stdout.Stat()
-	if err != nil {
-		return false
-	}
-
-	return (fileInfo.Mode() & os.ModeCharDevice) != 0
-}
-
 // DiscoverModels discovers external and transformation models from the xatu-cbt repo.
 func DiscoverModels(xatuCBTPath string) (external []string, transformation []string, err error) {
 	// Discover external models.
@@ -162,4 +152,14 @@ func LoadDependencies(xatuCBTPath string, transformModels []string) map[string][
 	}
 
 	return deps
+}
+
+// isatty checks if stdout is a terminal.
+func isatty() bool {
+	fileInfo, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+
+	return (fileInfo.Mode() & os.ModeCharDevice) != 0
 }

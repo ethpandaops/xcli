@@ -122,151 +122,10 @@ type TUIConfig struct {
 	MaxLogLines int `yaml:"maxLogLines"`
 }
 
-// Default returns a root configuration with sensible defaults.
-func Default() *Config {
-	return &Config{
-		Lab: DefaultLab(),
-	}
-}
-
-// DefaultLab returns a lab configuration with sensible defaults.
-func DefaultLab() *LabConfig {
-	return &LabConfig{
-		Repos: LabReposConfig{
-			CBT:        "../cbt",
-			XatuCBT:    "../xatu-cbt",
-			CBTAPI:     "../cbt-api",
-			LabBackend: "../lab-backend",
-			Lab:        "../lab",
-		},
-		Mode: constants.ModeHybrid,
-		Networks: []NetworkConfig{
-			{Name: "mainnet", Enabled: true, PortOffset: 0},
-			{Name: "sepolia", Enabled: false, PortOffset: 1},
-			{Name: "hoodi", Enabled: false, PortOffset: 2},
-		},
-		Infrastructure: InfrastructureConfig{
-			ClickHouse: ClickHouseConfig{
-				Xatu: ClickHouseClusterConfig{
-					Mode:             constants.InfraModeExternal,
-					ExternalURL:      "http://chendpoint-xatu-clickhouse.analytics.production.ethpandaops:9000",
-					ExternalDatabase: "default",
-				},
-				CBT: ClickHouseClusterConfig{Mode: constants.InfraModeLocal},
-			},
-			Redis:   RedisConfig{Port: 6380},
-			Volumes: VolumesConfig{Persist: true},
-			Observability: ObservabilityConfig{
-				Enabled:        false,
-				PrometheusPort: constants.DefaultPrometheusPort,
-				GrafanaPort:    constants.DefaultGrafanaPort,
-			},
-			ClickHouseXatuPort: 8125,
-			ClickHouseCBTPort:  8123,
-			RedisPort:          6380,
-		},
-		Ports: LabPortsConfig{
-			LabBackend:      8080,
-			LabFrontend:     5173,
-			CBTBase:         8081,
-			CBTAPIBase:      8091,
-			CBTFrontendBase: 8085,
-		},
-		Dev: LabDevConfig{
-			LabRebuildOnChange: false,
-			HotReload:          true,
-		},
-		TUI: TUIConfig{
-			MaxLogLines: 1_000_000, // 1 million default
-		},
-	}
-}
-
 // LoadResult contains the loaded config and the resolved config file path.
 type LoadResult struct {
 	Config     *Config
 	ConfigPath string // Absolute path to the config file that was loaded
-}
-
-// Load reads and parses a config file
-// Supports both old (flat) and new (namespaced) config formats for backward compatibility.
-// If the path is ".xcli.yaml" (the default), it will search upward through parent directories.
-// Returns the config and the resolved absolute path to the config file.
-func Load(path string) (*LoadResult, error) {
-	// If using default path, search for it in parent directories
-	if path == ".xcli.yaml" {
-		path = FindConfig(path)
-	}
-
-	// Make path absolute
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		absPath = path // Fallback to original if Abs fails
-	}
-
-	// Check if file exists
-	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-		// If original path was searched for and not found, return default
-		return &LoadResult{
-			Config:     Default(),
-			ConfigPath: absPath,
-		}, nil
-	}
-
-	// Read file
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	// Try to parse as new format first
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
-	}
-
-	// Check if this is an old format config (has top-level "repos" field instead of "lab")
-	// by attempting to parse as LabConfig
-	var legacyCheck struct {
-		Repos *LabReposConfig `yaml:"repos,omitempty"`
-		Lab   *LabConfig      `yaml:"lab,omitempty"`
-	}
-	if err := yaml.Unmarshal(data, &legacyCheck); err == nil {
-		if legacyCheck.Repos != nil && legacyCheck.Lab == nil {
-			// Old format detected - migrate it
-			var labCfg LabConfig
-			if err := yaml.Unmarshal(data, &labCfg); err != nil {
-				return nil, fmt.Errorf("failed to parse legacy config: %w", err)
-			}
-
-			cfg.Lab = &labCfg
-		}
-	}
-
-	// Apply defaults to loaded config
-	cfg.setDefaults()
-
-	return &LoadResult{
-		Config:     &cfg,
-		ConfigPath: absPath,
-	}, nil
-}
-
-// LoadLabConfig loads and validates lab configuration from the config file.
-// This is a convenience function that combines Load with lab-specific validation.
-// Returns the lab config and the config file path, or an error if loading fails
-// or if the lab configuration is not found.
-func LoadLabConfig(configPath string) (*LabConfig, string, error) {
-	result, err := Load(configPath)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to load config: %w", err)
-	}
-
-	if result.Config.Lab == nil {
-		return nil, "", fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
-	}
-
-	return result.Config.Lab, result.ConfigPath, nil
 }
 
 // Save writes the configuration to a file.
@@ -427,6 +286,147 @@ func (c *LabConfig) GetCBTFrontendPort(network string) int {
 	return 0
 }
 
+// Default returns a root configuration with sensible defaults.
+func Default() *Config {
+	return &Config{
+		Lab: DefaultLab(),
+	}
+}
+
+// DefaultLab returns a lab configuration with sensible defaults.
+func DefaultLab() *LabConfig {
+	return &LabConfig{
+		Repos: LabReposConfig{
+			CBT:        "../cbt",
+			XatuCBT:    "../xatu-cbt",
+			CBTAPI:     "../cbt-api",
+			LabBackend: "../lab-backend",
+			Lab:        "../lab",
+		},
+		Mode: constants.ModeHybrid,
+		Networks: []NetworkConfig{
+			{Name: "mainnet", Enabled: true, PortOffset: 0},
+			{Name: "sepolia", Enabled: false, PortOffset: 1},
+			{Name: "hoodi", Enabled: false, PortOffset: 2},
+		},
+		Infrastructure: InfrastructureConfig{
+			ClickHouse: ClickHouseConfig{
+				Xatu: ClickHouseClusterConfig{
+					Mode:             constants.InfraModeExternal,
+					ExternalURL:      "http://chendpoint-xatu-clickhouse.analytics.production.ethpandaops:9000",
+					ExternalDatabase: "default",
+				},
+				CBT: ClickHouseClusterConfig{Mode: constants.InfraModeLocal},
+			},
+			Redis:   RedisConfig{Port: 6380},
+			Volumes: VolumesConfig{Persist: true},
+			Observability: ObservabilityConfig{
+				Enabled:        false,
+				PrometheusPort: constants.DefaultPrometheusPort,
+				GrafanaPort:    constants.DefaultGrafanaPort,
+			},
+			ClickHouseXatuPort: 8125,
+			ClickHouseCBTPort:  8123,
+			RedisPort:          6380,
+		},
+		Ports: LabPortsConfig{
+			LabBackend:      8080,
+			LabFrontend:     5173,
+			CBTBase:         8081,
+			CBTAPIBase:      8091,
+			CBTFrontendBase: 8085,
+		},
+		Dev: LabDevConfig{
+			LabRebuildOnChange: false,
+			HotReload:          true,
+		},
+		TUI: TUIConfig{
+			MaxLogLines: 1_000_000, // 1 million default
+		},
+	}
+}
+
+// Load reads and parses a config file
+// Supports both old (flat) and new (namespaced) config formats for backward compatibility.
+// If the path is ".xcli.yaml" (the default), it will search upward through parent directories.
+// Returns the config and the resolved absolute path to the config file.
+func Load(path string) (*LoadResult, error) {
+	// If using default path, search for it in parent directories
+	if path == ".xcli.yaml" {
+		path = FindConfig(path)
+	}
+
+	// Make path absolute
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		absPath = path // Fallback to original if Abs fails
+	}
+
+	// Check if file exists
+	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+		// If original path was searched for and not found, return default
+		return &LoadResult{
+			Config:     Default(),
+			ConfigPath: absPath,
+		}, nil
+	}
+
+	// Read file
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	// Try to parse as new format first
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	// Check if this is an old format config (has top-level "repos" field instead of "lab")
+	// by attempting to parse as LabConfig
+	var legacyCheck struct {
+		Repos *LabReposConfig `yaml:"repos,omitempty"`
+		Lab   *LabConfig      `yaml:"lab,omitempty"`
+	}
+	if err := yaml.Unmarshal(data, &legacyCheck); err == nil {
+		if legacyCheck.Repos != nil && legacyCheck.Lab == nil {
+			// Old format detected - migrate it
+			var labCfg LabConfig
+			if err := yaml.Unmarshal(data, &labCfg); err != nil {
+				return nil, fmt.Errorf("failed to parse legacy config: %w", err)
+			}
+
+			cfg.Lab = &labCfg
+		}
+	}
+
+	// Apply defaults to loaded config
+	cfg.setDefaults()
+
+	return &LoadResult{
+		Config:     &cfg,
+		ConfigPath: absPath,
+	}, nil
+}
+
+// LoadLabConfig loads and validates lab configuration from the config file.
+// This is a convenience function that combines Load with lab-specific validation.
+// Returns the lab config and the config file path, or an error if loading fails
+// or if the lab configuration is not found.
+func LoadLabConfig(configPath string) (*LabConfig, string, error) {
+	result, err := Load(configPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if result.Config.Lab == nil {
+		return nil, "", fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
+	}
+
+	return result.Config.Lab, result.ConfigPath, nil
+}
+
 // FindConfig searches for a config file using multiple strategies:
 // 1. Search upward from current directory to filesystem root
 // 2. Search immediate child directories
@@ -457,6 +457,42 @@ func FindConfig(fallback string) string {
 	}
 
 	return fallback
+}
+
+// setDefaults applies default values to unset fields.
+func (c *Config) setDefaults() {
+	if c.Lab == nil {
+		c.Lab = DefaultLab()
+
+		return
+	}
+
+	// Infrastructure defaults
+	if c.Lab.Infrastructure.ClickHouseXatuPort == 0 {
+		c.Lab.Infrastructure.ClickHouseXatuPort = 8123
+	}
+
+	if c.Lab.Infrastructure.ClickHouseCBTPort == 0 {
+		c.Lab.Infrastructure.ClickHouseCBTPort = 8124
+	}
+
+	if c.Lab.Infrastructure.RedisPort == 0 {
+		c.Lab.Infrastructure.RedisPort = 6380
+	}
+
+	// TUI defaults
+	if c.Lab.TUI.MaxLogLines == 0 {
+		c.Lab.TUI.MaxLogLines = 1_000_000
+	}
+
+	// Observability defaults
+	if c.Lab.Infrastructure.Observability.PrometheusPort == 0 {
+		c.Lab.Infrastructure.Observability.PrometheusPort = constants.DefaultPrometheusPort
+	}
+
+	if c.Lab.Infrastructure.Observability.GrafanaPort == 0 {
+		c.Lab.Infrastructure.Observability.GrafanaPort = constants.DefaultGrafanaPort
+	}
 }
 
 // searchUpward walks up the directory tree looking for the config file.
@@ -529,40 +565,4 @@ func searchGlobalConfig() string {
 	}
 
 	return ""
-}
-
-// setDefaults applies default values to unset fields.
-func (c *Config) setDefaults() {
-	if c.Lab == nil {
-		c.Lab = DefaultLab()
-
-		return
-	}
-
-	// Infrastructure defaults
-	if c.Lab.Infrastructure.ClickHouseXatuPort == 0 {
-		c.Lab.Infrastructure.ClickHouseXatuPort = 8123
-	}
-
-	if c.Lab.Infrastructure.ClickHouseCBTPort == 0 {
-		c.Lab.Infrastructure.ClickHouseCBTPort = 8124
-	}
-
-	if c.Lab.Infrastructure.RedisPort == 0 {
-		c.Lab.Infrastructure.RedisPort = 6380
-	}
-
-	// TUI defaults
-	if c.Lab.TUI.MaxLogLines == 0 {
-		c.Lab.TUI.MaxLogLines = 1_000_000
-	}
-
-	// Observability defaults
-	if c.Lab.Infrastructure.Observability.PrometheusPort == 0 {
-		c.Lab.Infrastructure.Observability.PrometheusPort = constants.DefaultPrometheusPort
-	}
-
-	if c.Lab.Infrastructure.Observability.GrafanaPort == 0 {
-		c.Lab.Infrastructure.Observability.GrafanaPort = constants.DefaultGrafanaPort
-	}
 }

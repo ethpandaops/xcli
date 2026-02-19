@@ -14,6 +14,9 @@ type PortHealthChecker struct {
 	Timeout time.Duration
 }
 
+// NoOpHealthChecker is a health checker that always succeeds (default).
+type NoOpHealthChecker struct{}
+
 // NewPortHealthChecker creates a health checker for a TCP port.
 func NewPortHealthChecker(host string, port int, timeout time.Duration) *PortHealthChecker {
 	return &PortHealthChecker{
@@ -51,9 +54,6 @@ func (h *PortHealthChecker) Check(ctx context.Context) error {
 func (h *PortHealthChecker) Name() string {
 	return fmt.Sprintf("port-%s:%d", h.Host, h.Port)
 }
-
-// NoOpHealthChecker is a health checker that always succeeds (default).
-type NoOpHealthChecker struct{}
 
 // Check always returns nil (no-op health check).
 func (h *NoOpHealthChecker) Check(ctx context.Context) error {

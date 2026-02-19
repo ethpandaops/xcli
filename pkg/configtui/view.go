@@ -76,6 +76,12 @@ var (
 				Underline(true)
 )
 
+// Env var descriptions.
+const (
+	envTimestampDesc = "Consensus layer backfill to (unix timestamp, 0 for unlimited)"
+	envBlockDesc     = "Execution layer backfill to (block number, 0 for unlimited)"
+)
+
 // View renders the TUI.
 func (m Model) View() string {
 	if m.quitting {
@@ -106,12 +112,6 @@ func (m Model) View() string {
 
 	return sb.String()
 }
-
-// Env var descriptions.
-const (
-	envTimestampDesc = "Consensus layer backfill to (unix timestamp, 0 for unlimited)"
-	envBlockDesc     = "Execution layer backfill to (block number, 0 for unlimited)"
-)
 
 // renderEnvSection renders the environment variables section.
 func (m Model) renderEnvSection() string {

@@ -144,51 +144,6 @@ func (g *Generator) GenerateCBTConfig(network string, userOverridesPath string) 
 	return string(finalYAML), nil
 }
 
-// generateAutoDefaults creates xcli-generated defaults for models (env, overrides).
-func (g *Generator) generateAutoDefaults(network string) (map[string]any, error) {
-	externalModelMinTimestamp := time.Now().Add(-1 * time.Hour).Unix()
-
-	// Set sane default for mainnet
-	externalModelMinBlock := 0
-	if network == "mainnet" {
-		externalModelMinBlock = 23800000
-	}
-
-	// Build models section with env
-	modelsSection := map[string]any{
-		"env": map[string]any{
-			"NETWORK":                      network,
-			"EXTERNAL_MODEL_MIN_TIMESTAMP": fmt.Sprintf("%d", externalModelMinTimestamp),
-			"EXTERNAL_MODEL_MIN_BLOCK":     fmt.Sprintf("%d", externalModelMinBlock),
-			"MODELS_SCRIPTS_PATH":          "../xatu-cbt/models/scripts",
-		},
-	}
-
-	return map[string]any{
-		"models": modelsSection,
-	}, nil
-}
-
-// loadYAMLFile loads a YAML file as a generic map.
-// Returns an empty map if the file doesn't exist.
-func loadYAMLFile(path string) (map[string]any, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return make(map[string]any), nil
-		}
-
-		return nil, fmt.Errorf("failed to read file: %w", err)
-	}
-
-	var result map[string]any
-	if err := yaml.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML: %w", err)
-	}
-
-	return result, nil
-}
-
 // GenerateCBTAPIConfig generates cbt-api configuration for a network.
 func (g *Generator) GenerateCBTAPIConfig(network string) (string, error) {
 	port := g.cfg.GetCBTAPIPort(network)
@@ -285,6 +240,31 @@ func (g *Generator) GenerateLabBackendConfig(
 	}
 
 	return buf.String(), nil
+}
+
+// generateAutoDefaults creates xcli-generated defaults for models (env, overrides).
+func (g *Generator) generateAutoDefaults(network string) (map[string]any, error) {
+	externalModelMinTimestamp := time.Now().Add(-1 * time.Hour).Unix()
+
+	// Set sane default for mainnet
+	externalModelMinBlock := 0
+	if network == "mainnet" {
+		externalModelMinBlock = 23800000
+	}
+
+	// Build models section with env
+	modelsSection := map[string]any{
+		"env": map[string]any{
+			"NETWORK":                      network,
+			"EXTERNAL_MODEL_MIN_TIMESTAMP": fmt.Sprintf("%d", externalModelMinTimestamp),
+			"EXTERNAL_MODEL_MIN_BLOCK":     fmt.Sprintf("%d", externalModelMinBlock),
+			"MODELS_SCRIPTS_PATH":          "../xatu-cbt/models/scripts",
+		},
+	}
+
+	return map[string]any{
+		"models": modelsSection,
+	}, nil
 }
 
 // getLocallyEnabledTables discovers all models from the xatu-cbt repo and
@@ -413,4 +393,24 @@ func loadDisabledModels(overridesPath string) (map[string]bool, error) {
 	}
 
 	return disabled, nil
+}
+
+// loadYAMLFile loads a YAML file as a generic map.
+// Returns an empty map if the file doesn't exist.
+func loadYAMLFile(path string) (map[string]any, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return make(map[string]any), nil
+		}
+
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	var result map[string]any
+	if err := yaml.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML: %w", err)
+	}
+
+	return result, nil
 }

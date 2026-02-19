@@ -7,6 +7,33 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// Styles for the menu.
+var (
+	StyleMenuBorder = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ColorCyan).
+			Padding(1, 2)
+
+	StyleMenuTitle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(ColorCyan).
+			MarginBottom(1)
+
+	StyleMenuEnabled = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("15")) // White
+
+	StyleMenuDisabled = lipgloss.NewStyle().
+				Foreground(ColorGray)
+
+	StyleMenuKey = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(ColorGreen)
+
+	StyleMenuKeyDisabled = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(ColorGray)
+)
+
 // MenuAction represents an action in the context menu.
 type MenuAction struct {
 	Key         string // Shortcut key (e.g., "s", "t", "r", "b")
@@ -53,33 +80,6 @@ func GetMenuActions(status string) []MenuAction {
 		},
 	}
 }
-
-// Styles for the menu.
-var (
-	StyleMenuBorder = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(ColorCyan).
-			Padding(1, 2)
-
-	StyleMenuTitle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(ColorCyan).
-			MarginBottom(1)
-
-	StyleMenuEnabled = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("15")) // White
-
-	StyleMenuDisabled = lipgloss.NewStyle().
-				Foreground(ColorGray)
-
-	StyleMenuKey = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(ColorGreen)
-
-	StyleMenuKeyDisabled = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(ColorGray)
-)
 
 // RenderMenu renders the context menu overlay.
 func RenderMenu(serviceName string, actions []MenuAction) string {
