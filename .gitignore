@@ -27,6 +27,7 @@ go.work
 
 # Command Center frontend
 pkg/cc/frontend/node_modules/
+pkg/cc/frontend/dist/
 
 # OS
 .DS_Store

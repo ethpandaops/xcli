@@ -126,6 +126,8 @@ func (s *Server) Start(ctx context.Context, autoOpen bool) error {
 	url := fmt.Sprintf("http://localhost:%d", s.port)
 	s.log.WithField("url", url).Info("Dashboard available")
 
+	fmt.Printf("\n  Command Center running at: %s\n\n", url)
+
 	if autoOpen {
 		openBrowser(url)
 	}
