@@ -29,6 +29,7 @@ go.work
 pkg/cc/frontend/node_modules/
 pkg/cc/frontend/dist/
 pkg/cc/frontend/storybook-static/
+pkg/cc/frontend/.eslintcache
 
 # OS
 .DS_Store
