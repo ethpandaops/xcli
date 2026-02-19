@@ -31,7 +31,7 @@ build: cc-frontend ## Build the binary
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/$(BINARY_NAME)
 	@echo "✓ Built: $(BUILD_DIR)/$(BINARY_NAME)"
 
-install: ## Install the binary to GOPATH/bin
+install: cc-frontend ## Install the binary to GOPATH/bin
 	@echo "Installing $(BINARY_NAME)..."
 	$(GOINSTALL) $(LDFLAGS) ./cmd/$(BINARY_NAME)
 	@echo "✓ Installed to $(shell go env GOPATH)/bin/$(BINARY_NAME)"
