@@ -217,24 +217,6 @@ func (m *Model) ApplyTransformFilter() {
 	m.transformScroll = 0
 }
 
-// filterModels returns indices of models matching the filter (case-insensitive substring).
-func (m *Model) filterModels(models []ModelEntry, filter string) []int {
-	if filter == "" {
-		return nil
-	}
-
-	filterLower := strings.ToLower(filter)
-	indices := make([]int, 0, len(models))
-
-	for i, model := range models {
-		if strings.Contains(strings.ToLower(model.Name), filterLower) {
-			indices = append(indices, i)
-		}
-	}
-
-	return indices
-}
-
 // GetFilteredTransformLength returns the length of the filtered transformation list.
 func (m *Model) GetFilteredTransformLength() int {
 	if m.filterText != "" && m.filteredTransformIndices != nil {
@@ -362,4 +344,22 @@ func (m *Model) IsModelNeededByEnabled(modelName string) bool {
 	}
 
 	return false
+}
+
+// filterModels returns indices of models matching the filter (case-insensitive substring).
+func (m *Model) filterModels(models []ModelEntry, filter string) []int {
+	if filter == "" {
+		return nil
+	}
+
+	filterLower := strings.ToLower(filter)
+	indices := make([]int, 0, len(models))
+
+	for i, model := range models {
+		if strings.Contains(strings.ToLower(model.Name), filterLower) {
+			indices = append(indices, i)
+		}
+	}
+
+	return indices
 }

@@ -35,22 +35,6 @@ type TemplateData struct {
 	RowCount int64  // Number of rows in the parquet file
 }
 
-// GenerateTestYAML generates a test YAML string from the template data.
-func GenerateTestYAML(data TemplateData) (string, error) {
-	tmpl, err := template.New("test").Parse(TestYAMLTemplate)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse template: %w", err)
-	}
-
-	var buf bytes.Buffer
-
-	if execErr := tmpl.Execute(&buf, data); execErr != nil {
-		return "", fmt.Errorf("failed to execute template: %w", execErr)
-	}
-
-	return buf.String(), nil
-}
-
 // ExternalDataEntry represents an external data entry in the test YAML.
 type ExternalDataEntry struct {
 	URL           string `yaml:"url"`
@@ -74,6 +58,22 @@ type TransformationTemplateData struct {
 	ExternalModels []string          // List of external model names
 	URLs           map[string]string // model name -> parquet URL
 	Assertions     []Assertion       // Generated assertions
+}
+
+// GenerateTestYAML generates a test YAML string from the template data.
+func GenerateTestYAML(data TemplateData) (string, error) {
+	tmpl, err := template.New("test").Parse(TestYAMLTemplate)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse template: %w", err)
+	}
+
+	var buf bytes.Buffer
+
+	if execErr := tmpl.Execute(&buf, data); execErr != nil {
+		return "", fmt.Errorf("failed to execute template: %w", execErr)
+	}
+
+	return buf.String(), nil
 }
 
 // GenerateTransformationTestYAML generates a complete test YAML for transformation models.

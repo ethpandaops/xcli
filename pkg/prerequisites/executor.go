@@ -18,7 +18,7 @@ import (
 func NewChecker(log logrus.FieldLogger) Checker {
 	return &checker{
 		log:  log.WithField("component", "prerequisites"),
-		defs: buildKnownRepoPrerequisites(),
+		defs: buildKnownRepo(),
 	}
 }
 
@@ -75,11 +75,11 @@ func (c *checker) Run(ctx context.Context, repoPath string, repoName string) err
 		var err error
 
 		switch prereq.Type {
-		case PrerequisiteTypeFileCopy:
+		case TypeFileCopy:
 			err = c.executeFileCopy(ctx, repoPath, prereq)
-		case PrerequisiteTypeCommand:
+		case TypeCommand:
 			err = c.executeCommand(ctx, repoPath, prereq)
-		case PrerequisiteTypeDirectoryCheck:
+		case TypeDirectoryCheck:
 			err = c.executeDirectoryCheck(ctx, repoPath, prereq)
 		default:
 			err = fmt.Errorf("unknown prerequisite type: %s", prereq.Type)
@@ -109,14 +109,14 @@ func (c *checker) CheckAndRun(ctx context.Context, repoPath string, repoName str
 // checkPrerequisite validates if a single prerequisite is met.
 func (c *checker) checkPrerequisite(ctx context.Context, repoPath string, prereq Prerequisite) error {
 	switch prereq.Type {
-	case PrerequisiteTypeFileCopy:
+	case TypeFileCopy:
 		// Check if destination file exists
 		destPath := filepath.Join(repoPath, prereq.DestinationPath)
 		if _, err := os.Stat(destPath); os.IsNotExist(err) {
 			return fmt.Errorf("destination file does not exist: %s", prereq.DestinationPath)
 		}
 
-	case PrerequisiteTypeCommand:
+	case TypeCommand:
 		// For commands, check if the expected artifact exists (using SkipIfExists)
 		if prereq.SkipIfExists != "" {
 			artifactPath := filepath.Join(repoPath, prereq.SkipIfExists)
@@ -125,7 +125,7 @@ func (c *checker) checkPrerequisite(ctx context.Context, repoPath string, prereq
 			}
 		}
 
-	case PrerequisiteTypeDirectoryCheck:
+	case TypeDirectoryCheck:
 		dirPath := filepath.Join(repoPath, prereq.DirectoryPath)
 		_, err := os.Stat(dirPath)
 

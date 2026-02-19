@@ -58,6 +58,15 @@ type Model struct {
 	lastUpdate time.Time
 }
 
+// Messages for Bubbletea.
+type tickMsg time.Time
+type eventMsg Event
+type logMsg LogLine
+type healthMsg map[string]HealthStatus
+type activityDoneMsg struct {
+	err error
+}
+
 // NewModel creates initial model.
 func NewModel(wrapper *OrchestratorWrapper, maxLogLines int) Model {
 	eventBus := NewEventBus()
@@ -89,15 +98,6 @@ func (m Model) Init() tea.Cmd {
 		tick(),
 		waitForEvent(m.eventBus.Subscribe()),
 	)
-}
-
-// Messages for Bubbletea.
-type tickMsg time.Time
-type eventMsg Event
-type logMsg LogLine
-type healthMsg map[string]HealthStatus
-type activityDoneMsg struct {
-	err error
 }
 
 // tick returns a command that waits for next tick.

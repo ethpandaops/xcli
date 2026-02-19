@@ -1015,7 +1015,7 @@ func promptDependencyConfirmation(
 	deps map[string]*release.DependencyInfo,
 	infoMap map[string]*release.ProjectInfo,
 ) ([]string, error) {
-	projectsToRemove := make(map[string]bool)
+	projectsToRemove := make(map[string]bool, len(projects))
 	isFirstPrompt := true
 
 	for _, project := range ordered {
@@ -1231,7 +1231,7 @@ func runPreflightChecks(
 
 // getRepoPathsFromLabConfig extracts repo paths for selected projects from lab config.
 func getRepoPathsFromLabConfig(labCfg *config.LabConfig, projects []string) map[string]string {
-	paths := make(map[string]string)
+	paths := make(map[string]string, len(projects))
 
 	if labCfg == nil {
 		return paths

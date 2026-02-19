@@ -21,6 +21,17 @@ type ModelRange struct {
 	MaxRaw      string
 }
 
+// singleValueResult holds a single time value result.
+type singleValueResult struct {
+	Time time.Time
+	Raw  string
+}
+
+// clickHouseJSONResponse represents ClickHouse JSON format response.
+type clickHouseJSONResponse struct {
+	Data []map[string]any `json:"data"`
+}
+
 // QueryModelRange queries external ClickHouse for a model's available data range.
 // Uses ORDER BY ... LIMIT 1 instead of MIN/MAX for better performance on large tables.
 func (g *Generator) QueryModelRange(ctx context.Context, model, network, rangeColumn string) (*ModelRange, error) {
@@ -71,10 +82,77 @@ func (g *Generator) QueryModelRange(ctx context.Context, model, network, rangeCo
 	}, nil
 }
 
-// singleValueResult holds a single time value result.
-type singleValueResult struct {
-	Time time.Time
-	Raw  string
+// QueryModelRanges queries ranges for multiple models.
+// If overrideColumn is non-empty, it will be used for all models instead of detected columns.
+func (g *Generator) QueryModelRanges(ctx context.Context, models []string, network string, rangeInfos map[string]*RangeColumnInfo, overrideColumn string) ([]*ModelRange, error) {
+	ranges := make([]*ModelRange, 0, len(models))
+
+	for _, model := range models {
+		rangeCol := DefaultRangeColumn
+
+		// Use override if provided, otherwise use detected column
+		if overrideColumn != "" {
+			rangeCol = overrideColumn
+		} else if info, ok := rangeInfos[model]; ok {
+			rangeCol = info.RangeColumn
+		}
+
+		modelRange, err := g.QueryModelRange(ctx, model, network, rangeCol)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query range for %s: %w", model, err)
+		}
+
+		ranges = append(ranges, modelRange)
+	}
+
+	return ranges, nil
+}
+
+// FormatRange returns a human-readable string representation of the range.
+func (r *ModelRange) FormatRange() string {
+	return fmt.Sprintf("%s to %s",
+		r.Min.Format("2006-01-02 15:04:05"),
+		r.Max.Format("2006-01-02 15:04:05"))
+}
+
+// FindIntersection finds the overlapping range across all model ranges.
+// Returns nil if there is no intersection.
+func FindIntersection(ranges []*ModelRange) (*ModelRange, error) {
+	if len(ranges) == 0 {
+		return nil, fmt.Errorf("no ranges provided")
+	}
+
+	if len(ranges) == 1 {
+		return ranges[0], nil
+	}
+
+	// Find the maximum of all minimums and minimum of all maximums
+	maxMin := ranges[0].Min
+	minMax := ranges[0].Max
+
+	for _, r := range ranges[1:] {
+		if r.Min.After(maxMin) {
+			maxMin = r.Min
+		}
+
+		if r.Max.Before(minMax) {
+			minMax = r.Max
+		}
+	}
+
+	// Check if there's an intersection
+	if maxMin.After(minMax) {
+		return nil, fmt.Errorf("no intersecting range found: ranges do not overlap")
+	}
+
+	return &ModelRange{
+		Model:       "intersection",
+		RangeColumn: ranges[0].RangeColumn,
+		Min:         maxMin,
+		Max:         minMax,
+		MinRaw:      maxMin.Format("2006-01-02 15:04:05"),
+		MaxRaw:      minMax.Format("2006-01-02 15:04:05"),
+	}, nil
 }
 
 // executeSingleValueQuery executes a query that returns a single time value.
@@ -140,11 +218,6 @@ func (g *Generator) executeSingleValueQuery(ctx context.Context, query string) (
 	}, nil
 }
 
-// clickHouseJSONResponse represents ClickHouse JSON format response.
-type clickHouseJSONResponse struct {
-	Data []map[string]any `json:"data"`
-}
-
 // parseTimeValue parses a time value from ClickHouse JSON response.
 // It handles both DateTime strings and Unix timestamps.
 func parseTimeValue(val any) (time.Time, string, error) {
@@ -176,77 +249,4 @@ func parseTimeValue(val any) (time.Time, string, error) {
 	default:
 		return time.Time{}, fmt.Sprintf("%v", val), fmt.Errorf("unsupported time value type: %T", val)
 	}
-}
-
-// QueryModelRanges queries ranges for multiple models.
-// If overrideColumn is non-empty, it will be used for all models instead of detected columns.
-func (g *Generator) QueryModelRanges(ctx context.Context, models []string, network string, rangeInfos map[string]*RangeColumnInfo, overrideColumn string) ([]*ModelRange, error) {
-	ranges := make([]*ModelRange, 0, len(models))
-
-	for _, model := range models {
-		rangeCol := DefaultRangeColumn
-
-		// Use override if provided, otherwise use detected column
-		if overrideColumn != "" {
-			rangeCol = overrideColumn
-		} else if info, ok := rangeInfos[model]; ok {
-			rangeCol = info.RangeColumn
-		}
-
-		modelRange, err := g.QueryModelRange(ctx, model, network, rangeCol)
-		if err != nil {
-			return nil, fmt.Errorf("failed to query range for %s: %w", model, err)
-		}
-
-		ranges = append(ranges, modelRange)
-	}
-
-	return ranges, nil
-}
-
-// FindIntersection finds the overlapping range across all model ranges.
-// Returns nil if there is no intersection.
-func FindIntersection(ranges []*ModelRange) (*ModelRange, error) {
-	if len(ranges) == 0 {
-		return nil, fmt.Errorf("no ranges provided")
-	}
-
-	if len(ranges) == 1 {
-		return ranges[0], nil
-	}
-
-	// Find the maximum of all minimums and minimum of all maximums
-	maxMin := ranges[0].Min
-	minMax := ranges[0].Max
-
-	for _, r := range ranges[1:] {
-		if r.Min.After(maxMin) {
-			maxMin = r.Min
-		}
-
-		if r.Max.Before(minMax) {
-			minMax = r.Max
-		}
-	}
-
-	// Check if there's an intersection
-	if maxMin.After(minMax) {
-		return nil, fmt.Errorf("no intersecting range found: ranges do not overlap")
-	}
-
-	return &ModelRange{
-		Model:       "intersection",
-		RangeColumn: ranges[0].RangeColumn,
-		Min:         maxMin,
-		Max:         minMax,
-		MinRaw:      maxMin.Format("2006-01-02 15:04:05"),
-		MaxRaw:      minMax.Format("2006-01-02 15:04:05"),
-	}, nil
-}
-
-// FormatRange returns a human-readable string representation of the range.
-func (r *ModelRange) FormatRange() string {
-	return fmt.Sprintf("%s to %s",
-		r.Min.Format("2006-01-02 15:04:05"),
-		r.Max.Format("2006-01-02 15:04:05"))
 }

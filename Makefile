@@ -31,7 +31,7 @@ build: cc-frontend ## Build the binary
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/$(BINARY_NAME)
 	@echo "✓ Built: $(BUILD_DIR)/$(BINARY_NAME)"
 
-install: ## Install the binary to GOPATH/bin
+install: cc-frontend ## Install the binary to GOPATH/bin
 	@echo "Installing $(BINARY_NAME)..."
 	$(GOINSTALL) $(LDFLAGS) ./cmd/$(BINARY_NAME)
 	@echo "✓ Installed to $(shell go env GOPATH)/bin/$(BINARY_NAME)"
@@ -65,10 +65,22 @@ run: build ## Build and run
 dev: ## Run in development mode
 	$(GOCMD) run ./cmd/$(BINARY_NAME)
 
-cc-dev: build ## Run CC backend + Vite HMR (open localhost:5173)
+cc-dev: build ## Run CC backend + Vite HMR (open localhost:15173)
 	@trap 'kill 0' EXIT; \
 		./$(BUILD_DIR)/$(BINARY_NAME) cc --no-open & \
 		cd pkg/cc/frontend && pnpm dev & \
 		wait
+
+cc-lint: ## Lint the CC frontend (ESLint)
+	@cd pkg/cc/frontend && pnpm install --frozen-lockfile && pnpm lint
+
+cc-test: ## Run CC frontend unit tests
+	@cd pkg/cc/frontend && pnpm install --frozen-lockfile && pnpm test
+
+cc-typecheck: ## Type check the CC frontend
+	@cd pkg/cc/frontend && pnpm install --frozen-lockfile && pnpm typecheck
+
+cc-storybook: ## Launch CC Storybook dev server on :6006
+	@cd pkg/cc/frontend && pnpm install --frozen-lockfile && pnpm storybook
 
 .DEFAULT_GOAL := help

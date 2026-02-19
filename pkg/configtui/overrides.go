@@ -60,7 +60,7 @@ func LoadOverrides(path string) (*CBTOverrides, bool, error) {
 	}
 
 	if overrides.Models.Overrides == nil {
-		overrides.Models.Overrides = make(map[string]ModelOverride)
+		overrides.Models.Overrides = make(map[string]ModelOverride, 8)
 	}
 
 	return overrides, true, nil
@@ -137,7 +137,7 @@ func SaveOverridesFromEntries(
 	}
 
 	// Collect all disabled models.
-	disabledModels := make([]string, 0)
+	disabledModels := make([]string, 0, len(externalModels)+len(transformationModels))
 
 	for _, model := range externalModels {
 		if !model.Enabled {

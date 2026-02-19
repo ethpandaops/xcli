@@ -29,14 +29,6 @@ type Generator struct {
 	cfg *config.LabConfig
 }
 
-// NewGenerator creates a new seed data generator.
-func NewGenerator(log logrus.FieldLogger, cfg *config.LabConfig) *Generator {
-	return &Generator{
-		log: log.WithField("component", "seeddata"),
-		cfg: cfg,
-	}
-}
-
 // GenerateOptions contains options for generating seed data.
 type GenerateOptions struct {
 	Model             string   // Table name (e.g., "beacon_api_eth_v1_events_block")
@@ -72,6 +64,14 @@ type GenerateResult struct {
 	FileSize         int64    // File size in bytes
 	SanitizedColumns []string // IP columns that were sanitized (for display to user)
 	Query            string   // SQL query used (for debugging)
+}
+
+// NewGenerator creates a new seed data generator.
+func NewGenerator(log logrus.FieldLogger, cfg *config.LabConfig) *Generator {
+	return &Generator{
+		log: log.WithField("component", "seeddata"),
+		cfg: cfg,
+	}
 }
 
 // Generate extracts data from external ClickHouse and writes to a parquet file.
@@ -136,6 +136,48 @@ func (g *Generator) Generate(ctx context.Context, opts GenerateOptions) (*Genera
 		SanitizedColumns: sanitizedColumns,
 		Query:            query,
 	}, nil
+}
+
+// ListExternalModels returns a list of available external models from the xatu-cbt repo.
+func (g *Generator) ListExternalModels() ([]string, error) {
+	modelsDir := filepath.Join(g.cfg.Repos.XatuCBT, "models", "external")
+
+	entries, err := os.ReadDir(modelsDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read models directory: %w", err)
+	}
+
+	models := make([]string, 0, len(entries))
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		if strings.HasSuffix(name, ".sql") {
+			// Remove .sql extension to get model name
+			models = append(models, strings.TrimSuffix(name, ".sql"))
+		}
+	}
+
+	return models, nil
+}
+
+// ValidateModel checks if a model name is valid (exists in xatu-cbt external models).
+func (g *Generator) ValidateModel(model string) error {
+	models, err := g.ListExternalModels()
+	if err != nil {
+		return fmt.Errorf("failed to list models: %w", err)
+	}
+
+	for _, m := range models {
+		if m == model {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("model '%s' not found in xatu-cbt external models", model)
 }
 
 // buildQuery constructs the SQL query for extracting seed data.
@@ -215,89 +257,6 @@ func (g *Generator) buildQuery(opts GenerateOptions) string {
 	sb.WriteString("\nFORMAT Parquet")
 
 	return sb.String()
-}
-
-// formatSQLValue formats a value for use in SQL.
-// Numeric values are returned as-is, datetime values use toDateTime(), other values are quoted.
-func formatSQLValue(val string) string {
-	// Check if value is purely numeric (integer or decimal)
-	if isNumeric(val) {
-		return val
-	}
-
-	// Check if value looks like a datetime (YYYY-MM-DD HH:MM:SS)
-	if isDateTime(val) {
-		return fmt.Sprintf("toDateTime('%s')", val)
-	}
-
-	// Quote non-numeric values (strings, etc.)
-	// Escape single quotes by doubling them
-	escaped := strings.ReplaceAll(val, "'", "''")
-
-	return "'" + escaped + "'"
-}
-
-// isDateTime checks if a string looks like a datetime (YYYY-MM-DD HH:MM:SS).
-func isDateTime(s string) bool {
-	// Must be exactly 19 characters: YYYY-MM-DD HH:MM:SS
-	if len(s) != 19 {
-		return false
-	}
-
-	// Check format: YYYY-MM-DD HH:MM:SS
-	// Positions: 0123456789012345678
-	//            2025-12-10 20:00:00
-	if s[4] != '-' || s[7] != '-' || s[10] != ' ' || s[13] != ':' || s[16] != ':' {
-		return false
-	}
-
-	// Check that other positions are digits
-	digitPositions := []int{0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18}
-	for _, pos := range digitPositions {
-		if s[pos] < '0' || s[pos] > '9' {
-			return false
-		}
-	}
-
-	return true
-}
-
-// isNumeric checks if a string represents a numeric value.
-func isNumeric(s string) bool {
-	if s == "" {
-		return false
-	}
-
-	// Allow leading minus sign
-	start := 0
-	if s[0] == '-' {
-		start = 1
-
-		if len(s) == 1 {
-			return false
-		}
-	}
-
-	hasDecimal := false
-
-	for i := start; i < len(s); i++ {
-		c := s[i]
-		if c == '.' {
-			if hasDecimal {
-				return false // Multiple decimals
-			}
-
-			hasDecimal = true
-
-			continue
-		}
-
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-
-	return true
 }
 
 // executeQueryToFile executes a query and streams the result to a file.
@@ -434,44 +393,85 @@ func (g *Generator) resolveTableRef(model string) string {
 	return ResolveExternalTableRef(model, g.cfg.Repos.XatuCBT)
 }
 
-// ListExternalModels returns a list of available external models from the xatu-cbt repo.
-func (g *Generator) ListExternalModels() ([]string, error) {
-	modelsDir := filepath.Join(g.cfg.Repos.XatuCBT, "models", "external")
-
-	entries, err := os.ReadDir(modelsDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read models directory: %w", err)
+// formatSQLValue formats a value for use in SQL.
+// Numeric values are returned as-is, datetime values use toDateTime(), other values are quoted.
+func formatSQLValue(val string) string {
+	// Check if value is purely numeric (integer or decimal)
+	if isNumeric(val) {
+		return val
 	}
 
-	models := make([]string, 0, len(entries))
+	// Check if value looks like a datetime (YYYY-MM-DD HH:MM:SS)
+	if isDateTime(val) {
+		return fmt.Sprintf("toDateTime('%s')", val)
+	}
 
-	for _, entry := range entries {
-		if entry.IsDir() {
+	// Quote non-numeric values (strings, etc.)
+	// Escape single quotes by doubling them
+	escaped := strings.ReplaceAll(val, "'", "''")
+
+	return "'" + escaped + "'"
+}
+
+// isDateTime checks if a string looks like a datetime (YYYY-MM-DD HH:MM:SS).
+func isDateTime(s string) bool {
+	// Must be exactly 19 characters: YYYY-MM-DD HH:MM:SS
+	if len(s) != 19 {
+		return false
+	}
+
+	// Check format: YYYY-MM-DD HH:MM:SS
+	// Positions: 0123456789012345678
+	//            2025-12-10 20:00:00
+	if s[4] != '-' || s[7] != '-' || s[10] != ' ' || s[13] != ':' || s[16] != ':' {
+		return false
+	}
+
+	// Check that other positions are digits
+	digitPositions := []int{0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18}
+	for _, pos := range digitPositions {
+		if s[pos] < '0' || s[pos] > '9' {
+			return false
+		}
+	}
+
+	return true
+}
+
+// isNumeric checks if a string represents a numeric value.
+func isNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+
+	// Allow leading minus sign
+	start := 0
+	if s[0] == '-' {
+		start = 1
+
+		if len(s) == 1 {
+			return false
+		}
+	}
+
+	hasDecimal := false
+
+	for i := start; i < len(s); i++ {
+		c := s[i]
+		if c == '.' {
+			if hasDecimal {
+				return false // Multiple decimals
+			}
+
+			hasDecimal = true
+
 			continue
 		}
 
-		name := entry.Name()
-		if strings.HasSuffix(name, ".sql") {
-			// Remove .sql extension to get model name
-			models = append(models, strings.TrimSuffix(name, ".sql"))
+		if c < '0' || c > '9' {
+			return false
 		}
 	}
 
-	return models, nil
-}
-
-// ValidateModel checks if a model name is valid (exists in xatu-cbt external models).
-func (g *Generator) ValidateModel(model string) error {
-	models, err := g.ListExternalModels()
-	if err != nil {
-		return fmt.Errorf("failed to list models: %w", err)
-	}
-
-	for _, m := range models {
-		if m == model {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("model '%s' not found in xatu-cbt external models", model)
+	return true
 }

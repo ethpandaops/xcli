@@ -7,6 +7,9 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 	"text/template"
 	"time"
 
@@ -61,7 +64,10 @@ func (g *Generator) GenerateCBTConfig(network string, userOverridesPath string) 
 	// - If Xatu mode is "local", use "default" (local Xatu cluster uses default database)
 	// - If Xatu mode is "external", use configured ExternalDatabase (or "default" if not set)
 	externalDatabase := "default"
-	if g.cfg.Infrastructure.ClickHouse.Xatu.Mode == constants.InfraModeExternal && g.cfg.Infrastructure.ClickHouse.Xatu.ExternalDatabase != "" {
+
+	xatuCfg := g.cfg.Infrastructure.ClickHouse.Xatu
+	if xatuCfg.Mode == constants.InfraModeExternal &&
+		xatuCfg.ExternalDatabase != "" {
 		externalDatabase = g.cfg.Infrastructure.ClickHouse.Xatu.ExternalDatabase
 	}
 
@@ -72,7 +78,7 @@ func (g *Generator) GenerateCBTConfig(network string, userOverridesPath string) 
 		genesisTimestamp = timestamp
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Network":                    network,
 		"MetricsPort":                metricsPort,
 		"RedisDB":                    redisDB,
@@ -94,7 +100,7 @@ func (g *Generator) GenerateCBTConfig(network string, userOverridesPath string) 
 	}
 
 	// Parse base config to map for merging
-	var baseConfig map[string]interface{}
+	var baseConfig map[string]any
 
 	err = yaml.Unmarshal(buf.Bytes(), &baseConfig)
 	if err != nil {
@@ -120,6 +126,7 @@ func (g *Generator) GenerateCBTConfig(network string, userOverridesPath string) 
 			g.log.WithError(loadErr).Warn("failed to load user overrides, continuing without them")
 		} else if len(userOverrides) > 0 {
 			removeEmptyMaps(userOverrides)
+
 			// Deep merge user overrides (user takes ultimate precedence)
 			err = mergo.Merge(&baseConfig, userOverrides, mergo.WithOverride)
 			if err != nil {
@@ -139,66 +146,6 @@ func (g *Generator) GenerateCBTConfig(network string, userOverridesPath string) 
 	return string(finalYAML), nil
 }
 
-// generateAutoDefaults creates xcli-generated defaults for models (env, overrides).
-func (g *Generator) generateAutoDefaults(network string) (map[string]interface{}, error) {
-	externalModelMinTimestamp := time.Now().Add(-1 * time.Hour).Unix()
-
-	// Set sane default for mainnet
-	externalModelMinBlock := 0
-	if network == "mainnet" {
-		externalModelMinBlock = 23800000
-	}
-
-	// Build models section with env
-	modelsSection := map[string]interface{}{
-		"env": map[string]interface{}{
-			"NETWORK":                      network,
-			"EXTERNAL_MODEL_MIN_TIMESTAMP": fmt.Sprintf("%d", externalModelMinTimestamp),
-			"EXTERNAL_MODEL_MIN_BLOCK":     fmt.Sprintf("%d", externalModelMinBlock),
-			"MODELS_SCRIPTS_PATH":          "../xatu-cbt/models/scripts",
-		},
-	}
-
-	return map[string]interface{}{
-		"models": modelsSection,
-	}, nil
-}
-
-// removeEmptyMaps recursively removes empty map entries from a map.
-// This prevents YAML keys with only comments (parsed as empty maps)
-// from overriding populated auto-defaults during mergo merge.
-func removeEmptyMaps(m map[string]interface{}) {
-	for key, val := range m {
-		if nested, ok := val.(map[string]interface{}); ok {
-			removeEmptyMaps(nested)
-
-			if len(nested) == 0 {
-				delete(m, key)
-			}
-		}
-	}
-}
-
-// loadYAMLFile loads a YAML file as a generic map.
-// Returns an empty map if the file doesn't exist.
-func loadYAMLFile(path string) (map[string]interface{}, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return make(map[string]interface{}), nil
-		}
-
-		return nil, fmt.Errorf("failed to read file: %w", err)
-	}
-
-	var result map[string]interface{}
-	if err := yaml.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML: %w", err)
-	}
-
-	return result, nil
-}
-
 // GenerateCBTAPIConfig generates cbt-api configuration for a network.
 func (g *Generator) GenerateCBTAPIConfig(network string) (string, error) {
 	port := g.cfg.GetCBTAPIPort(network)
@@ -212,7 +159,7 @@ func (g *Generator) GenerateCBTAPIConfig(network string) (string, error) {
 		}
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Network":     network,
 		"Port":        port,
 		"MetricsPort": metricsPort,
@@ -232,23 +179,59 @@ func (g *Generator) GenerateCBTAPIConfig(network string) (string, error) {
 }
 
 // GenerateLabBackendConfig generates lab-backend configuration.
-func (g *Generator) GenerateLabBackendConfig() (string, error) {
-	networks := make([]map[string]interface{}, 0, len(g.cfg.Networks))
+// In hybrid mode, userOverridesPath is used to determine which tables
+// should be routed to the local cbt-api instead of the external one.
+func (g *Generator) GenerateLabBackendConfig(
+	userOverridesPath string,
+) (string, error) {
+	isHybrid := g.cfg.Infrastructure.ClickHouse.Xatu.Mode == constants.InfraModeExternal
+
+	var localTables []string
+
+	if isHybrid && userOverridesPath != "" {
+		tables, err := g.getLocallyEnabledTables(userOverridesPath)
+		if err != nil {
+			g.log.WithError(err).Warn(
+				"failed to determine local tables, falling back to non-hybrid",
+			)
+
+			isHybrid = false
+		} else {
+			localTables = tables
+		}
+	}
+
+	networks := make([]map[string]any, 0, len(g.cfg.Networks))
+
 	for _, net := range g.cfg.Networks {
-		networks = append(networks, map[string]interface{}{
+		entry := map[string]any{
 			"Name":    net.Name,
 			"Port":    g.cfg.GetCBTAPIPort(net.Name),
 			"Enabled": net.Enabled,
-		})
+		}
+
+		if isHybrid {
+			if len(localTables) > 0 {
+				entry["IsHybrid"] = true
+				entry["LocalTables"] = localTables
+			} else {
+				// All models disabled — no local routing, pure Cartographoor.
+				entry["IsHybrid"] = true
+			}
+		}
+
+		networks = append(networks, entry)
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Networks":     networks,
 		"Port":         g.cfg.Ports.LabBackend,
 		"FrontendPort": g.cfg.Ports.LabFrontend,
 	}
 
-	tmpl, err := template.New("lab-backend-config").ParseFS(templatesFS, "templates/lab-backend.yaml.tmpl")
+	tmpl, err := template.New("lab-backend-config").ParseFS(
+		templatesFS, "templates/lab-backend.yaml.tmpl",
+	)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse lab-backend config template: %w", err)
 	}
@@ -259,4 +242,195 @@ func (g *Generator) GenerateLabBackendConfig() (string, error) {
 	}
 
 	return buf.String(), nil
+}
+
+// generateAutoDefaults creates xcli-generated defaults for models (env, overrides).
+func (g *Generator) generateAutoDefaults(network string) (map[string]any, error) {
+	externalModelMinTimestamp := time.Now().Add(-1 * time.Hour).Unix()
+
+	// Set sane default for mainnet
+	externalModelMinBlock := 0
+	if network == "mainnet" {
+		externalModelMinBlock = 23800000
+	}
+
+	// Build models section with env
+	modelsSection := map[string]any{
+		"env": map[string]any{
+			"NETWORK":                      network,
+			"EXTERNAL_MODEL_MIN_TIMESTAMP": fmt.Sprintf("%d", externalModelMinTimestamp),
+			"EXTERNAL_MODEL_MIN_BLOCK":     fmt.Sprintf("%d", externalModelMinBlock),
+			"MODELS_SCRIPTS_PATH":          "../xatu-cbt/models/scripts",
+		},
+	}
+
+	return map[string]any{
+		"models": modelsSection,
+	}, nil
+}
+
+// getLocallyEnabledTables discovers all models from the xatu-cbt repo and
+// returns those NOT explicitly disabled in the overrides file.
+// The overrides file is a deny list: it only contains disabled models.
+// So we discover all models, then subtract the disabled ones.
+func (g *Generator) getLocallyEnabledTables(overridesPath string) ([]string, error) {
+	xatuCBTPath := g.cfg.Repos.XatuCBT
+	if xatuCBTPath == "" {
+		return nil, fmt.Errorf("xatu-cbt repo path not configured")
+	}
+
+	// Discover all models from the xatu-cbt repo.
+	allModels, err := discoverAllModels(xatuCBTPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover models: %w", err)
+	}
+
+	if len(allModels) == 0 {
+		return nil, nil
+	}
+
+	// Load overrides to find disabled models.
+	disabled, err := loadDisabledModels(overridesPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load overrides: %w", err)
+	}
+
+	// Return all models that are NOT disabled.
+	tables := make([]string, 0, len(allModels))
+
+	for _, name := range allModels {
+		if !disabled[name] {
+			tables = append(tables, name)
+		}
+	}
+
+	return tables, nil
+}
+
+// discoverAllModels scans the xatu-cbt repo for external and transformation
+// model files, returning a sorted list of all model names.
+func discoverAllModels(xatuCBTPath string) ([]string, error) {
+	models := make([]string, 0, 64)
+
+	// Discover external models (.sql files).
+	externalDir := filepath.Join(xatuCBTPath, "models", "external")
+
+	entries, err := os.ReadDir(externalDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read external models directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		if strings.HasSuffix(name, ".sql") {
+			models = append(models, strings.TrimSuffix(name, ".sql"))
+		}
+	}
+
+	// Discover transformation models (.sql, .yml, .yaml files).
+	transformDir := filepath.Join(xatuCBTPath, "models", "transformations")
+
+	entries, err = os.ReadDir(transformDir)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"failed to read transformations directory: %w", err,
+		)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+
+		for _, ext := range []string{".sql", ".yml", ".yaml"} {
+			if strings.HasSuffix(name, ext) {
+				models = append(models, strings.TrimSuffix(name, ext))
+
+				break
+			}
+		}
+	}
+
+	sort.Strings(models)
+
+	return models, nil
+}
+
+// loadDisabledModels parses the overrides file and returns a set of model
+// names that are explicitly disabled (enabled: false).
+func loadDisabledModels(overridesPath string) (map[string]bool, error) {
+	data, err := os.ReadFile(overridesPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return make(map[string]bool), nil
+		}
+
+		return nil, fmt.Errorf("failed to read overrides: %w", err)
+	}
+
+	var overrides struct {
+		Models struct {
+			Overrides map[string]struct {
+				Enabled *bool `yaml:"enabled"`
+			} `yaml:"overrides"`
+		} `yaml:"models"`
+	}
+
+	if err := yaml.Unmarshal(data, &overrides); err != nil {
+		return nil, fmt.Errorf("failed to parse overrides: %w", err)
+	}
+
+	disabled := make(map[string]bool, len(overrides.Models.Overrides))
+
+	for name, override := range overrides.Models.Overrides {
+		if override.Enabled != nil && !*override.Enabled {
+			disabled[name] = true
+		}
+	}
+
+	return disabled, nil
+}
+
+// removeEmptyMaps recursively removes empty map entries from a map.
+// This prevents YAML keys with only comments (parsed as empty maps)
+// from overriding populated auto-defaults during mergo merge.
+func removeEmptyMaps(m map[string]any) {
+	for key, val := range m {
+		nested, ok := val.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		removeEmptyMaps(nested)
+
+		if len(nested) == 0 {
+			delete(m, key)
+		}
+	}
+}
+
+// loadYAMLFile loads a YAML file as a generic map.
+// Returns an empty map if the file doesn't exist.
+func loadYAMLFile(path string) (map[string]any, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return make(map[string]any), nil
+		}
+
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	var result map[string]any
+	if err := yaml.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML: %w", err)
+	}
+
+	return result, nil
 }

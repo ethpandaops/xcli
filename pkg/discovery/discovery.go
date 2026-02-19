@@ -3,6 +3,7 @@
 package discovery
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,7 +31,7 @@ func NewDiscovery(log logrus.FieldLogger, basePath string) *Discovery {
 
 // DiscoverRepos attempts to find all required lab repositories.
 // If a repository is missing, it will prompt the user to clone it.
-func (d *Discovery) DiscoverRepos() (*config.LabReposConfig, error) {
+func (d *Discovery) DiscoverRepos(ctx context.Context) (*config.LabReposConfig, error) {
 	d.log.Info("discovering lab repositories")
 
 	repos := &config.LabReposConfig{
@@ -90,7 +91,7 @@ func (d *Discovery) DiscoverRepos() (*config.LabReposConfig, error) {
 				// Default to yes if empty or "y"/"Y"
 				if response == "" || response == "y" || response == "Y" {
 					// Clone the repository (with optional branch)
-					if cloneErr := d.cloneRepo(info.repoName, absPath, info.branch); cloneErr != nil {
+					if cloneErr := d.cloneRepo(ctx, info.repoName, absPath, info.branch); cloneErr != nil {
 						return nil, fmt.Errorf("failed to clone %s: %w", name, cloneErr)
 					}
 
@@ -189,7 +190,7 @@ func (d *Discovery) dirExists(path string) bool {
 }
 
 // cloneRepo clones a repository from GitHub and optionally checks out a specific branch.
-func (d *Discovery) cloneRepo(repoName, targetPath, branch string) error {
+func (d *Discovery) cloneRepo(ctx context.Context, repoName, targetPath, branch string) error {
 	// Get GitHub URL for the repository
 	gitURL := constants.GetGitHubURL(repoName)
 
@@ -217,10 +218,10 @@ func (d *Discovery) cloneRepo(repoName, targetPath, branch string) error {
 	var cmd *exec.Cmd
 	if branch != "" {
 		// Clone and checkout specific branch directly
-		cmd = exec.Command("git", "clone", "-b", branch, gitURL, targetPath)
+		cmd = exec.CommandContext(ctx, "git", "clone", "-b", branch, gitURL, targetPath)
 	} else {
 		// Clone default branch
-		cmd = exec.Command("git", "clone", gitURL, targetPath)
+		cmd = exec.CommandContext(ctx, "git", "clone", gitURL, targetPath)
 	}
 
 	// In verbose mode, show git output; otherwise, suppress it

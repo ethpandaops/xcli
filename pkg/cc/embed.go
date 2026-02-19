@@ -16,17 +16,6 @@ type spaHandler struct {
 	fs http.Handler
 }
 
-func newSPAHandler() *spaHandler {
-	sub, err := fs.Sub(frontendFS, "frontend/dist")
-	if err != nil {
-		panic("failed to create sub filesystem for frontend/dist: " + err.Error())
-	}
-
-	return &spaHandler{
-		fs: http.FileServer(http.FS(sub)),
-	}
-}
-
 func (h *spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Try to serve the file directly
 	path := r.URL.Path
@@ -46,4 +35,15 @@ func (h *spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.fs.ServeHTTP(w, r)
+}
+
+func newSPAHandler() *spaHandler {
+	sub, err := fs.Sub(frontendFS, "frontend/dist")
+	if err != nil {
+		panic("failed to create sub filesystem for frontend/dist: " + err.Error())
+	}
+
+	return &spaHandler{
+		fs: http.FileServer(http.FS(sub)),
+	}
 }

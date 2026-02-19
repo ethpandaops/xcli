@@ -19,6 +19,12 @@ import (
 
 const logHistorySize = 1000
 
+// dockerContainerNames maps observability service names to Docker container names.
+var dockerContainerNames = map[string]string{
+	constants.ServicePrometheus: constants.ContainerPrometheus,
+	constants.ServiceGrafana:    constants.ContainerGrafana,
+}
+
 // Server is the Command Center HTTP server.
 type Server struct {
 	log     logrus.FieldLogger
@@ -126,6 +132,8 @@ func (s *Server) Start(ctx context.Context, autoOpen bool) error {
 	url := fmt.Sprintf("http://localhost:%d", s.port)
 	s.log.WithField("url", url).Info("Dashboard available")
 
+	fmt.Printf("\n  Command Center running at: %s\n\n", url)
+
 	if autoOpen {
 		openBrowser(url)
 	}
@@ -201,6 +209,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/stack/status", s.api.handleGetStackStatus)
 
 	// Logs
+	mux.HandleFunc("GET /api/services/{name}/logs", s.api.handleGetServiceLogs)
 	mux.HandleFunc("GET /api/logs", s.handleGetLogs)
 
 	// SSE events
@@ -210,16 +219,13 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("/", newSPAHandler())
 }
 
-// dockerContainerNames maps observability service names to Docker container names.
-var dockerContainerNames = map[string]string{
-	constants.ServicePrometheus: constants.ContainerPrometheus,
-	constants.ServiceGrafana:    constants.ContainerGrafana,
-}
-
 // startLogStreaming starts tailing logs for running services and stops
 // streaming for services that are no longer running. This handles the case
 // where tail -f processes survive log file deletion (macOS kqueue behavior)
 // and must be explicitly killed so streaming can restart with fresh files.
+//
+// For stopped services that have a log file, it reads the last 200 lines
+// once so crash logs are visible in the dashboard.
 func (s *Server) startLogStreaming() {
 	services := s.wrapper.GetServices()
 
@@ -240,28 +246,28 @@ func (s *Server) startLogStreaming() {
 
 	// Start streaming for running services that aren't already tailed.
 	for _, svc := range services {
-		if svc.Status != "running" {
-			continue
-		}
+		if svc.Status == "running" {
+			// Docker container-based services (observability)
+			if container, ok := dockerContainerNames[svc.Name]; ok {
+				if err := s.logs.StartDocker(svc.Name, container); err != nil {
+					s.log.WithError(err).WithField(
+						"service", svc.Name,
+					).Warn("Failed to start Docker log streaming")
+				}
 
-		// Docker container-based services (observability)
-		if container, ok := dockerContainerNames[svc.Name]; ok {
-			if err := s.logs.StartDocker(svc.Name, container); err != nil {
-				s.log.WithError(err).WithField(
-					"service", svc.Name,
-				).Warn("Failed to start Docker log streaming")
+				continue
+			}
+
+			// Process-managed services (tail log file)
+			if svc.LogFile != "" {
+				if err := s.logs.Start(svc.Name, svc.LogFile); err != nil {
+					s.log.WithError(err).WithField(
+						"service", svc.Name,
+					).Warn("Failed to start log streaming")
+				}
 			}
 
 			continue
-		}
-
-		// Process-managed services (tail log file)
-		if svc.LogFile != "" {
-			if err := s.logs.Start(svc.Name, svc.LogFile); err != nil {
-				s.log.WithError(err).WithField(
-					"service", svc.Name,
-				).Warn("Failed to start log streaming")
-			}
 		}
 	}
 }

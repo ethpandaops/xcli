@@ -26,7 +26,7 @@ type Event struct {
 	Type      EventType
 	Service   string
 	Timestamp time.Time
-	Data      interface{}
+	Data      any
 }
 
 // EventBus handles publishing and subscription of events for reactive TUI updates.

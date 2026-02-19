@@ -32,7 +32,14 @@ import (
 const (
 	// infrastructureReadyTimeout is the maximum time to wait for infrastructure to become ready.
 	infrastructureReadyTimeout = 120 * time.Second
+
+	// clickHouseClusterHostPrefix is the hostname prefix for ClickHouse clusters.
+	// When this prefix is detected, additional DNS checks are performed for individual shards.
+	clickHouseClusterHostPrefix = "chendpoint-xatu-clickhouse"
 )
+
+// clickHouseClusterShards are the shard suffixes for ClickHouse clusters.
+var clickHouseClusterShards = []string{"0-0", "0-1", "1-0", "1-1", "2-0", "2-1"}
 
 // Manager handles infrastructure via xatu-cbt.
 type Manager struct {
@@ -68,7 +75,7 @@ func (m *Manager) SetVerbose(verbose bool) {
 // Start starts infrastructure via xatu-cbt.
 func (m *Manager) Start(ctx context.Context) error {
 	// Check if infrastructure is already running
-	if m.IsRunning() {
+	if m.IsRunning(ctx) {
 		m.log.Info("infrastructure is already running")
 
 		return nil
@@ -214,13 +221,13 @@ func (m *Manager) SetupNetwork(ctx context.Context, network string) error {
 }
 
 // IsRunning checks if infrastructure is running.
-func (m *Manager) IsRunning() bool {
+func (m *Manager) IsRunning(ctx context.Context) bool {
 	// Get ports from mode (instead of hard-coded ports)
 	ports := m.mode.GetHealthCheckPorts()
 
 	for _, port := range ports {
 		addr := fmt.Sprintf("localhost:%d", port)
-		if !m.checkPort(addr) {
+		if !m.checkPort(ctx, addr) {
 			return false
 		}
 	}
@@ -259,7 +266,7 @@ func (m *Manager) WaitForReady(ctx context.Context, timeout time.Duration, spinn
 
 			for _, port := range ports {
 				addr := fmt.Sprintf("localhost:%d", port)
-				if !m.checkPort(addr) {
+				if !m.checkPort(ctx, addr) {
 					m.log.WithField("port", port).Debug("waiting for port")
 
 					allReady = false
@@ -277,21 +284,9 @@ func (m *Manager) WaitForReady(ctx context.Context, timeout time.Duration, spinn
 	}
 }
 
-// checkPort checks if a port is open.
-func (m *Manager) checkPort(addr string) bool {
-	conn, err := net.DialTimeout("tcp", addr, 1*time.Second)
-	if err != nil {
-		return false
-	}
-
-	conn.Close()
-
-	return true
-}
-
 // Status returns the status of infrastructure components relevant to the current mode.
 // Hybrid mode shows ClickHouse CBT + Redis; local mode adds ClickHouse Xatu.
-func (m *Manager) Status() map[string]bool {
+func (m *Manager) Status(ctx context.Context) map[string]bool {
 	// Map ports to display names for mode-relevant infrastructure only.
 	portNames := map[int]string{
 		m.cfg.Infrastructure.ClickHouseCBTPort: "ClickHouse CBT",
@@ -307,18 +302,11 @@ func (m *Manager) Status() map[string]bool {
 
 	for port, name := range portNames {
 		addr := fmt.Sprintf("localhost:%d", port)
-		status[name] = m.checkPort(addr)
+		status[name] = m.checkPort(ctx, addr)
 	}
 
 	return status
 }
-
-// clickHouseClusterHostPrefix is the hostname prefix for ClickHouse clusters.
-// When this prefix is detected, additional DNS checks are performed for individual shards.
-const clickHouseClusterHostPrefix = "chendpoint-xatu-clickhouse"
-
-// clickHouseClusterShards are the shard suffixes for ClickHouse clusters.
-var clickHouseClusterShards = []string{"0-0", "0-1", "1-0", "1-1", "2-0", "2-1"}
 
 // TestExternalConnection tests connectivity to external ClickHouse using docker.
 func (m *Manager) TestExternalConnection(ctx context.Context) error {
@@ -425,6 +413,163 @@ func (m *Manager) TestExternalConnection(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// GetObservabilityStatus returns the status of observability containers.
+// Returns an empty map if observability is disabled.
+func (m *Manager) GetObservabilityStatus(ctx context.Context) (map[string]ContainerStatus, error) {
+	if !m.cfg.Infrastructure.Observability.Enabled {
+		return make(map[string]ContainerStatus), nil
+	}
+
+	if m.observability == nil {
+		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create observability manager: %w", err)
+		}
+
+		m.observability = obsMgr
+	}
+
+	return m.observability.Status(ctx)
+}
+
+// RestartObservabilityService restarts a specific observability service.
+func (m *Manager) RestartObservabilityService(ctx context.Context, service string) error {
+	if !m.cfg.Infrastructure.Observability.Enabled {
+		return fmt.Errorf("observability is not enabled")
+	}
+
+	if m.observability == nil {
+		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
+		if err != nil {
+			return fmt.Errorf("failed to create observability manager: %w", err)
+		}
+
+		m.observability = obsMgr
+	}
+
+	return m.observability.RestartService(ctx, service)
+}
+
+// StartObservabilityService starts a specific observability service container.
+func (m *Manager) StartObservabilityService(ctx context.Context, service string) error {
+	if !m.cfg.Infrastructure.Observability.Enabled {
+		return fmt.Errorf("observability is not enabled")
+	}
+
+	if m.observability == nil {
+		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
+		if err != nil {
+			return fmt.Errorf("failed to create observability manager: %w", err)
+		}
+
+		m.observability = obsMgr
+	}
+
+	return m.observability.StartService(ctx, service)
+}
+
+// StopObservabilityService stops a specific observability service container.
+func (m *Manager) StopObservabilityService(ctx context.Context, service string) error {
+	if !m.cfg.Infrastructure.Observability.Enabled {
+		return fmt.Errorf("observability is not enabled")
+	}
+
+	if m.observability == nil {
+		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
+		if err != nil {
+			return fmt.Errorf("failed to create observability manager: %w", err)
+		}
+
+		m.observability = obsMgr
+	}
+
+	return m.observability.StopService(ctx, service)
+}
+
+// AutoSeedBoundsIfNeeded checks if local Redis has external model bounds and seeds them
+// from production if missing. External bounds tell CBT the min/max range of data available
+// on the external ClickHouse, avoiding slow initial full scans.
+func (m *Manager) AutoSeedBoundsIfNeeded(ctx context.Context, spinner *ui.Spinner) error {
+	// Only seed in hybrid mode (external xatu + local xatu-cbt)
+	if !m.mode.NeedsExternalClickHouse() {
+		return nil
+	}
+
+	m.log.Debug("Checking if external bounds seeding is needed...")
+
+	seeder := NewBoundsSeeder(m.log)
+
+	enabledNetworks := m.cfg.EnabledNetworks()
+	if len(enabledNetworks) == 0 {
+		m.log.Warn("No networks enabled, skipping bounds seeding")
+
+		return nil
+	}
+
+	seededCount := 0
+	skippedCount := 0
+
+	for i, network := range enabledNetworks {
+		redisDB := i // mainnet=0, sepolia=1, hoodi=2, etc.
+
+		spinner.UpdateText(fmt.Sprintf("Checking external bounds for %s", network.Name))
+
+		needsSeeding, err := seeder.CheckNeedsSeeding(ctx, redisDB)
+		if err != nil {
+			m.log.WithError(err).WithField("network", network.Name).
+				Warn("Failed to check external bounds status (non-fatal)")
+
+			continue
+		}
+
+		if !needsSeeding {
+			m.log.WithField("network", network.Name).Debug("External bounds already seeded, skipping")
+
+			skippedCount++
+
+			continue
+		}
+
+		spinner.UpdateText(fmt.Sprintf("Seeding external bounds for %s", network.Name))
+
+		m.log.WithField("network", network.Name).Info("Auto-seeding external bounds from production")
+
+		if err := seeder.SeedFromProduction(ctx, network.Name, redisDB); err != nil {
+			m.log.WithError(err).WithField("network", network.Name).
+				Warn("Failed to seed external bounds from production (non-fatal)")
+
+			continue
+		}
+
+		m.log.WithField("network", network.Name).Info("External bounds seeded successfully")
+
+		seededCount++
+	}
+
+	// Update spinner with final result
+	if seededCount > 0 {
+		spinner.UpdateText(fmt.Sprintf("Seeded external bounds for %d network(s)", seededCount))
+	} else if skippedCount > 0 {
+		spinner.UpdateText(fmt.Sprintf("External bounds already exist for %d network(s)", skippedCount))
+	}
+
+	return nil
+}
+
+// checkPort checks if a port is open.
+func (m *Manager) checkPort(ctx context.Context, addr string) bool {
+	d := net.Dialer{Timeout: 1 * time.Second}
+
+	conn, err := d.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return false
+	}
+
+	conn.Close()
+
+	return true
 }
 
 // checkClusterShardDNS performs DNS lookups for individual shard endpoints
@@ -651,147 +796,4 @@ func (m *Manager) stopObservability(ctx context.Context) error {
 	}
 
 	return m.observability.Stop(ctx)
-}
-
-// GetObservabilityStatus returns the status of observability containers.
-// Returns an empty map if observability is disabled.
-func (m *Manager) GetObservabilityStatus(ctx context.Context) (map[string]ContainerStatus, error) {
-	if !m.cfg.Infrastructure.Observability.Enabled {
-		return make(map[string]ContainerStatus), nil
-	}
-
-	if m.observability == nil {
-		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create observability manager: %w", err)
-		}
-
-		m.observability = obsMgr
-	}
-
-	return m.observability.Status(ctx)
-}
-
-// RestartObservabilityService restarts a specific observability service.
-func (m *Manager) RestartObservabilityService(ctx context.Context, service string) error {
-	if !m.cfg.Infrastructure.Observability.Enabled {
-		return fmt.Errorf("observability is not enabled")
-	}
-
-	if m.observability == nil {
-		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
-		if err != nil {
-			return fmt.Errorf("failed to create observability manager: %w", err)
-		}
-
-		m.observability = obsMgr
-	}
-
-	return m.observability.RestartService(ctx, service)
-}
-
-// StartObservabilityService starts a specific observability service container.
-func (m *Manager) StartObservabilityService(ctx context.Context, service string) error {
-	if !m.cfg.Infrastructure.Observability.Enabled {
-		return fmt.Errorf("observability is not enabled")
-	}
-
-	if m.observability == nil {
-		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
-		if err != nil {
-			return fmt.Errorf("failed to create observability manager: %w", err)
-		}
-
-		m.observability = obsMgr
-	}
-
-	return m.observability.StartService(ctx, service)
-}
-
-// StopObservabilityService stops a specific observability service container.
-func (m *Manager) StopObservabilityService(ctx context.Context, service string) error {
-	if !m.cfg.Infrastructure.Observability.Enabled {
-		return fmt.Errorf("observability is not enabled")
-	}
-
-	if m.observability == nil {
-		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
-		if err != nil {
-			return fmt.Errorf("failed to create observability manager: %w", err)
-		}
-
-		m.observability = obsMgr
-	}
-
-	return m.observability.StopService(ctx, service)
-}
-
-// AutoSeedBoundsIfNeeded checks if local Redis has external model bounds and seeds them
-// from production if missing. External bounds tell CBT the min/max range of data available
-// on the external ClickHouse, avoiding slow initial full scans.
-func (m *Manager) AutoSeedBoundsIfNeeded(ctx context.Context, spinner *ui.Spinner) error {
-	// Only seed in hybrid mode (external xatu + local xatu-cbt)
-	if !m.mode.NeedsExternalClickHouse() {
-		return nil
-	}
-
-	m.log.Debug("Checking if external bounds seeding is needed...")
-
-	seeder := NewBoundsSeeder(m.log)
-
-	enabledNetworks := m.cfg.EnabledNetworks()
-	if len(enabledNetworks) == 0 {
-		m.log.Warn("No networks enabled, skipping bounds seeding")
-
-		return nil
-	}
-
-	seededCount := 0
-	skippedCount := 0
-
-	for i, network := range enabledNetworks {
-		redisDB := i // mainnet=0, sepolia=1, hoodi=2, etc.
-
-		spinner.UpdateText(fmt.Sprintf("Checking external bounds for %s", network.Name))
-
-		needsSeeding, err := seeder.CheckNeedsSeeding(ctx, redisDB)
-		if err != nil {
-			m.log.WithError(err).WithField("network", network.Name).
-				Warn("Failed to check external bounds status (non-fatal)")
-
-			continue
-		}
-
-		if !needsSeeding {
-			m.log.WithField("network", network.Name).Debug("External bounds already seeded, skipping")
-
-			skippedCount++
-
-			continue
-		}
-
-		spinner.UpdateText(fmt.Sprintf("Seeding external bounds for %s", network.Name))
-
-		m.log.WithField("network", network.Name).Info("Auto-seeding external bounds from production")
-
-		if err := seeder.SeedFromProduction(ctx, network.Name, redisDB); err != nil {
-			m.log.WithError(err).WithField("network", network.Name).
-				Warn("Failed to seed external bounds from production (non-fatal)")
-
-			continue
-		}
-
-		m.log.WithField("network", network.Name).Info("External bounds seeded successfully")
-
-		seededCount++
-	}
-
-	// Update spinner with final result
-	if seededCount > 0 {
-		spinner.UpdateText(fmt.Sprintf("Seeded external bounds for %d network(s)", seededCount))
-	} else if skippedCount > 0 {
-		spinner.UpdateText(fmt.Sprintf("External bounds already exist for %d network(s)", skippedCount))
-	}
-
-	return nil
 }

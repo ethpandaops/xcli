@@ -25,6 +25,9 @@ const (
 	pidFileVersion       = 1
 )
 
+// Compile-time interface check.
+var _ Manager = (*manager)(nil)
+
 // Process represents a managed process.
 type Process struct {
 	Name    string
@@ -32,28 +35,6 @@ type Process struct {
 	PID     int
 	LogFile string
 	Started time.Time
-}
-
-// Manager manages service processes.
-type Manager struct {
-	log       logrus.FieldLogger
-	processes map[string]*Process
-	stateDir  string
-	mu        sync.RWMutex
-}
-
-// NewManager creates a new process manager.
-func NewManager(log logrus.FieldLogger, stateDir string) *Manager {
-	m := &Manager{
-		log:       log.WithField("component", "process-manager"),
-		processes: make(map[string]*Process, 10), // Typical: 5-10 services
-		stateDir:  stateDir,
-	}
-
-	// Load existing PIDs from disk
-	m.loadPIDs()
-
-	return m
 }
 
 // PIDFileData represents the JSON structure of a persisted PID file
@@ -67,9 +48,31 @@ type PIDFileData struct {
 	StartedAt time.Time `json:"startedAt"` // ISO8601 timestamp
 }
 
+// manager implements the Manager interface.
+type manager struct {
+	log       logrus.FieldLogger
+	processes map[string]*Process
+	stateDir  string
+	mu        sync.RWMutex
+}
+
+// NewManager creates a new process manager.
+func NewManager(log logrus.FieldLogger, stateDir string) Manager {
+	m := &manager{
+		log:       log.WithField("component", "process-manager"),
+		processes: make(map[string]*Process, 10), // Typical: 5-10 services
+		stateDir:  stateDir,
+	}
+
+	// Load existing PIDs from disk
+	m.loadPIDs()
+
+	return m
+}
+
 // Start starts a new process with optional health checking.
 // If healthCheck is nil, uses NoOpHealthChecker (existing behavior).
-func (m *Manager) Start(ctx context.Context, name string, cmd *exec.Cmd, healthCheck HealthChecker) error {
+func (m *manager) Start(ctx context.Context, name string, cmd *exec.Cmd, healthCheck HealthChecker) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -152,7 +155,7 @@ func (m *Manager) Start(ctx context.Context, name string, cmd *exec.Cmd, healthC
 }
 
 // Stop stops a process gracefully.
-func (m *Manager) Stop(ctx context.Context, name string) error {
+func (m *manager) Stop(ctx context.Context, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -232,7 +235,7 @@ func (m *Manager) Stop(ctx context.Context, name string) error {
 }
 
 // StopAll stops all managed processes, including orphaned processes from PID files.
-func (m *Manager) StopAll(ctx context.Context) error {
+func (m *manager) StopAll(ctx context.Context) error {
 	m.log.Info("stopping all managed processes")
 
 	// First, reload PIDs from disk to catch any orphaned processes
@@ -294,7 +297,7 @@ func (m *Manager) StopAll(ctx context.Context) error {
 }
 
 // Restart restarts a process.
-func (m *Manager) Restart(ctx context.Context, name string) error {
+func (m *manager) Restart(ctx context.Context, name string) error {
 	m.mu.RLock()
 
 	p, exists := m.processes[name]
@@ -335,7 +338,7 @@ func (m *Manager) Restart(ctx context.Context, name string) error {
 }
 
 // List returns all running processes.
-func (m *Manager) List() []*Process {
+func (m *manager) List() []*Process {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -348,7 +351,7 @@ func (m *Manager) List() []*Process {
 }
 
 // Get returns a specific process.
-func (m *Manager) Get(name string) (*Process, bool) {
+func (m *manager) Get(name string) (*Process, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -357,29 +360,9 @@ func (m *Manager) Get(name string) (*Process, bool) {
 	return p, exists
 }
 
-// isRunning checks if a process is actually running.
-// Handles both manager-started processes (Cmd != nil) and PID-loaded processes (Cmd == nil).
-func (m *Manager) isRunning(p *Process) bool {
-	if p.Cmd != nil && p.Cmd.Process != nil {
-		return p.Cmd.Process.Signal(syscall.Signal(0)) == nil
-	}
-
-	// PID-loaded process (Cmd is nil) — check via PID directly
-	if p.PID <= 0 {
-		return false
-	}
-
-	proc, err := os.FindProcess(p.PID)
-	if err != nil {
-		return false
-	}
-
-	return proc.Signal(syscall.Signal(0)) == nil
-}
-
 // IsRunning checks if a process with the given name is running.
-// Public method that implements ProcessManager interface.
-func (m *Manager) IsRunning(name string) bool {
+// Public method that implements Manager interface.
+func (m *manager) IsRunning(name string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -392,7 +375,7 @@ func (m *Manager) IsRunning(name string) bool {
 }
 
 // TailLogs tails the log file for a process.
-func (m *Manager) TailLogs(ctx context.Context, name string, follow bool) error {
+func (m *manager) TailLogs(ctx context.Context, name string, follow bool) error {
 	m.mu.RLock()
 	p, exists := m.processes[name]
 	m.mu.RUnlock()
@@ -423,7 +406,7 @@ func (m *Manager) TailLogs(ctx context.Context, name string, follow bool) error 
 }
 
 // CleanLogs removes all log files.
-func (m *Manager) CleanLogs() error {
+func (m *manager) CleanLogs() error {
 	logsDir := filepath.Join(m.stateDir, constants.DirLogs)
 
 	// Check if logs directory exists
@@ -441,8 +424,147 @@ func (m *Manager) CleanLogs() error {
 	return nil
 }
 
+// ReloadPIDs re-scans the PID directory for new or changed PID files.
+// Safe to call concurrently. Discovers processes started externally (e.g. by `xcli lab up`)
+// and removes stale entries for processes that have exited.
+func (m *manager) ReloadPIDs() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.loadPIDsLocked()
+}
+
+// isRunning checks if a process is actually running.
+// Handles both manager-started processes (Cmd != nil) and PID-loaded processes (Cmd == nil).
+func (m *manager) isRunning(p *Process) bool {
+	if p.Cmd != nil && p.Cmd.Process != nil {
+		return p.Cmd.Process.Signal(syscall.Signal(0)) == nil
+	}
+
+	// PID-loaded process (Cmd is nil) — check via PID directly
+	if p.PID <= 0 {
+		return false
+	}
+
+	proc, err := os.FindProcess(p.PID)
+	if err != nil {
+		return false
+	}
+
+	return proc.Signal(syscall.Signal(0)) == nil
+}
+
+// monitor watches a process and cleans up when it exits.
+func (m *manager) monitor(name string, p *Process, logFd *os.File) {
+	defer logFd.Close()
+
+	err := p.Cmd.Wait()
+
+	m.mu.Lock()
+	delete(m.processes, name)
+	m.mu.Unlock()
+
+	// Remove PID file
+	m.removePID(name)
+
+	if err != nil {
+		m.log.WithFields(logrus.Fields{
+			"name": name,
+			"pid":  p.PID,
+			"err":  err,
+		}).Warn("Process exited with error")
+	} else {
+		m.log.WithFields(logrus.Fields{
+			"name": name,
+			"pid":  p.PID,
+		}).Info("Process exited")
+	}
+}
+
+// savePID saves a process PID to disk in JSON format.
+func (m *manager) savePID(name string, p *Process, cmd *exec.Cmd) {
+	pidDir := filepath.Join(m.stateDir, constants.DirPIDs)
+	if err := os.MkdirAll(pidDir, 0755); err != nil {
+		m.log.WithError(err).Warn("failed to create PID directory")
+
+		return
+	}
+
+	data := PIDFileData{
+		Version:   pidFileVersion,
+		PID:       p.PID,
+		LogFile:   p.LogFile,
+		Command:   cmd.Path,
+		Args:      cmd.Args[1:], // Skip binary name
+		StartedAt: p.Started,
+	}
+
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		m.log.WithError(err).Warn("failed to marshal PID data")
+
+		return
+	}
+
+	pidFile := filepath.Join(pidDir, fmt.Sprintf(constants.PIDFileTemplate, name))
+	//nolint:gosec // PID file permissions are intentionally 0644 for readability
+	if err := os.WriteFile(pidFile, jsonData, 0644); err != nil {
+		m.log.WithError(err).Warn("failed to write PID file")
+	}
+}
+
+// removePID removes a PID file.
+func (m *manager) removePID(name string) {
+	pidFile := filepath.Join(m.stateDir, constants.DirPIDs, fmt.Sprintf(constants.PIDFileTemplate, name))
+	os.Remove(pidFile)
+}
+
+// loadPIDs loads PIDs from disk and checks if processes are still running.
+func (m *manager) loadPIDs() {
+	m.loadPIDsLocked()
+}
+
+// loadPIDsLocked scans the PID directory and updates the process map.
+// Caller must hold m.mu (or be in a context where no concurrent access occurs).
+func (m *manager) loadPIDsLocked() {
+	pidDir := filepath.Join(m.stateDir, constants.DirPIDs)
+
+	entries, err := os.ReadDir(pidDir)
+	if err != nil {
+		return // Directory doesn't exist or can't be read
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".pid" {
+			continue
+		}
+
+		name := entry.Name()[:len(entry.Name())-4] // Remove .pid extension
+
+		// Skip processes started by this manager (Cmd != nil) — don't overwrite them
+		if existing, exists := m.processes[name]; exists && existing.Cmd != nil {
+			continue
+		}
+
+		// For existing PID-loaded processes, re-verify they're still alive
+		if existing, exists := m.processes[name]; exists && existing.Cmd == nil {
+			if !m.isRunning(existing) {
+				delete(m.processes, name)
+				m.removePID(name)
+
+				m.log.WithField("name", name).Debug("removed stale PID-loaded process")
+			}
+
+			continue
+		}
+
+		// New PID file not yet in m.processes — load it
+		m.loadPID(name)
+	}
+}
+
 // loadPID loads a single PID from disk (JSON format only).
-func (m *Manager) loadPID(name string) {
+func (m *manager) loadPID(name string) {
 	pidFile := filepath.Join(m.stateDir, constants.DirPIDs, fmt.Sprintf(constants.PIDFileTemplate, name))
 
 	content, err := os.ReadFile(pidFile)
@@ -497,123 +619,4 @@ func (m *Manager) loadPID(name string) {
 		"name": name,
 		"pid":  data.PID,
 	}).Debug("loaded process from PID file")
-}
-
-// monitor watches a process and cleans up when it exits.
-func (m *Manager) monitor(name string, p *Process, logFd *os.File) {
-	defer logFd.Close()
-
-	err := p.Cmd.Wait()
-
-	m.mu.Lock()
-	delete(m.processes, name)
-	m.mu.Unlock()
-
-	// Remove PID file
-	m.removePID(name)
-
-	if err != nil {
-		m.log.WithFields(logrus.Fields{
-			"name": name,
-			"pid":  p.PID,
-			"err":  err,
-		}).Warn("Process exited with error")
-	} else {
-		m.log.WithFields(logrus.Fields{
-			"name": name,
-			"pid":  p.PID,
-		}).Info("Process exited")
-	}
-}
-
-// savePID saves a process PID to disk in JSON format.
-func (m *Manager) savePID(name string, p *Process, cmd *exec.Cmd) {
-	pidDir := filepath.Join(m.stateDir, constants.DirPIDs)
-	if err := os.MkdirAll(pidDir, 0755); err != nil {
-		m.log.WithError(err).Warn("failed to create PID directory")
-
-		return
-	}
-
-	data := PIDFileData{
-		Version:   pidFileVersion,
-		PID:       p.PID,
-		LogFile:   p.LogFile,
-		Command:   cmd.Path,
-		Args:      cmd.Args[1:], // Skip binary name
-		StartedAt: p.Started,
-	}
-
-	jsonData, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		m.log.WithError(err).Warn("failed to marshal PID data")
-
-		return
-	}
-
-	pidFile := filepath.Join(pidDir, fmt.Sprintf(constants.PIDFileTemplate, name))
-	//nolint:gosec // PID file permissions are intentionally 0644 for readability
-	if err := os.WriteFile(pidFile, jsonData, 0644); err != nil {
-		m.log.WithError(err).Warn("failed to write PID file")
-	}
-}
-
-// removePID removes a PID file.
-func (m *Manager) removePID(name string) {
-	pidFile := filepath.Join(m.stateDir, constants.DirPIDs, fmt.Sprintf(constants.PIDFileTemplate, name))
-	os.Remove(pidFile)
-}
-
-// ReloadPIDs re-scans the PID directory for new or changed PID files.
-// Safe to call concurrently. Discovers processes started externally (e.g. by `xcli lab up`)
-// and removes stale entries for processes that have exited.
-func (m *Manager) ReloadPIDs() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.loadPIDsLocked()
-}
-
-// loadPIDs loads PIDs from disk and checks if processes are still running.
-func (m *Manager) loadPIDs() {
-	m.loadPIDsLocked()
-}
-
-// loadPIDsLocked scans the PID directory and updates the process map.
-// Caller must hold m.mu (or be in a context where no concurrent access occurs).
-func (m *Manager) loadPIDsLocked() {
-	pidDir := filepath.Join(m.stateDir, constants.DirPIDs)
-
-	entries, err := os.ReadDir(pidDir)
-	if err != nil {
-		return // Directory doesn't exist or can't be read
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".pid" {
-			continue
-		}
-
-		name := entry.Name()[:len(entry.Name())-4] // Remove .pid extension
-
-		// Skip processes started by this manager (Cmd != nil) — don't overwrite them
-		if existing, exists := m.processes[name]; exists && existing.Cmd != nil {
-			continue
-		}
-
-		// For existing PID-loaded processes, re-verify they're still alive
-		if existing, exists := m.processes[name]; exists && existing.Cmd == nil {
-			if !m.isRunning(existing) {
-				delete(m.processes, name)
-				m.removePID(name)
-
-				m.log.WithField("name", name).Debug("removed stale PID-loaded process")
-			}
-
-			continue
-		}
-
-		// New PID file not yet in m.processes — load it
-		m.loadPID(name)
-	}
 }

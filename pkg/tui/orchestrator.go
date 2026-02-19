@@ -17,16 +17,6 @@ type OrchestratorWrapper struct {
 	orch *orchestrator.Orchestrator
 }
 
-// SetOrchestrator replaces the underlying orchestrator (e.g. after config reload).
-func (w *OrchestratorWrapper) SetOrchestrator(orch *orchestrator.Orchestrator) {
-	w.orch = orch
-}
-
-// NewOrchestratorWrapper creates a wrapper.
-func NewOrchestratorWrapper(orch *orchestrator.Orchestrator) *OrchestratorWrapper {
-	return &OrchestratorWrapper{orch: orch}
-}
-
 // ServiceInfo contains service status information.
 type ServiceInfo struct {
 	Name    string
@@ -46,6 +36,16 @@ type InfraInfo struct {
 	Type   string // "clickhouse", "redis"
 }
 
+// NewOrchestratorWrapper creates a wrapper.
+func NewOrchestratorWrapper(orch *orchestrator.Orchestrator) *OrchestratorWrapper {
+	return &OrchestratorWrapper{orch: orch}
+}
+
+// SetOrchestrator replaces the underlying orchestrator (e.g. after config reload).
+func (w *OrchestratorWrapper) SetOrchestrator(orch *orchestrator.Orchestrator) {
+	w.orch = orch
+}
+
 // GetServices returns current service statuses.
 // Re-scans PID files each call to discover externally started processes.
 func (w *OrchestratorWrapper) GetServices() []ServiceInfo {
@@ -58,7 +58,11 @@ func (w *OrchestratorWrapper) GetServices() []ServiceInfo {
 	// Get observability status if enabled
 	var obsStatus map[string]infrastructure.ContainerStatus
 
-	obsStatus, _ = w.orch.InfrastructureManager().GetObservabilityStatus(context.Background())
+	obsStatus, err := w.orch.InfrastructureManager().GetObservabilityStatus(context.Background())
+	if err != nil {
+		// Non-critical: observability may not be configured.
+		obsStatus = nil
+	}
 
 	services := make([]ServiceInfo, 0, len(validServices))
 
@@ -105,6 +109,12 @@ func (w *OrchestratorWrapper) GetServices() []ServiceInfo {
 			}
 		}
 
+		// Always expose the log file path so crash logs can be read
+		// even after the process has exited.
+		if info.LogFile == "" {
+			info.LogFile = w.orch.LogFilePath(name)
+		}
+
 		services = append(services, info)
 	}
 
@@ -114,7 +124,7 @@ func (w *OrchestratorWrapper) GetServices() []ServiceInfo {
 // GetInfrastructure returns infrastructure statuses in stable order.
 func (w *OrchestratorWrapper) GetInfrastructure() []InfraInfo {
 	infraMgr := w.orch.InfrastructureManager()
-	statuses := infraMgr.Status()
+	statuses := infraMgr.Status(context.Background())
 
 	// Sort by name for stable display order.
 	names := make([]string, 0, len(statuses))
@@ -241,7 +251,7 @@ func (w *OrchestratorWrapper) RebuildAll(ctx context.Context) error {
 	}
 
 	// Step 5: Regenerate configs
-	if err := w.orch.GenerateConfigs(); err != nil {
+	if err := w.orch.GenerateConfigs(ctx); err != nil {
 		return fmt.Errorf("failed to regenerate configs: %w", err)
 	}
 

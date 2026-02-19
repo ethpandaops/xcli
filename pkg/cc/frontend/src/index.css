@@ -5,9 +5,30 @@
   --color-surface-light: oklch(0.20 0.022 260);
   --color-surface-lighter: oklch(0.25 0.024 260);
   --color-border: oklch(0.30 0.025 260);
+  --color-bg: oklch(0.13 0.015 260);
+
+  /* Status */
+  --color-success: oklch(0.765 0.177 163.22);
+  --color-warning: oklch(0.828 0.189 84.43);
+  --color-error: oklch(0.704 0.191 22.22);
+  --color-info: oklch(0.746 0.16 232.66);
+
+  /* Accent (primary interactive) */
+  --color-accent: oklch(0.585 0.233 277.12);
+  --color-accent-light: oklch(0.673 0.182 276.94);
+
+  /* Text hierarchy */
+  --color-text-primary: oklch(1 0 0);
+  --color-text-secondary: oklch(0.872 0.01 258.34);
+  --color-text-tertiary: oklch(0.707 0.015 265.36);
+  --color-text-muted: oklch(0.551 0.014 264.36);
+  --color-text-disabled: oklch(0.446 0.014 264.36);
+
+  /* Overlay */
+  --color-overlay: oklch(0 0 0);
+
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco,
     Consolas, 'Liberation Mono', 'Courier New', monospace;
-  --color-bg: oklch(0.13 0.015 260);
   --animate-wobble: wobble 0.5s ease-in-out;
 }
 

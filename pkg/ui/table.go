@@ -12,6 +12,13 @@ type Service struct {
 	Status string
 }
 
+// GitStatus represents a git repository status for display in a GitStatusTable.
+type GitStatus struct {
+	Repository string
+	Branch     string
+	Status     string
+}
+
 // Table creates and prints a formatted table with headers and rows.
 // The headers are displayed in bold at the top of the table.
 // This is a general-purpose table function that can be used for any tabular data.
@@ -41,13 +48,6 @@ func ServiceTable(services []Service) {
 	}
 
 	Table(headers, rows)
-}
-
-// GitStatus represents a git repository status for display in a GitStatusTable.
-type GitStatus struct {
-	Repository string
-	Branch     string
-	Status     string
 }
 
 // GitStatusTable creates a formatted table for git repository status.

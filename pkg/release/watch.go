@@ -20,6 +20,20 @@ type runStatus struct {
 	HeadSha    string    `json:"headSha"` // Git commit SHA
 }
 
+// MultiWatchResult aggregates watch results for multiple workflow runs.
+type MultiWatchResult struct {
+	Results   map[string]*WatchResult // Keyed by project name
+	StartTime time.Time
+	EndTime   time.Time
+}
+
+// WatchItem represents a single item to watch.
+type WatchItem struct {
+	Project string // Project name for identification
+	Repo    string // Full repo (e.g., "ethpandaops/cbt")
+	RunID   string // GitHub Actions run ID
+}
+
 // WatchRun polls a workflow run until completion or timeout.
 func (s *service) WatchRun(
 	ctx context.Context,
@@ -101,103 +115,6 @@ func (s *service) WatchRun(
 	}
 }
 
-// finalizeWatchResult populates the final result after completion.
-func (s *service) finalizeWatchResult(
-	ctx context.Context,
-	result *WatchResult,
-	status *runStatus,
-	repo string,
-	startTime time.Time,
-) (*WatchResult, error) {
-	result.Status = status.Status
-	result.Conclusion = status.Conclusion
-	result.Duration = time.Since(startTime)
-	result.WorkflowURL = status.HTMLURL
-	result.HeadSha = status.HeadSha
-
-	// Get artifacts info
-	artifacts, err := s.getArtifacts(ctx, repo, result.RunID)
-	if err != nil {
-		s.log.WithError(err).Debug("failed to get artifacts")
-	} else {
-		result.Artifacts = artifacts
-	}
-
-	if result.Conclusion != StatusSuccess {
-		result.Error = fmt.Errorf("workflow completed with conclusion: %s", result.Conclusion)
-	}
-
-	return result, nil
-}
-
-// getRunStatus fetches current status of a workflow run.
-func (s *service) getRunStatus(ctx context.Context, repo, runID string) (*runStatus, error) {
-	output, err := s.runGH(ctx, "run", "view",
-		runID,
-		"--repo", repo,
-		"--json", "status,conclusion,createdAt,updatedAt,url,headSha")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get run status: %w", err)
-	}
-
-	var status runStatus
-	if err := json.Unmarshal([]byte(output), &status); err != nil {
-		return nil, fmt.Errorf("failed to parse run status: %w", err)
-	}
-
-	return &status, nil
-}
-
-// getArtifacts returns human-readable artifact descriptions for a completed run.
-func (s *service) getArtifacts(ctx context.Context, repo, runID string) ([]string, error) {
-	// For now, just return a generic message about where to find artifacts
-	// A more sophisticated implementation could parse the workflow summary
-	artifacts := []string{
-		fmt.Sprintf("View artifacts: https://github.com/%s/actions/runs/%s", repo, runID),
-	}
-
-	return artifacts, nil
-}
-
-// MultiWatchResult aggregates watch results for multiple workflow runs.
-type MultiWatchResult struct {
-	Results   map[string]*WatchResult // Keyed by project name
-	StartTime time.Time
-	EndTime   time.Time
-}
-
-// Duration returns total watch duration.
-func (m *MultiWatchResult) Duration() time.Duration {
-	return m.EndTime.Sub(m.StartTime)
-}
-
-// AllSucceeded returns true if all watched builds succeeded.
-func (m *MultiWatchResult) AllSucceeded() bool {
-	for _, r := range m.Results {
-		if r.Conclusion != StatusSuccess {
-			return false
-		}
-	}
-
-	return len(m.Results) > 0
-}
-
-// Get returns the watch result for a specific project.
-func (m *MultiWatchResult) Get(project string) *WatchResult {
-	if m.Results == nil {
-		return nil
-	}
-
-	return m.Results[project]
-}
-
-// WatchItem represents a single item to watch.
-type WatchItem struct {
-	Project string // Project name for identification
-	Repo    string // Full repo (e.g., "ethpandaops/cbt")
-	RunID   string // GitHub Actions run ID
-}
-
 // WatchMultiple watches multiple workflow runs concurrently.
 // Returns results as each completes, respects context cancellation.
 // Uses a single timeout for the entire operation.
@@ -263,8 +180,94 @@ func (s *service) WatchMultiple(
 		})
 	}
 
-	_ = g.Wait()
+	if err := g.Wait(); err != nil {
+		s.log.WithError(err).Warn("error waiting for watch group")
+	}
+
 	result.EndTime = time.Now()
 
 	return result, nil
+}
+
+// Duration returns total watch duration.
+func (m *MultiWatchResult) Duration() time.Duration {
+	return m.EndTime.Sub(m.StartTime)
+}
+
+// AllSucceeded returns true if all watched builds succeeded.
+func (m *MultiWatchResult) AllSucceeded() bool {
+	for _, r := range m.Results {
+		if r.Conclusion != StatusSuccess {
+			return false
+		}
+	}
+
+	return len(m.Results) > 0
+}
+
+// Get returns the watch result for a specific project.
+func (m *MultiWatchResult) Get(project string) *WatchResult {
+	if m.Results == nil {
+		return nil
+	}
+
+	return m.Results[project]
+}
+
+// finalizeWatchResult populates the final result after completion.
+func (s *service) finalizeWatchResult(
+	ctx context.Context,
+	result *WatchResult,
+	status *runStatus,
+	repo string,
+	startTime time.Time,
+) (*WatchResult, error) {
+	result.Status = status.Status
+	result.Conclusion = status.Conclusion
+	result.Duration = time.Since(startTime)
+	result.WorkflowURL = status.HTMLURL
+	result.HeadSha = status.HeadSha
+
+	// Get artifacts info
+	artifacts, err := s.getArtifacts(ctx, repo, result.RunID)
+	if err != nil {
+		s.log.WithError(err).Debug("failed to get artifacts")
+	} else {
+		result.Artifacts = artifacts
+	}
+
+	if result.Conclusion != StatusSuccess {
+		result.Error = fmt.Errorf("workflow completed with conclusion: %s", result.Conclusion)
+	}
+
+	return result, nil
+}
+
+// getRunStatus fetches current status of a workflow run.
+func (s *service) getRunStatus(ctx context.Context, repo, runID string) (*runStatus, error) {
+	output, err := s.runGH(ctx, "run", "view",
+		runID,
+		"--repo", repo,
+		"--json", "status,conclusion,createdAt,updatedAt,url,headSha")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get run status: %w", err)
+	}
+
+	var status runStatus
+	if err := json.Unmarshal([]byte(output), &status); err != nil {
+		return nil, fmt.Errorf("failed to parse run status: %w", err)
+	}
+
+	return &status, nil
+}
+
+// getArtifacts returns human-readable artifact descriptions for a completed run.
+func (s *service) getArtifacts(ctx context.Context, repo, runID string) ([]string, error) {
+	// For now, just return a generic message about where to find artifacts
+	// A more sophisticated implementation could parse the workflow summary
+	artifacts := []string{
+		fmt.Sprintf("View artifacts: https://github.com/%s/actions/runs/%s", repo, runID),
+	}
+
+	return artifacts, nil
 }

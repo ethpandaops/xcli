@@ -26,7 +26,7 @@ func MultiSelect(title string, options []MultiSelectOption) ([]string, error) {
 	// Build display strings and track mapping
 	displayStrings := make([]string, 0, len(options))
 	valueMap := make(map[string]string, len(options))
-	defaultSelected := make([]string, 0)
+	defaultSelected := make([]string, 0, len(options))
 
 	for _, opt := range options {
 		display := opt.Label

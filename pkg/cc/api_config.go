@@ -70,16 +70,6 @@ type cbtOverridesRequest struct {
 	EnvBlockEnabled      bool                 `json:"envBlockEnabled"`
 }
 
-// sanitizeConfigFileName validates and cleans a config file name from user input.
-// Returns the cleaned base name and true if valid, or empty string and false.
-func sanitizeConfigFileName(name string) (string, bool) {
-	if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") {
-		return "", false
-	}
-
-	return filepath.Base(filepath.Clean(name)), true
-}
-
 // handleGetLabConfig returns the editable lab config with passwords masked.
 func (a *apiHandler) handleGetLabConfig(w http.ResponseWriter, _ *http.Request) {
 	a.mu.RLock()
@@ -188,7 +178,7 @@ func (a *apiHandler) handlePutLabConfig(w http.ResponseWriter, r *http.Request) 
 	// Regenerate configs.
 	var regenErr string
 
-	if err := a.orch.GenerateConfigs(); err != nil {
+	if err := a.orch.GenerateConfigs(r.Context()); err != nil {
 		a.log.WithError(err).Error(
 			"Failed to regenerate configs after config update",
 		)
@@ -355,7 +345,7 @@ func (a *apiHandler) handlePutConfigFileOverride(
 	// Regenerate configs.
 	var regenErr string
 
-	if err := a.orch.GenerateConfigs(); err != nil {
+	if err := a.orch.GenerateConfigs(r.Context()); err != nil {
 		a.log.WithError(err).Error(
 			"Failed to regenerate configs after override save",
 		)
@@ -400,7 +390,7 @@ func (a *apiHandler) handleDeleteConfigFileOverride(
 	// Regenerate configs.
 	var regenErr string
 
-	if err := a.orch.GenerateConfigs(); err != nil {
+	if err := a.orch.GenerateConfigs(r.Context()); err != nil {
 		a.log.WithError(err).Error(
 			"Failed to regenerate configs after override delete",
 		)
@@ -575,7 +565,7 @@ func (a *apiHandler) handlePutOverrides(
 	// Regenerate configs.
 	var regenErr string
 
-	if err := a.orch.GenerateConfigs(); err != nil {
+	if err := a.orch.GenerateConfigs(r.Context()); err != nil {
 		a.log.WithError(err).Error(
 			"Failed to regenerate configs after overrides save",
 		)
@@ -594,9 +584,9 @@ func (a *apiHandler) handlePutOverrides(
 // handlePostRegenerate triggers config regeneration.
 func (a *apiHandler) handlePostRegenerate(
 	w http.ResponseWriter,
-	_ *http.Request,
+	r *http.Request,
 ) {
-	if err := a.orch.GenerateConfigs(); err != nil {
+	if err := a.orch.GenerateConfigs(r.Context()); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error": fmt.Sprintf(
 				"failed to regenerate configs: %v", err,
@@ -614,4 +604,14 @@ func (a *apiHandler) handlePostRegenerate(
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status": "ok",
 	})
+}
+
+// sanitizeConfigFileName validates and cleans a config file name from user input.
+// Returns the cleaned base name and true if valid, or empty string and false.
+func sanitizeConfigFileName(name string) (string, bool) {
+	if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") {
+		return "", false
+	}
+
+	return filepath.Base(filepath.Clean(name)), true
 }

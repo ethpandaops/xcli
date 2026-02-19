@@ -94,19 +94,35 @@ The Command Center runs as a single binary with an embedded SPA frontend. The st
 
 ### Developing the CC Frontend
 
-The frontend lives in `pkg/cc/frontend/` (React + Vite + Tailwind). For development with hot module replacement:
+The frontend lives in `pkg/cc/frontend/` (React + Vite + Tailwind + Storybook). For development with hot module replacement:
 
 ```bash
 make cc-dev
 ```
 
-This runs the Go backend (`xcli cc --no-open`) and Vite dev server in parallel. Open `http://localhost:5173` for live reloading — the Vite dev server proxies API requests to the Go backend.
+This runs the Go backend (`xcli cc --no-open`) and Vite dev server in parallel. Open `http://localhost:15173` for live reloading — the Vite dev server proxies API requests to the Go backend.
 
 To rebuild the embedded frontend assets (required before `make build`):
 
 ```bash
 make cc-frontend
 ```
+
+#### Frontend Tooling
+
+```bash
+# Quality checks
+make cc-lint           # ESLint (with custom color token rules)
+make cc-test           # Vitest unit tests
+make cc-typecheck      # TypeScript type checking
+
+# Storybook (component development & documentation)
+make cc-storybook      # Launch Storybook dev server on http://localhost:6006
+```
+
+Storybook provides an isolated environment for developing and testing UI components. Stories are co-located with their components (e.g. `Dashboard.stories.tsx` next to `Dashboard.tsx`). MSW is available for mocking API responses in stories.
+
+All frontend checks (`lint`, `typecheck`, `test`, `build`) run in CI on every pull request.
 
 ## Interactive TUI Dashboard
 

@@ -35,7 +35,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Check if any services transitioned to running state
 		// and start log streaming for them
 		if m.logStreamer != nil {
-			oldRunning := make(map[string]bool)
+			oldRunning := make(map[string]bool, len(oldServices))
 
 			for _, svc := range oldServices {
 				if svc.Status == statusRunning {
@@ -411,35 +411,6 @@ func (m Model) handleMenuKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// openLogsInNewTerminal opens a new terminal window with logs for the service.
-func openLogsInNewTerminal(serviceName string) {
-	cmd := "xcli lab logs -f " + serviceName
-
-	switch runtime.GOOS {
-	case "darwin":
-		// Open in Terminal.app
-		script := `tell application "Terminal"
-			do script "` + cmd + `"
-			activate
-		end tell`
-		// #nosec G204 - serviceName is from internal service list, not user input
-		_ = exec.Command("osascript", "-e", script).Start()
-
-	case "linux":
-		// Try common terminal emulators in order of preference
-		if _, err := exec.LookPath("gnome-terminal"); err == nil {
-			// #nosec G204 - cmd is constructed from internal service name
-			_ = exec.Command("gnome-terminal", "--", "sh", "-c", cmd).Start()
-		} else if _, err := exec.LookPath("konsole"); err == nil {
-			// #nosec G204 - cmd is constructed from internal service name
-			_ = exec.Command("konsole", "-e", "sh", "-c", cmd).Start()
-		} else if _, err := exec.LookPath("xterm"); err == nil {
-			// #nosec G204 - cmd is constructed from internal service name
-			_ = exec.Command("xterm", "-e", cmd).Start()
-		}
-	}
-}
-
 func (m Model) handleEvent(event Event) {
 	// Update UI based on event type
 	switch event.Type {
@@ -706,5 +677,34 @@ func (m Model) nextLogLevel() string {
 		return LogLevelAll
 	default:
 		return LogLevelAll
+	}
+}
+
+// openLogsInNewTerminal opens a new terminal window with logs for the service.
+func openLogsInNewTerminal(serviceName string) {
+	cmd := "xcli lab logs -f " + serviceName
+
+	switch runtime.GOOS {
+	case "darwin":
+		// Open in Terminal.app
+		script := `tell application "Terminal"
+			do script "` + cmd + `"
+			activate
+		end tell`
+		// #nosec G204 - serviceName is from internal service list, not user input
+		_ = exec.Command("osascript", "-e", script).Start()
+
+	case "linux":
+		// Try common terminal emulators in order of preference
+		if _, err := exec.LookPath("gnome-terminal"); err == nil {
+			// #nosec G204 - cmd is constructed from internal service name
+			_ = exec.Command("gnome-terminal", "--", "sh", "-c", cmd).Start()
+		} else if _, err := exec.LookPath("konsole"); err == nil {
+			// #nosec G204 - cmd is constructed from internal service name
+			_ = exec.Command("konsole", "-e", "sh", "-c", cmd).Start()
+		} else if _, err := exec.LookPath("xterm"); err == nil {
+			// #nosec G204 - cmd is constructed from internal service name
+			_ = exec.Command("xterm", "-e", cmd).Start()
+		}
 	}
 }
