@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import Dashboard from '@/components/Dashboard';
 import ConfigPage from '@/components/ConfigPage';
+import RedisPage from '@/components/RedisPage';
 import type { StackInfo } from '@/types';
 
-type Page = 'dashboard' | 'config';
+type Page = 'dashboard' | 'config' | 'redis';
 
 export default function App() {
   const [page, setPage] = useState<Page>('dashboard');
@@ -32,9 +33,16 @@ export default function App() {
     return <ConfigPage onBack={() => setPage('dashboard')} stack={activeStack} />;
   }
 
+  if (page === 'redis') {
+    return (
+      <RedisPage onBack={() => setPage('dashboard')} onNavigateConfig={() => setPage('config')} stack={activeStack} />
+    );
+  }
+
   return (
     <Dashboard
       onNavigateConfig={() => setPage('config')}
+      onNavigateRedis={() => setPage('redis')}
       stack={activeStack}
       availableStacks={availableStacks}
       onSwitchStack={setActiveStack}

@@ -2,6 +2,7 @@ package cc
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -96,6 +97,12 @@ func newStackContext(
 		},
 		sseHub: sseHub,
 	}
+	sc.api.redis = newRedisAdmin(l, func() string {
+		sc.api.mu.RLock()
+		defer sc.api.mu.RUnlock()
+
+		return fmt.Sprintf("localhost:%d", sc.api.labCfg.Infrastructure.RedisPort)
+	})
 
 	return sc
 }
