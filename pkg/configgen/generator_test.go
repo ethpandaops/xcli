@@ -413,6 +413,47 @@ func TestUserOverridesTakePrecedence(t *testing.T) {
 	assert.Equal(t, "mainnet", env["NETWORK"])
 }
 
+func TestCommentOnlyEnvOverrideDoesNotWipeAutoDefaults(t *testing.T) {
+	baseConfig := map[string]any{
+		"models": map[string]any{
+			"env": map[string]any{
+				"NETWORK":                      "mainnet",
+				"EXTERNAL_MODEL_MIN_TIMESTAMP": "1234567890",
+				"EXTERNAL_MODEL_MIN_BLOCK":     "23800000",
+				"MODELS_SCRIPTS_PATH":          "../xatu-cbt/models/scripts",
+			},
+		},
+	}
+
+	tmpDir := t.TempDir()
+	overridesPath := filepath.Join(tmpDir, ".cbt-overrides.yaml")
+	overridesYAML := `
+models:
+  env:
+    # EXTERNAL_MODEL_MIN_TIMESTAMP: "0"
+    # EXTERNAL_MODEL_MIN_BLOCK: "0"
+`
+	require.NoError(t, os.WriteFile(overridesPath, []byte(overridesYAML), 0600))
+
+	userOverrides, err := loadYAMLFile(overridesPath)
+	require.NoError(t, err)
+	removeEmptyMaps(userOverrides)
+
+	err = mergo.Merge(&baseConfig, userOverrides, mergo.WithOverride)
+	require.NoError(t, err)
+
+	models, ok := baseConfig["models"].(map[string]any)
+	require.True(t, ok)
+
+	env, ok := models["env"].(map[string]any)
+	require.True(t, ok, "models.env section must remain populated")
+
+	assert.Equal(t, "mainnet", env["NETWORK"])
+	assert.Equal(t, "1234567890", env["EXTERNAL_MODEL_MIN_TIMESTAMP"])
+	assert.Equal(t, "23800000", env["EXTERNAL_MODEL_MIN_BLOCK"])
+	assert.Equal(t, "../xatu-cbt/models/scripts", env["MODELS_SCRIPTS_PATH"])
+}
+
 func TestExpandDefaultEnabled(t *testing.T) {
 	t.Run("no defaultEnabled does nothing", func(t *testing.T) {
 		repoDir := setupFakeXatuCBTRepo(t,

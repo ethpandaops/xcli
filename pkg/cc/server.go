@@ -172,7 +172,6 @@ func (s *Server) handleGetStacks(
 // registerRoutes sets up all HTTP routes on the given mux.
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	s.registerStackRoutes(mux, "/api/stacks/{stack}")
-
 	mux.HandleFunc("GET /api/stacks", s.handleGetStacks)
 
 	// SPA - must be last (catch-all)
@@ -309,10 +308,54 @@ func (s *Server) registerStackRoutes(
 			sc.api.handleGetStackStatus(w, r)
 		}))
 
+	// Redis explorer
+	mux.HandleFunc("GET "+prefix+"/redis/status",
+		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
+			sc.api.handleGetRedisStatus(w, r)
+		}))
+	mux.HandleFunc("GET "+prefix+"/redis/tree",
+		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
+			sc.api.handleGetRedisTree(w, r)
+		}))
+	mux.HandleFunc("GET "+prefix+"/redis/keys/search",
+		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
+			sc.api.handleGetRedisSearch(w, r)
+		}))
+	mux.HandleFunc("GET "+prefix+"/redis/key",
+		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
+			sc.api.handleGetRedisKey(w, r)
+		}))
+	mux.HandleFunc("POST "+prefix+"/redis/key",
+		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
+			sc.api.handlePostRedisKey(w, r)
+		}))
+	mux.HandleFunc("PUT "+prefix+"/redis/key",
+		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
+			sc.api.handlePutRedisKey(w, r)
+		}))
+	mux.HandleFunc("DELETE "+prefix+"/redis/key",
+		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
+			sc.api.handleDeleteRedisKey(w, r)
+		}))
+	mux.HandleFunc("POST "+prefix+"/redis/keys/delete",
+		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
+			sc.api.handlePostRedisDeleteMany(w, r)
+		}))
+
 	// Logs
 	mux.HandleFunc("GET "+prefix+"/services/{name}/logs",
 		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
 			sc.api.handleGetServiceLogs(w, r)
+		}))
+
+	// Diagnosis
+	mux.HandleFunc("POST "+prefix+"/services/{name}/diagnose",
+		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
+			sc.api.handlePostDiagnose(w, r)
+		}))
+	mux.HandleFunc("GET "+prefix+"/diagnose/available",
+		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
+			sc.api.handleGetDiagnoseAvailable(w, r)
 		}))
 	mux.HandleFunc("GET "+prefix+"/logs",
 		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {

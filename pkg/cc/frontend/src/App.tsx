@@ -1,12 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Dashboard from '@/components/Dashboard';
 import ConfigPage from '@/components/ConfigPage';
+import RedisPage from '@/components/RedisPage';
 import type { StackInfo } from '@/types';
 
-type Page = 'dashboard' | 'config';
+type Page = 'dashboard' | 'config' | 'redis';
+type ConfigTab = 'lab' | 'services' | 'overrides';
 
 export default function App() {
   const [page, setPage] = useState<Page>('dashboard');
+  const [configTab, setConfigTab] = useState<ConfigTab>('lab');
   const [activeStack, setActiveStack] = useState('lab');
   const [availableStacks, setAvailableStacks] = useState<string[]>(['lab']);
 
@@ -28,13 +31,26 @@ export default function App() {
       });
   }, []);
 
+  const navigateConfig = useCallback((tab: ConfigTab = 'lab') => {
+    setConfigTab(tab);
+    setPage('config');
+  }, []);
+
   if (page === 'config') {
-    return <ConfigPage onBack={() => setPage('dashboard')} stack={activeStack} />;
+    return <ConfigPage onBack={() => setPage('dashboard')} stack={activeStack} initialTab={configTab} />;
+  }
+
+  if (page === 'redis') {
+    return (
+      <RedisPage onBack={() => setPage('dashboard')} onNavigateConfig={() => navigateConfig()} stack={activeStack} />
+    );
   }
 
   return (
     <Dashboard
-      onNavigateConfig={() => setPage('config')}
+      onNavigateConfig={() => navigateConfig()}
+      onNavigateOverrides={() => navigateConfig('overrides')}
+      onNavigateRedis={() => setPage('redis')}
       stack={activeStack}
       availableStacks={availableStacks}
       onSwitchStack={setActiveStack}

@@ -7,6 +7,8 @@ interface ServiceCardProps {
   selected: boolean;
   onSelect: () => void;
   stack: string;
+  onDiagnose?: () => void;
+  showDiagnose?: boolean;
 }
 
 const healthIcons: Record<string, { color: string; title: string; path: string }> = {
@@ -32,7 +34,14 @@ const healthIcons: Record<string, { color: string; title: string; path: string }
   },
 };
 
-export default function ServiceCard({ service, selected, onSelect, stack }: ServiceCardProps) {
+export default function ServiceCard({
+  service,
+  selected,
+  onSelect,
+  stack,
+  onDiagnose,
+  showDiagnose,
+}: ServiceCardProps) {
   const { postAction } = useAPI(stack);
   const [loading, setLoading] = useState<string | null>(null);
 
@@ -89,6 +98,38 @@ export default function ServiceCard({ service, selected, onSelect, stack }: Serv
         <div className="flex items-center gap-2.5">
           <span className={`size-1.5 shrink-0 rounded-full ${statusColor}`} />
           <span className="min-w-0 flex-1 truncate text-sm/5 font-medium text-text-secondary">{service.name}</span>
+          {isRunning && service.url && service.name !== 'lab-backend' && (
+            <a
+              href={openUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={e => e.stopPropagation()}
+              className="shrink-0 rounded-xs p-0.5 text-text-disabled opacity-0 transition-all group-hover:opacity-100 hover:text-accent-light"
+              title={`Open ${service.name}`}
+            >
+              <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7 17 17 7m0 0H9m8 0v8" />
+              </svg>
+            </a>
+          )}
+          {showDiagnose && onDiagnose && (
+            <button
+              onClick={e => {
+                e.stopPropagation();
+                onDiagnose();
+              }}
+              className="shrink-0 rounded-xs p-0.5 text-text-disabled opacity-0 transition-all group-hover:opacity-100 hover:text-accent-light"
+              title="Diagnose with Claude"
+            >
+              <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"
+                />
+              </svg>
+            </button>
+          )}
           <svg
             className={`size-3.5 shrink-0 ${icon.color}`}
             viewBox="0 0 24 24"
@@ -101,28 +142,10 @@ export default function ServiceCard({ service, selected, onSelect, stack }: Serv
           </svg>
         </div>
 
-        {/* Meta row: uptime, PID, open link */}
+        {/* Meta row: uptime, PID */}
         <div className="mt-1 flex items-center gap-2 pl-4 text-xs/4 text-text-disabled">
           {service.uptime && <span>{service.uptime}</span>}
           {service.pid > 0 && <span>PID {service.pid}</span>}
-          {isRunning && service.url && service.name !== 'lab-backend' && (
-            <a
-              href={openUrl}
-              target="_blank"
-              rel="noreferrer"
-              onClick={e => e.stopPropagation()}
-              className="inline-flex items-center gap-0.5 text-accent-light/70 hover:text-accent-light"
-            >
-              open
-              <svg className="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-4.5-6H18m0 0v4.5m0-4.5-7.5 7.5"
-                />
-              </svg>
-            </a>
-          )}
         </div>
 
         {/* Actions — visible on hover */}

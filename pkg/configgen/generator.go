@@ -491,6 +491,14 @@ func loadModelStates(overridesPath string) (*modelStates, error) {
 // from overriding populated auto-defaults during mergo merge.
 func removeEmptyMaps(m map[string]any) {
 	for key, val := range m {
+		// yaml.v3 parses keys like `env:` (with no children) as nil.
+		// If left in place, mergo.WithOverride can wipe non-empty defaults.
+		if val == nil {
+			delete(m, key)
+
+			continue
+		}
+
 		nested, ok := val.(map[string]any)
 		if !ok {
 			continue

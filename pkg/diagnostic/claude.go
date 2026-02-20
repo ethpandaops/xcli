@@ -62,25 +62,17 @@ func (c *ClaudeClient) IsAvailable() bool {
 	return !info.IsDir() && info.Mode()&0111 != 0
 }
 
-// Diagnose sends error context to Claude for analysis.
-func (c *ClaudeClient) Diagnose(ctx context.Context, report *RebuildReport) (*AIDiagnosis, error) {
+// Ask sends a prompt to Claude CLI and returns the raw response.
+func (c *ClaudeClient) Ask(ctx context.Context, prompt string) (string, error) {
 	if !c.IsAvailable() {
-		return nil, fmt.Errorf("claude CLI is not available")
+		return "", fmt.Errorf("claude CLI is not available")
 	}
 
-	// Build the diagnostic prompt
-	prompt := c.buildPrompt(report)
-
-	// Create context with timeout
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	// Execute claude CLI with --print flag for non-interactive mode
-	// Input must be provided via stdin when using --print
 	//nolint:gosec // claudePath is validated in findClaudeBinary
 	cmd := exec.CommandContext(ctx, c.claudePath, "--print")
-
-	// Provide prompt via stdin
 	cmd.Stdin = strings.NewReader(prompt)
 
 	var stdout, stderr bytes.Buffer
@@ -91,26 +83,37 @@ func (c *ClaudeClient) Diagnose(ctx context.Context, report *RebuildReport) (*AI
 	c.log.WithFields(logrus.Fields{
 		"timeout": c.timeout,
 		"binary":  c.claudePath,
-	}).Debug("Invoking Claude CLI for diagnosis")
+	}).Debug("Invoking Claude CLI")
 
 	err := cmd.Run()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("claude diagnosis timed out after %s", c.timeout)
+			return "", fmt.Errorf("claude CLI timed out after %s", c.timeout)
 		}
 
-		return nil, fmt.Errorf("claude CLI failed: %w (stderr: %s)", err, stderr.String())
+		return "", fmt.Errorf("claude CLI failed: %w (stderr: %s)", err, stderr.String())
 	}
 
 	response := stdout.String()
 	if response == "" {
-		return nil, fmt.Errorf("claude returned empty response")
+		return "", fmt.Errorf("claude returned empty response")
 	}
 
 	c.log.WithField("response_length", len(response)).Debug("Received Claude response")
 
-	// Parse the structured response
-	diagnosis := c.parseResponse(response)
+	return response, nil
+}
+
+// Diagnose sends error context to Claude for analysis.
+func (c *ClaudeClient) Diagnose(ctx context.Context, report *RebuildReport) (*AIDiagnosis, error) {
+	prompt := c.buildPrompt(report)
+
+	response, err := c.Ask(ctx, prompt)
+	if err != nil {
+		return nil, err
+	}
+
+	diagnosis := ParseResponse(response)
 
 	return diagnosis, nil
 }
@@ -188,8 +191,8 @@ func (c *ClaudeClient) buildPrompt(report *RebuildReport) string {
 	return sb.String()
 }
 
-// parseResponse extracts structured diagnosis from Claude's response.
-func (c *ClaudeClient) parseResponse(response string) *AIDiagnosis {
+// ParseResponse extracts structured diagnosis from Claude's response.
+func ParseResponse(response string) *AIDiagnosis {
 	diagnosis := &AIDiagnosis{
 		AffectedFiles: make([]string, 0),
 		Suggestions:   make([]string, 0),
