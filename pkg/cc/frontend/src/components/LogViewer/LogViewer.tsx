@@ -16,6 +16,7 @@ interface TabState {
 }
 
 const levelColors: Record<string, string> = {
+  FATAL: 'text-error',
   ERROR: 'text-error',
   WARN: 'text-warning',
   WARNING: 'text-warning',
@@ -23,7 +24,7 @@ const levelColors: Record<string, string> = {
   DEBUG: 'text-text-muted',
 };
 
-const levels = ['ALL', 'ERROR', 'WARN', 'INFO', 'DEBUG'] as const;
+const levels = ['ALL', 'FATAL', 'ERROR', 'WARN', 'INFO', 'DEBUG'] as const;
 
 function getDefaultTabState(): TabState {
   return { levelFilter: 'ALL', textFilter: '', follow: true };
@@ -165,7 +166,7 @@ export default function LogViewer({ logs, activeTab, openTabs, onSelectTab, onCl
               onClick={() => setLevelFilter(level)}
               className={`rounded-xs px-1.5 py-0.5 text-xs/4 font-medium transition-colors ${
                 levelFilter === level
-                  ? level === 'ERROR'
+                  ? level === 'FATAL' || level === 'ERROR'
                     ? 'bg-error/15 text-error'
                     : level === 'WARN'
                       ? 'bg-warning/15 text-warning'
