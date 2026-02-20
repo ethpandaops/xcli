@@ -18,8 +18,9 @@ type CBTOverrides struct {
 
 // ModelsConfig holds the models configuration section.
 type ModelsConfig struct {
-	Env       map[string]string        `yaml:"env,omitempty"`
-	Overrides map[string]ModelOverride `yaml:"overrides,omitempty"`
+	Env            map[string]string        `yaml:"env,omitempty"`
+	DefaultEnabled *bool                    `yaml:"defaultEnabled,omitempty"`
+	Overrides      map[string]ModelOverride `yaml:"overrides,omitempty"`
 }
 
 // ModelOverride holds configuration for a single model override.
@@ -77,11 +78,14 @@ func SaveOverrides(path string, m *Model, existingOverrides *CBTOverrides) error
 		m.envMinBlock,
 		m.envBlockEnabled,
 		existingOverrides,
+		existingOverrides.Models.DefaultEnabled,
 	)
 }
 
 // SaveOverridesFromEntries writes the configuration to .cbt-overrides.yaml
-// from plain data (no TUI dependency). Only writes models that are disabled.
+// from plain data (no TUI dependency).
+// When defaultEnabled is nil or true, writes disabled models (denylist mode).
+// When defaultEnabled is false, writes enabled models (allowlist mode).
 // Preserves existing config blocks for models.
 func SaveOverridesFromEntries(
 	path string,
@@ -92,6 +96,7 @@ func SaveOverridesFromEntries(
 	envMinBlock string,
 	envBlockEnabled bool,
 	existingOverrides *CBTOverrides,
+	defaultEnabled *bool,
 ) error {
 	// Ensure the directory exists.
 	dir := filepath.Dir(path)
@@ -108,6 +113,13 @@ func SaveOverridesFromEntries(
 	sb.WriteString("# Docs: https://github.com/ethpandaops/cbt\n")
 	sb.WriteString("\n")
 	sb.WriteString("models:\n")
+
+	// Write defaultEnabled if explicitly set to false (allowlist mode).
+	isAllowlist := defaultEnabled != nil && !*defaultEnabled
+	if isAllowlist {
+		sb.WriteString("  defaultEnabled: false\n")
+	}
+
 	sb.WriteString("  env:\n")
 
 	// Write EXTERNAL_MODEL_MIN_TIMESTAMP.
@@ -134,47 +146,71 @@ func SaveOverridesFromEntries(
 		fmt.Fprintf(&sb, "    # EXTERNAL_MODEL_MIN_BLOCK: \"%s\"\n", value)
 	}
 
-	// Collect all disabled models.
-	disabledModels := make([]string, 0, len(externalModels)+len(transformationModels))
+	// Collect models to write in overrides section.
+	// In allowlist mode (defaultEnabled: false): write disabled models with enabled: false,
+	// plus any enabled models that have existing config blocks to preserve.
+	// In denylist mode (default): write only disabled models.
+	overrideModels := make([]string, 0, len(externalModels)+len(transformationModels))
 
 	for _, model := range externalModels {
 		if !model.Enabled {
-			disabledModels = append(disabledModels, model.OverrideKey)
+			overrideModels = append(overrideModels, model.OverrideKey)
 		}
 	}
 
 	for _, model := range transformationModels {
 		if !model.Enabled {
-			disabledModels = append(disabledModels, model.OverrideKey)
+			overrideModels = append(overrideModels, model.OverrideKey)
 		}
 	}
 
 	// Sort for consistent output.
-	sort.Strings(disabledModels)
+	sort.Strings(overrideModels)
+
+	// In allowlist mode, also collect enabled models that have config to preserve.
+	var enabledWithConfig []string
+
+	if isAllowlist && existingOverrides != nil {
+		for _, model := range externalModels {
+			if model.Enabled {
+				if existing, ok := existingOverrides.Models.Overrides[model.OverrideKey]; ok && existing.Config != nil {
+					enabledWithConfig = append(enabledWithConfig, model.OverrideKey)
+				}
+			}
+		}
+
+		for _, model := range transformationModels {
+			if model.Enabled {
+				if existing, ok := existingOverrides.Models.Overrides[model.OverrideKey]; ok && existing.Config != nil {
+					enabledWithConfig = append(enabledWithConfig, model.OverrideKey)
+				}
+			}
+		}
+
+		sort.Strings(enabledWithConfig)
+	}
 
 	// Write overrides section.
 	sb.WriteString("  overrides:\n")
 
-	if len(disabledModels) == 0 {
-		sb.WriteString("    {} # No disabled models\n")
+	if len(overrideModels) == 0 && len(enabledWithConfig) == 0 {
+		if isAllowlist {
+			sb.WriteString("    {} # All models disabled by default\n")
+		} else {
+			sb.WriteString("    {} # No disabled models\n")
+		}
 	} else {
-		for _, name := range disabledModels {
+		// Write enabled models with config (allowlist mode only).
+		for _, name := range enabledWithConfig {
+			fmt.Fprintf(&sb, "    %s:\n", name)
+			writeModelConfig(&sb, existingOverrides, name)
+		}
+
+		// Write disabled models.
+		for _, name := range overrideModels {
 			fmt.Fprintf(&sb, "    %s:\n", name)
 			sb.WriteString("      enabled: false\n")
-
-			// Preserve any existing config for this model.
-			if existingOverrides != nil {
-				if existing, ok := existingOverrides.Models.Overrides[name]; ok && existing.Config != nil {
-					configYAML, err := yaml.Marshal(map[string]any{"config": existing.Config})
-					if err == nil {
-						// Indent and add the config section.
-						lines := strings.Split(strings.TrimSpace(string(configYAML)), "\n")
-						for _, line := range lines {
-							fmt.Fprintf(&sb, "      %s\n", line)
-						}
-					}
-				}
-			}
+			writeModelConfig(&sb, existingOverrides, name)
 		}
 	}
 
@@ -185,9 +221,36 @@ func SaveOverridesFromEntries(
 	return nil
 }
 
+// writeModelConfig writes the preserved config block for a model override entry.
+func writeModelConfig(sb *strings.Builder, existingOverrides *CBTOverrides, name string) {
+	if existingOverrides == nil {
+		return
+	}
+
+	existing, ok := existingOverrides.Models.Overrides[name]
+	if !ok || existing.Config == nil {
+		return
+	}
+
+	configYAML, err := yaml.Marshal(map[string]any{"config": existing.Config})
+	if err != nil {
+		return
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(configYAML)), "\n")
+	for _, line := range lines {
+		fmt.Fprintf(sb, "      %s\n", line)
+	}
+}
+
 // IsModelDisabled checks if a model is disabled in the overrides.
+// When DefaultEnabled is false (allowlist mode), unlisted models are disabled.
 func IsModelDisabled(overrides *CBTOverrides, modelName string) bool {
 	if overrides == nil || overrides.Models.Overrides == nil {
+		if overrides != nil && overrides.Models.DefaultEnabled != nil && !*overrides.Models.DefaultEnabled {
+			return true
+		}
+
 		return false
 	}
 
@@ -195,6 +258,14 @@ func IsModelDisabled(overrides *CBTOverrides, modelName string) bool {
 		if override.Enabled != nil && !*override.Enabled {
 			return true
 		}
+
+		// Explicitly listed without enabled:false — enabled.
+		return false
+	}
+
+	// Not in overrides — check default.
+	if overrides.Models.DefaultEnabled != nil && !*overrides.Models.DefaultEnabled {
+		return true
 	}
 
 	return false

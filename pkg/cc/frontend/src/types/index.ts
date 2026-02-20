@@ -298,6 +298,7 @@ export interface AIDiagnosis {
 }
 
 export interface CBTOverridesState {
+  defaultEnabled?: boolean;
   externalModels: ModelEntry[];
   transformationModels: ModelEntry[];
   dependencies: Record<string, string[]>;
