@@ -13,6 +13,7 @@ import (
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/configtui"
 	"github.com/ethpandaops/xcli/pkg/constants"
+	"github.com/ethpandaops/xcli/pkg/seeddata"
 )
 
 // maskedPassword is the placeholder shown for non-empty passwords.
@@ -56,8 +57,9 @@ type cbtOverridesResponse struct {
 
 // modelEntryResponse is a model with enabled status.
 type modelEntryResponse struct {
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled"`
+	Name        string `json:"name"`
+	OverrideKey string `json:"overrideKey"`
+	Enabled     bool   `json:"enabled"`
 }
 
 // cbtOverridesRequest is the request body for saving CBT overrides.
@@ -461,12 +463,18 @@ func (a *apiHandler) handleGetOverrides(
 	}
 
 	for _, name := range externalNames {
-		enabled := fileExists && !configtui.IsModelDisabled(overrides, name)
+		overrideKey := name
+		if db := seeddata.GetExternalModelDatabase(name, xatuCBTPath); db != "" {
+			overrideKey = db + "." + name
+		}
+
+		enabled := fileExists && !configtui.IsModelDisabled(overrides, overrideKey)
 
 		resp.ExternalModels = append(
 			resp.ExternalModels, modelEntryResponse{
-				Name:    name,
-				Enabled: enabled,
+				Name:        name,
+				OverrideKey: overrideKey,
+				Enabled:     enabled,
 			},
 		)
 	}
@@ -477,8 +485,9 @@ func (a *apiHandler) handleGetOverrides(
 		resp.TransformationModels = append(
 			resp.TransformationModels,
 			modelEntryResponse{
-				Name:    name,
-				Enabled: enabled,
+				Name:        name,
+				OverrideKey: name,
+				Enabled:     enabled,
 			},
 		)
 	}
@@ -527,9 +536,15 @@ func (a *apiHandler) handlePutOverrides(
 	)
 
 	for _, m := range req.ExternalModels {
+		overrideKey := m.OverrideKey
+		if overrideKey == "" {
+			overrideKey = m.Name
+		}
+
 		externalModels = append(externalModels, configtui.ModelEntry{
-			Name:    m.Name,
-			Enabled: m.Enabled,
+			Name:        m.Name,
+			OverrideKey: overrideKey,
+			Enabled:     m.Enabled,
 		})
 	}
 
@@ -538,9 +553,15 @@ func (a *apiHandler) handlePutOverrides(
 	)
 
 	for _, m := range req.TransformationModels {
+		overrideKey := m.OverrideKey
+		if overrideKey == "" {
+			overrideKey = m.Name
+		}
+
 		transformModels = append(transformModels, configtui.ModelEntry{
-			Name:    m.Name,
-			Enabled: m.Enabled,
+			Name:        m.Name,
+			OverrideKey: overrideKey,
+			Enabled:     m.Enabled,
 		})
 	}
 

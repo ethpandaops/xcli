@@ -296,17 +296,21 @@ logging:
 
 export const mockCBTOverrides: CBTOverridesState = {
   externalModels: [
-    { name: 'beacon_api_eth_v1_beacon_block', enabled: true },
-    { name: 'beacon_api_eth_v1_events_attestation', enabled: true },
-    { name: 'beacon_api_eth_v1_events_head', enabled: false },
-    { name: 'beacon_api_eth_v2_beacon_block', enabled: true },
-    { name: 'mempool_transaction', enabled: false },
+    { name: 'beacon_api_eth_v1_beacon_block', overrideKey: 'beacon_api_eth_v1_beacon_block', enabled: true },
+    {
+      name: 'beacon_api_eth_v1_events_attestation',
+      overrideKey: 'beacon_api_eth_v1_events_attestation',
+      enabled: true,
+    },
+    { name: 'beacon_api_eth_v1_events_head', overrideKey: 'beacon_api_eth_v1_events_head', enabled: false },
+    { name: 'beacon_api_eth_v2_beacon_block', overrideKey: 'beacon_api_eth_v2_beacon_block', enabled: true },
+    { name: 'mempool_transaction', overrideKey: 'mempool_transaction', enabled: false },
   ],
   transformationModels: [
-    { name: 'block_timing', enabled: true },
-    { name: 'attestation_coverage', enabled: true },
-    { name: 'slot_analysis', enabled: false },
-    { name: 'proposer_timing', enabled: false },
+    { name: 'block_timing', overrideKey: 'block_timing', enabled: true },
+    { name: 'attestation_coverage', overrideKey: 'attestation_coverage', enabled: true },
+    { name: 'slot_analysis', overrideKey: 'slot_analysis', enabled: false },
+    { name: 'proposer_timing', overrideKey: 'proposer_timing', enabled: false },
   ],
   dependencies: {
     block_timing: ['beacon_api_eth_v1_beacon_block', 'beacon_api_eth_v2_beacon_block'],

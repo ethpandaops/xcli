@@ -72,7 +72,7 @@ export default function ServiceCard({ service, selected, onSelect, stack }: Serv
     <div
       onClick={onSelect}
       className={`group relative cursor-pointer rounded-xs transition-colors ${
-        selected ? 'bg-accent/10 ring-1 ring-accent/30' : 'hover:bg-white/3'
+        selected ? 'bg-accent/10 ring-1 ring-accent/30' : 'hover:bg-hover/3'
       }`}
     >
       {loading && (
@@ -152,7 +152,7 @@ function ActionBtn({ label, onClick }: { label: string; onClick: () => void }) {
         e.stopPropagation();
         onClick();
       }}
-      className="rounded-xs bg-white/5 px-2 py-0.5 text-xs/4 text-text-tertiary transition-colors hover:bg-white/10 hover:text-text-primary"
+      className="rounded-xs bg-hover/5 px-2 py-0.5 text-xs/4 text-text-tertiary transition-colors hover:bg-hover/10 hover:text-text-primary"
     >
       {label}
     </button>

@@ -138,7 +138,7 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard, stack }:
                   }}
                   className={`rounded-xs px-4 py-1.5 text-sm/5 font-medium transition-colors ${
                     config.mode === m
-                      ? 'bg-accent text-text-primary'
+                      ? 'bg-accent text-on-accent'
                       : 'bg-surface-lighter text-text-tertiary hover:text-text-primary'
                   }`}
                 >
@@ -346,7 +346,7 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard, stack }:
                 </button>
                 <button
                   onClick={handleConfirmRestart}
-                  className="rounded-xs bg-error px-3 py-1.5 text-xs/4 font-medium text-text-primary transition-colors hover:bg-error/80"
+                  className="rounded-xs bg-error px-3 py-1.5 text-xs/4 font-medium text-on-accent transition-colors hover:bg-error/80"
                 >
                   Save & Restart
                 </button>
@@ -360,7 +360,7 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard, stack }:
           <button
             onClick={handleSave}
             disabled={saving}
-            className="rounded-xs bg-accent px-5 py-2 text-sm/5 font-medium text-text-primary transition-colors hover:bg-accent-light disabled:opacity-50"
+            className="rounded-xs bg-accent px-5 py-2 text-sm/5 font-medium text-on-accent transition-colors hover:bg-accent-light disabled:opacity-50"
           >
             {saving ? 'Saving...' : 'Save & Regenerate'}
           </button>
@@ -446,7 +446,7 @@ function ClusterCard({
               onClick={() => onChange({ ...cluster, Mode: m })}
               className={`rounded-xs px-2.5 py-1 text-xs/4 font-medium transition-colors ${
                 cluster.Mode === m
-                  ? 'bg-accent text-text-primary'
+                  ? 'bg-accent text-on-accent'
                   : 'bg-surface-lighter text-text-muted hover:text-text-secondary'
               }`}
             >
