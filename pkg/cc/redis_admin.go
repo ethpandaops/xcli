@@ -23,6 +23,11 @@ const (
 	redisMaxStringPreview     = 64 * 1024
 	redisMaxCollectionPreview = 5000
 	redisMaxDB                = 15
+	redisTypeString           = "string"
+	redisTypeHash             = "hash"
+	redisTypeList             = "list"
+	redisTypeSet              = "set"
+	redisTypeZSet             = "zset"
 )
 
 var (
@@ -150,6 +155,7 @@ func newRedisAdmin(log logrus.FieldLogger, getRedisAddr func() string) *RedisAdm
 
 func (a *RedisAdmin) status(ctx context.Context, db int) (redisStatusResponse, error) {
 	addr := a.getRedis()
+
 	client := redis.NewClient(&redis.Options{
 		Addr: addr,
 		DB:   db,
@@ -469,23 +475,23 @@ func validateWriteRequest(req redisWriteRequest, isCreate bool) error {
 	}
 
 	switch req.Type {
-	case "string":
+	case redisTypeString:
 		if req.StringValue == nil {
 			return errors.New("stringValue is required for string keys")
 		}
-	case "hash":
+	case redisTypeHash:
 		if len(req.HashEntries) == 0 {
 			return errors.New("hashEntries must contain at least one entry")
 		}
-	case "list":
+	case redisTypeList:
 		if len(req.ListItems) == 0 {
 			return errors.New("listItems must contain at least one item")
 		}
-	case "set":
+	case redisTypeSet:
 		if len(req.SetMembers) == 0 {
 			return errors.New("setMembers must contain at least one member")
 		}
-	case "zset":
+	case redisTypeZSet:
 		if len(req.ZSetMembers) == 0 {
 			return errors.New("zsetMembers must contain at least one member")
 		}
@@ -508,14 +514,14 @@ func applyWrite(ctx context.Context, pipe redis.Pipeliner, req redisWriteRequest
 	pipe.Del(ctx, req.Key)
 
 	switch req.Type {
-	case "string":
+	case redisTypeString:
 		value, err := decodeValue(*req.StringValue)
 		if err != nil {
 			return err
 		}
 
 		pipe.Set(ctx, req.Key, value, 0)
-	case "hash":
+	case redisTypeHash:
 		args := make([]any, 0, len(req.HashEntries)*2)
 		for _, entry := range req.HashEntries {
 			value, err := decodeValue(entry.Value)
@@ -527,7 +533,7 @@ func applyWrite(ctx context.Context, pipe redis.Pipeliner, req redisWriteRequest
 		}
 
 		pipe.HSet(ctx, req.Key, args...)
-	case "list":
+	case redisTypeList:
 		values := make([]any, 0, len(req.ListItems))
 		for _, item := range req.ListItems {
 			value, err := decodeValue(item)
@@ -539,7 +545,7 @@ func applyWrite(ctx context.Context, pipe redis.Pipeliner, req redisWriteRequest
 		}
 
 		pipe.RPush(ctx, req.Key, values...)
-	case "set":
+	case redisTypeSet:
 		values := make([]any, 0, len(req.SetMembers))
 		for _, member := range req.SetMembers {
 			value, err := decodeValue(member)
@@ -551,7 +557,7 @@ func applyWrite(ctx context.Context, pipe redis.Pipeliner, req redisWriteRequest
 		}
 
 		pipe.SAdd(ctx, req.Key, values...)
-	case "zset":
+	case redisTypeZSet:
 		values := make([]redis.Z, 0, len(req.ZSetMembers))
 		for _, member := range req.ZSetMembers {
 			value, err := decodeValue(member.Member)
@@ -580,7 +586,7 @@ func applyWrite(ctx context.Context, pipe redis.Pipeliner, req redisWriteRequest
 		if priorTTLMS > 0 {
 			pipe.PExpire(ctx, req.Key, time.Duration(priorTTLMS)*time.Millisecond)
 		}
-	case "set":
+	case redisTypeSet:
 		pipe.Expire(ctx, req.Key, time.Duration(req.TTLSeconds)*time.Second)
 	case "clear", "none":
 		pipe.Persist(ctx, req.Key)
@@ -619,7 +625,7 @@ func readRedisKey(
 	}
 
 	switch t {
-	case "string":
+	case redisTypeString:
 		size, sizeErr := client.StrLen(ctx, key).Result()
 		if sizeErr != nil {
 			return redisKeyDetailResponse{}, sizeErr
@@ -634,7 +640,7 @@ func readRedisKey(
 		resp.StringValue = &enc
 		resp.Meta.SizeBytes = size
 		resp.Meta.Truncated = size > redisMaxStringPreview
-	case "hash":
+	case redisTypeHash:
 		total, totalErr := client.HLen(ctx, key).Result()
 		if totalErr != nil {
 			return redisKeyDetailResponse{}, totalErr
@@ -648,7 +654,7 @@ func readRedisKey(
 		resp.HashEntries = entries
 		resp.Meta.TotalItems = total
 		resp.Meta.Truncated = truncated
-	case "list":
+	case redisTypeList:
 		total, totalErr := client.LLen(ctx, key).Result()
 		if totalErr != nil {
 			return redisKeyDetailResponse{}, totalErr
@@ -666,7 +672,7 @@ func readRedisKey(
 
 		resp.Meta.TotalItems = total
 		resp.Meta.Truncated = total > redisMaxCollectionPreview
-	case "set":
+	case redisTypeSet:
 		total, totalErr := client.SCard(ctx, key).Result()
 		if totalErr != nil {
 			return redisKeyDetailResponse{}, totalErr
@@ -680,7 +686,7 @@ func readRedisKey(
 		resp.SetMembers = members
 		resp.Meta.TotalItems = total
 		resp.Meta.Truncated = truncated
-	case "zset":
+	case redisTypeZSet:
 		total, totalErr := client.ZCard(ctx, key).Result()
 		if totalErr != nil {
 			return redisKeyDetailResponse{}, totalErr
@@ -857,40 +863,42 @@ func buildVersionToken(detail redisKeyDetailResponse) string {
 	b.WriteString("|")
 
 	switch detail.Type {
-	case "string":
+	case redisTypeString:
 		if detail.StringValue != nil {
 			b.WriteString(encodedSortValue(*detail.StringValue))
 		}
-	case "hash":
+	case redisTypeHash:
 		for _, entry := range detail.HashEntries {
 			b.WriteString(entry.Field)
 			b.WriteString("=")
 			b.WriteString(encodedSortValue(entry.Value))
 			b.WriteString(";")
 		}
-	case "list":
+	case redisTypeList:
 		for _, item := range detail.ListItems {
 			b.WriteString(encodedSortValue(item))
 			b.WriteString(";")
 		}
-	case "set":
+	case redisTypeSet:
 		values := make([]string, 0, len(detail.SetMembers))
 		for _, member := range detail.SetMembers {
 			values = append(values, encodedSortValue(member))
 		}
 
 		sort.Strings(values)
+
 		for _, value := range values {
 			b.WriteString(value)
 			b.WriteString(";")
 		}
-	case "zset":
+	case redisTypeZSet:
 		values := make([]string, 0, len(detail.ZSetMembers))
 		for _, member := range detail.ZSetMembers {
 			values = append(values, encodedSortValue(member.Member)+":"+strconv.FormatFloat(member.Score, 'g', -1, 64))
 		}
 
 		sort.Strings(values)
+
 		for _, value := range values {
 			b.WriteString(value)
 			b.WriteString(";")
