@@ -46,6 +46,7 @@ type configFileContent struct {
 
 // cbtOverridesResponse is the CBT overrides state for the UI.
 type cbtOverridesResponse struct {
+	DefaultEnabled       *bool                `json:"defaultEnabled,omitempty"`
 	ExternalModels       []modelEntryResponse `json:"externalModels"`
 	TransformationModels []modelEntryResponse `json:"transformationModels"`
 	Dependencies         map[string][]string  `json:"dependencies"`
@@ -64,6 +65,7 @@ type modelEntryResponse struct {
 
 // cbtOverridesRequest is the request body for saving CBT overrides.
 type cbtOverridesRequest struct {
+	DefaultEnabled       *bool                `json:"defaultEnabled,omitempty"`
 	ExternalModels       []modelEntryResponse `json:"externalModels"`
 	TransformationModels []modelEntryResponse `json:"transformationModels"`
 	EnvMinTimestamp      string               `json:"envMinTimestamp"`
@@ -449,6 +451,7 @@ func (a *apiHandler) handleGetOverrides(
 
 	// Build response with merged enabled status.
 	resp := cbtOverridesResponse{
+		DefaultEnabled: overrides.Models.DefaultEnabled,
 		ExternalModels: make(
 			[]modelEntryResponse, 0, len(externalNames),
 		),
@@ -575,6 +578,7 @@ func (a *apiHandler) handlePutOverrides(
 		req.EnvMinBlock,
 		req.EnvBlockEnabled,
 		existingOverrides,
+		req.DefaultEnabled,
 	); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error": fmt.Sprintf("failed to save overrides: %v", err),

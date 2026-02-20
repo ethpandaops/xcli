@@ -191,6 +191,7 @@ export interface StackInfo {
 }
 
 export interface CBTOverridesState {
+  defaultEnabled?: boolean;
   externalModels: ModelEntry[];
   transformationModels: ModelEntry[];
   dependencies: Record<string, string[]>;

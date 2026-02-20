@@ -117,6 +117,43 @@ models:
 				"fct_proposer_slashing",
 			},
 		},
+		{
+			name: "allowlist mode returns only listed models",
+			overridesYAML: `
+models:
+  defaultEnabled: false
+  overrides:
+    fct_block: {}
+    fct_block_summary: {}
+`,
+			expectedTables: []string{
+				"fct_block",
+				"fct_block_summary",
+			},
+		},
+		{
+			name: "allowlist mode with all disabled returns empty",
+			overridesYAML: `
+models:
+  defaultEnabled: false
+  overrides: {}
+`,
+			expectedTables: []string{},
+		},
+		{
+			name: "allowlist mode excludes explicitly disabled",
+			overridesYAML: `
+models:
+  defaultEnabled: false
+  overrides:
+    fct_block: {}
+    fct_attestation:
+      enabled: false
+`,
+			expectedTables: []string{
+				"fct_block",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -178,11 +215,12 @@ func TestDiscoverAllModels(t *testing.T) {
 	}, models)
 }
 
-func TestLoadDisabledModels(t *testing.T) {
-	tmpDir := t.TempDir()
-	overridesPath := filepath.Join(tmpDir, ".cbt-overrides.yaml")
+func TestLoadModelStates(t *testing.T) {
+	t.Run("denylist mode", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		overridesPath := filepath.Join(tmpDir, ".cbt-overrides.yaml")
 
-	overridesYAML := `
+		overridesYAML := `
 models:
   overrides:
     fct_block:
@@ -191,16 +229,41 @@ models:
       enabled: false
     fct_block_head: {}
 `
+		require.NoError(t,
+			os.WriteFile(overridesPath, []byte(overridesYAML), 0600),
+		)
 
-	require.NoError(t,
-		os.WriteFile(overridesPath, []byte(overridesYAML), 0600),
-	)
+		states, err := loadModelStates(overridesPath)
+		require.NoError(t, err)
+		assert.True(t, states.defaultEnabled)
+		assert.True(t, states.disabled["fct_block"])
+		assert.True(t, states.disabled["fct_attestation"])
+		assert.False(t, states.disabled["fct_block_head"])
+		assert.True(t, states.enabled["fct_block_head"])
+	})
 
-	disabled, err := loadDisabledModels(overridesPath)
-	require.NoError(t, err)
-	assert.True(t, disabled["fct_block"])
-	assert.True(t, disabled["fct_attestation"])
-	assert.False(t, disabled["fct_block_head"])
+	t.Run("allowlist mode", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		overridesPath := filepath.Join(tmpDir, ".cbt-overrides.yaml")
+
+		overridesYAML := `
+models:
+  defaultEnabled: false
+  overrides:
+    fct_block: {}
+    fct_attestation:
+      enabled: false
+`
+		require.NoError(t,
+			os.WriteFile(overridesPath, []byte(overridesYAML), 0600),
+		)
+
+		states, err := loadModelStates(overridesPath)
+		require.NoError(t, err)
+		assert.False(t, states.defaultEnabled)
+		assert.True(t, states.enabled["fct_block"])
+		assert.True(t, states.disabled["fct_attestation"])
+	})
 }
 
 func TestRemoveEmptyMaps(t *testing.T) {
@@ -348,4 +411,111 @@ func TestUserOverridesTakePrecedence(t *testing.T) {
 	assert.Equal(t, "0", env["EXTERNAL_MODEL_MIN_TIMESTAMP"])
 	assert.Equal(t, "0", env["EXTERNAL_MODEL_MIN_BLOCK"])
 	assert.Equal(t, "mainnet", env["NETWORK"])
+}
+
+func TestExpandDefaultEnabled(t *testing.T) {
+	t.Run("no defaultEnabled does nothing", func(t *testing.T) {
+		repoDir := setupFakeXatuCBTRepo(t,
+			[]string{"fct_block", "fct_attestation"}, nil,
+		)
+
+		gen := NewGenerator(logrus.New(), &config.LabConfig{
+			Repos: config.LabReposConfig{XatuCBT: repoDir},
+		})
+
+		overrides := map[string]any{
+			"models": map[string]any{
+				"overrides": map[string]any{
+					"fct_block": map[string]any{},
+				},
+			},
+		}
+
+		gen.expandDefaultEnabled(overrides)
+
+		models, ok := overrides["models"].(map[string]any)
+		require.True(t, ok)
+
+		ov, ok := models["overrides"].(map[string]any)
+		require.True(t, ok)
+
+		// Only the original entry should exist.
+		assert.Len(t, ov, 1)
+		assert.Contains(t, ov, "fct_block")
+	})
+
+	t.Run("defaultEnabled false expands unlisted models", func(t *testing.T) {
+		repoDir := setupFakeXatuCBTRepo(t,
+			[]string{"fct_block", "fct_attestation", "fct_proposer"},
+			[]string{"fct_summary"},
+		)
+
+		gen := NewGenerator(logrus.New(), &config.LabConfig{
+			Repos: config.LabReposConfig{XatuCBT: repoDir},
+		})
+
+		overrides := map[string]any{
+			"models": map[string]any{
+				"defaultEnabled": false,
+				"overrides": map[string]any{
+					"fct_block": map[string]any{},
+				},
+			},
+		}
+
+		gen.expandDefaultEnabled(overrides)
+
+		models, ok := overrides["models"].(map[string]any)
+		require.True(t, ok)
+
+		ov, ok := models["overrides"].(map[string]any)
+		require.True(t, ok)
+
+		// fct_block should be untouched (still listed, no enabled:false injected).
+		assert.Equal(t, map[string]any{}, ov["fct_block"])
+
+		// All other models should have enabled: false injected.
+		for _, name := range []string{"fct_attestation", "fct_proposer", "fct_summary"} {
+			entry, ok := ov[name]
+			require.True(t, ok, "expected %s to be injected", name)
+
+			entryMap, ok := entry.(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, false, entryMap["enabled"])
+		}
+
+		// defaultEnabled key should be removed after expansion.
+		_, hasDefault := models["defaultEnabled"]
+		assert.False(t, hasDefault, "defaultEnabled should be removed after expansion")
+	})
+
+	t.Run("defaultEnabled true does nothing", func(t *testing.T) {
+		repoDir := setupFakeXatuCBTRepo(t,
+			[]string{"fct_block", "fct_attestation"}, nil,
+		)
+
+		gen := NewGenerator(logrus.New(), &config.LabConfig{
+			Repos: config.LabReposConfig{XatuCBT: repoDir},
+		})
+
+		overrides := map[string]any{
+			"models": map[string]any{
+				"defaultEnabled": true,
+				"overrides": map[string]any{
+					"fct_block": map[string]any{},
+				},
+			},
+		}
+
+		gen.expandDefaultEnabled(overrides)
+
+		models, ok := overrides["models"].(map[string]any)
+		require.True(t, ok)
+
+		ov, ok := models["overrides"].(map[string]any)
+		require.True(t, ok)
+
+		// Should not inject anything.
+		assert.Len(t, ov, 1)
+	})
 }

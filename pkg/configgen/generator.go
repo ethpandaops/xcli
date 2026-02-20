@@ -127,6 +127,11 @@ func (g *Generator) GenerateCBTConfig(network string, userOverridesPath string) 
 		} else if len(userOverrides) > 0 {
 			removeEmptyMaps(userOverrides)
 
+			// In allowlist mode (defaultEnabled: false), expand into explicit
+			// enabled: false entries for all unlisted models so the cbt binary
+			// receives a fully-expanded config.
+			g.expandDefaultEnabled(userOverrides)
+
 			// Deep merge user overrides (user takes ultimate precedence)
 			err = mergo.Merge(&baseConfig, userOverrides, mergo.WithOverride)
 			if err != nil {
@@ -269,6 +274,63 @@ func (g *Generator) generateAutoDefaults(network string) (map[string]any, error)
 	}, nil
 }
 
+// expandDefaultEnabled checks if the user overrides contain defaultEnabled: false.
+// If so, it discovers all models and injects enabled: false for every model
+// not explicitly listed in overrides. This ensures the cbt binary receives
+// a fully-expanded config even in allowlist mode.
+func (g *Generator) expandDefaultEnabled(userOverrides map[string]any) {
+	models, ok := userOverrides["models"].(map[string]any)
+	if !ok {
+		return
+	}
+
+	defaultEnabled, ok := models["defaultEnabled"]
+	if !ok {
+		return
+	}
+
+	// Check if defaultEnabled is false.
+	isDisabled := false
+
+	switch v := defaultEnabled.(type) {
+	case bool:
+		isDisabled = !v
+	}
+
+	if !isDisabled {
+		return
+	}
+
+	xatuCBTPath := g.cfg.Repos.XatuCBT
+	if xatuCBTPath == "" {
+		return
+	}
+
+	allModels, err := discoverAllModels(xatuCBTPath)
+	if err != nil {
+		g.log.WithError(err).Warn("failed to discover models for defaultEnabled expansion")
+
+		return
+	}
+
+	// Get existing overrides map, or create one.
+	overrides, ok := models["overrides"].(map[string]any)
+	if !ok {
+		overrides = make(map[string]any, len(allModels))
+		models["overrides"] = overrides
+	}
+
+	// Inject enabled: false for all models not already listed.
+	for _, name := range allModels {
+		if _, listed := overrides[name]; !listed {
+			overrides[name] = map[string]any{"enabled": false}
+		}
+	}
+
+	// Remove the defaultEnabled key since it's been expanded.
+	delete(models, "defaultEnabled")
+}
+
 // getLocallyEnabledTables discovers all models from the xatu-cbt repo and
 // returns those NOT explicitly disabled in the overrides file.
 // The overrides file is a deny list: it only contains disabled models.
@@ -289,18 +351,27 @@ func (g *Generator) getLocallyEnabledTables(overridesPath string) ([]string, err
 		return nil, nil
 	}
 
-	// Load overrides to find disabled models.
-	disabled, err := loadDisabledModels(overridesPath)
+	// Load overrides to determine which models are locally enabled.
+	states, err := loadModelStates(overridesPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load overrides: %w", err)
 	}
 
-	// Return all models that are NOT disabled.
 	tables := make([]string, 0, len(allModels))
 
-	for _, name := range allModels {
-		if !disabled[name] {
-			tables = append(tables, name)
+	if states.defaultEnabled {
+		// Denylist mode: all models enabled except explicitly disabled.
+		for _, name := range allModels {
+			if !states.disabled[name] {
+				tables = append(tables, name)
+			}
+		}
+	} else {
+		// Allowlist mode: only explicitly listed (non-disabled) models are enabled.
+		for _, name := range allModels {
+			if states.enabled[name] {
+				tables = append(tables, name)
+			}
 		}
 	}
 
@@ -362,13 +433,26 @@ func discoverAllModels(xatuCBTPath string) ([]string, error) {
 	return models, nil
 }
 
-// loadDisabledModels parses the overrides file and returns a set of model
-// names that are explicitly disabled (enabled: false).
-func loadDisabledModels(overridesPath string) (map[string]bool, error) {
+// modelStates holds parsed override states for determining which models are locally enabled.
+type modelStates struct {
+	disabled       map[string]bool // explicitly disabled (enabled: false)
+	enabled        map[string]bool // explicitly listed and not disabled
+	defaultEnabled bool            // global default (true if unset)
+}
+
+// loadModelStates parses the overrides file and returns model states
+// including the defaultEnabled flag for allowlist mode support.
+func loadModelStates(overridesPath string) (*modelStates, error) {
+	result := &modelStates{
+		disabled:       make(map[string]bool),
+		enabled:        make(map[string]bool),
+		defaultEnabled: true,
+	}
+
 	data, err := os.ReadFile(overridesPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return make(map[string]bool), nil
+			return result, nil
 		}
 
 		return nil, fmt.Errorf("failed to read overrides: %w", err)
@@ -376,7 +460,8 @@ func loadDisabledModels(overridesPath string) (map[string]bool, error) {
 
 	var overrides struct {
 		Models struct {
-			Overrides map[string]struct {
+			DefaultEnabled *bool `yaml:"defaultEnabled"`
+			Overrides      map[string]struct {
 				Enabled *bool `yaml:"enabled"`
 			} `yaml:"overrides"`
 		} `yaml:"models"`
@@ -386,15 +471,19 @@ func loadDisabledModels(overridesPath string) (map[string]bool, error) {
 		return nil, fmt.Errorf("failed to parse overrides: %w", err)
 	}
 
-	disabled := make(map[string]bool, len(overrides.Models.Overrides))
+	if overrides.Models.DefaultEnabled != nil {
+		result.defaultEnabled = *overrides.Models.DefaultEnabled
+	}
 
 	for name, override := range overrides.Models.Overrides {
 		if override.Enabled != nil && !*override.Enabled {
-			disabled[name] = true
+			result.disabled[name] = true
+		} else {
+			result.enabled[name] = true
 		}
 	}
 
-	return disabled, nil
+	return result, nil
 }
 
 // removeEmptyMaps recursively removes empty map entries from a map.
