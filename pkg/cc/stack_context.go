@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
+	"github.com/ethpandaops/xcli/pkg/diagnostic"
 	"github.com/ethpandaops/xcli/pkg/git"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
 	"github.com/ethpandaops/xcli/pkg/tui"
@@ -52,7 +53,26 @@ func newStackContext(
 	logStreamer := tui.NewLogStreamer()
 	sseHub := NewSSEHub(l)
 
-	api := &apiHandler{
+	// Create Claude client (nil if binary not found — non-fatal)
+	var claude *diagnostic.ClaudeClient
+
+	claudeClient, err := diagnostic.NewClaudeClient(l)
+	if err != nil {
+		l.WithError(err).Debug("Claude CLI not available, diagnose feature disabled")
+	} else {
+		claude = claudeClient
+	}
+
+	sc := &stackContext{
+		name:   name,
+		label:  label,
+		log:    l,
+		health: healthMon,
+		logs:   logStreamer,
+		sseHub: sseHub,
+	}
+
+	sc.api = &apiHandler{
 		log:     l,
 		wrapper: wrapper,
 		health:  healthMon,
@@ -60,18 +80,24 @@ func newStackContext(
 		labCfg:  labCfg,
 		cfgPath: cfgPath,
 		gitChk:  gitChk,
-		sseHub:  sseHub,
-	}
+		claude:  claude,
+		logHistoryFn: func(service string) []string {
+			sc.logHistoryMu.RLock()
+			defer sc.logHistoryMu.RUnlock()
 
-	return &stackContext{
-		name:   name,
-		label:  label,
-		log:    l,
-		api:    api,
-		health: healthMon,
-		logs:   logStreamer,
+			lines := make([]string, 0, len(sc.logHistory))
+			for _, l := range sc.logHistory {
+				if l.Service == service {
+					lines = append(lines, l.Raw)
+				}
+			}
+
+			return lines
+		},
 		sseHub: sseHub,
 	}
+
+	return sc
 }
 
 // Start begins health monitoring and the broadcast loop for this stack.

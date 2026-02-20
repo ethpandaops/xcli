@@ -7,6 +7,8 @@ interface LogViewerProps {
   openTabs: string[];
   onSelectTab: (tab: string | null) => void;
   onCloseTab: (tab: string) => void;
+  onDiagnose?: () => void;
+  showDiagnose?: boolean;
 }
 
 interface TabState {
@@ -30,7 +32,15 @@ function getDefaultTabState(): TabState {
   return { levelFilter: 'ALL', textFilter: '', follow: true };
 }
 
-export default function LogViewer({ logs, activeTab, openTabs, onSelectTab, onCloseTab }: LogViewerProps) {
+export default function LogViewer({
+  logs,
+  activeTab,
+  openTabs,
+  onSelectTab,
+  onCloseTab,
+  onDiagnose,
+  showDiagnose,
+}: LogViewerProps) {
   const [tabStates, setTabStates] = useState<Map<string, TabState>>(() => new Map());
   const containerRef = useRef<HTMLDivElement>(null);
   const tabBarRef = useRef<HTMLDivElement>(null);
@@ -224,6 +234,23 @@ export default function LogViewer({ logs, activeTab, openTabs, onSelectTab, onCl
             </svg>
             Follow
           </button>
+
+          {/* Diagnose button — only for specific service tabs */}
+          {activeTab && showDiagnose && onDiagnose && (
+            <button
+              onClick={onDiagnose}
+              className="flex items-center gap-1 rounded-xs bg-accent/15 px-2 py-1 text-xs/4 font-medium text-accent-light transition-colors hover:bg-accent/25"
+            >
+              <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"
+                />
+              </svg>
+              Diagnose
+            </button>
+          )}
         </div>
       </div>
 

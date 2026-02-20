@@ -314,6 +314,16 @@ func (s *Server) registerStackRoutes(
 		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
 			sc.api.handleGetServiceLogs(w, r)
 		}))
+
+	// Diagnosis
+	mux.HandleFunc("POST "+prefix+"/services/{name}/diagnose",
+		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
+			sc.api.handlePostDiagnose(w, r)
+		}))
+	mux.HandleFunc("GET "+prefix+"/diagnose/available",
+		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
+			sc.api.handleGetDiagnoseAvailable(w, r)
+		}))
 	mux.HandleFunc("GET "+prefix+"/logs",
 		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
 			sc.handleGetLogs(w, r)

@@ -190,6 +190,14 @@ export interface StackInfo {
   status?: string;
 }
 
+export interface AIDiagnosis {
+  rootCause: string;
+  explanation: string;
+  affectedFiles: string[];
+  suggestions: string[];
+  fixCommands: string[];
+}
+
 export interface CBTOverridesState {
   externalModels: ModelEntry[];
   transformationModels: ModelEntry[];

@@ -10,6 +10,7 @@ import type {
   HealthStatus,
   StackStatus,
   StackProgressEvent,
+  AIDiagnosis,
 } from '@/types';
 import { useSSE } from '@/hooks/useSSE';
 import { useAPI } from '@/hooks/useAPI';
@@ -20,6 +21,7 @@ import GitStatus from '@/components/GitStatus';
 import LogViewer from '@/components/LogViewer';
 import StackProgress, { derivePhaseStates, BOOT_PHASES, STOP_PHASES } from '@/components/StackProgress';
 import Spinner from '@/components/Spinner';
+import DiagnosisPanel from '@/components/DiagnosisPanel';
 import { useFavicon } from '@/hooks/useFavicon';
 import { useNotifications } from '@/hooks/useNotifications';
 
@@ -41,7 +43,7 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ onNavigateConfig, stack, availableStacks, onSwitchStack }: DashboardProps) {
-  const { fetchJSON, postJSON } = useAPI(stack);
+  const { fetchJSON, postJSON, postDiagnose } = useAPI(stack);
   const { notify, enabled: notificationsEnabled, toggle: toggleNotifications } = useNotifications();
   const [services, setServices] = useState<ServiceInfo[]>([]);
   const [infrastructure, setInfrastructure] = useState<InfraInfo[]>([]);
@@ -56,6 +58,10 @@ export default function Dashboard({ onNavigateConfig, stack, availableStacks, on
   const [stackError, setStackError] = useState<string | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(() => loadSidebarState('xcli:sidebar-left-collapsed'));
   const [rightCollapsed, setRightCollapsed] = useState(() => loadSidebarState('xcli:sidebar-right-collapsed'));
+  const [diagnoseAvailable, setDiagnoseAvailable] = useState(false);
+  const [diagnosing, setDiagnosing] = useState<string | null>(null);
+  const [diagnosis, setDiagnosis] = useState<AIDiagnosis | null>(null);
+  const [diagnosisError, setDiagnosisError] = useState<string | null>(null);
 
   const toggleLeft = useCallback(() => {
     setLeftCollapsed(prev => {
@@ -276,6 +282,33 @@ export default function Dashboard({ onNavigateConfig, stack, availableStacks, on
     postJSON<{ status: string }>(endpoint).catch(console.error);
   }, [stackStatus, postJSON]);
 
+  // Check if Claude CLI is available on mount
+  useEffect(() => {
+    fetchJSON<{ available: boolean }>('/diagnose/available')
+      .then(data => setDiagnoseAvailable(data.available))
+      .catch(() => setDiagnoseAvailable(false));
+  }, [fetchJSON]);
+
+  const handleDiagnose = useCallback(
+    (serviceName: string) => {
+      setDiagnosing(serviceName);
+      setDiagnosis(null);
+      setDiagnosisError(null);
+
+      postDiagnose<AIDiagnosis>(serviceName)
+        .then(data => setDiagnosis(data))
+        .catch(err => setDiagnosisError(err instanceof Error ? err.message : String(err)))
+        .finally(() => setDiagnosing(null));
+    },
+    [postDiagnose]
+  );
+
+  const handleCloseDiagnosis = useCallback(() => {
+    setDiagnosing(null);
+    setDiagnosis(null);
+    setDiagnosisError(null);
+  }, []);
+
   return (
     <div className="flex h-dvh flex-col">
       <Header
@@ -306,6 +339,8 @@ export default function Dashboard({ onNavigateConfig, stack, availableStacks, on
                 selected={activeTab === svc.name}
                 onSelect={() => handleSelectService(svc.name)}
                 stack={stack}
+                showDiagnose={diagnoseAvailable}
+                onDiagnose={() => handleDiagnose(svc.name)}
               />
             ))}
 
@@ -426,6 +461,8 @@ export default function Dashboard({ onNavigateConfig, stack, availableStacks, on
               openTabs={openTabs}
               onSelectTab={setActiveTab}
               onCloseTab={handleCloseTab}
+              showDiagnose={diagnoseAvailable}
+              onDiagnose={activeTab ? () => handleDiagnose(activeTab) : undefined}
             />
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-4 text-text-muted">
@@ -476,6 +513,20 @@ export default function Dashboard({ onNavigateConfig, stack, availableStacks, on
           </div>
         </div>
       </div>
+
+      {/* Diagnosis modal */}
+      {(diagnosing || diagnosis || diagnosisError) && (
+        <DiagnosisPanel
+          serviceName={diagnosing ?? ''}
+          diagnosis={diagnosis}
+          error={diagnosisError}
+          loading={diagnosing !== null}
+          onClose={handleCloseDiagnosis}
+          onRetry={() => {
+            if (diagnosing) handleDiagnose(diagnosing);
+          }}
+        />
+      )}
     </div>
   );
 }

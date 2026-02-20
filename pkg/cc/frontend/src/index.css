@@ -78,8 +78,8 @@ button:disabled {
   --color-text-muted: oklch(0.55 0.012 260);
   --color-text-disabled: oklch(0.70 0.01 260);
 
-  /* Overlay */
-  --color-overlay: oklch(0 0 0);
+  /* Overlay — white so loading overlays blend with light surfaces */
+  --color-overlay: oklch(1 0 0);
 
   /* Hover overlay — black at low opacity on light surfaces */
   --color-hover: oklch(0 0 0);
