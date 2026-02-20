@@ -51,6 +51,7 @@ type apiHandler struct {
 	wrapper  *tui.OrchestratorWrapper
 	health   *tui.HealthMonitor
 	orch     *orchestrator.Orchestrator
+	redis    *RedisAdmin
 	labCfg   *config.LabConfig
 	cfgPath  string
 	gitChk   *git.Checker

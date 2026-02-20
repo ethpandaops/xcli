@@ -59,3 +59,29 @@
     transform: translateY(var(--tw-enter-translate-y, 0));
   }
 }
+
+.cc-resize-handle {
+  position: relative;
+  width: 10px;
+  cursor: col-resize;
+}
+
+.cc-resize-handle::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--color-border) 85%, transparent);
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.cc-resize-handle:hover::before,
+.cc-resize-handle[data-separator='hover']::before,
+.cc-resize-handle[data-separator='active']::before {
+  background: var(--color-accent-light);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-accent-light) 20%, transparent);
+}

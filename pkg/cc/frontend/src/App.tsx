@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import Dashboard from '@/components/Dashboard';
 import ConfigPage from '@/components/ConfigPage';
+import RedisPage from '@/components/RedisPage';
 
-type Page = 'dashboard' | 'config';
+type Page = 'dashboard' | 'config' | 'redis';
 
 export default function App() {
   const [page, setPage] = useState<Page>('dashboard');
@@ -11,5 +12,9 @@ export default function App() {
     return <ConfigPage onBack={() => setPage('dashboard')} />;
   }
 
-  return <Dashboard onNavigateConfig={() => setPage('config')} />;
+  if (page === 'redis') {
+    return <RedisPage onBack={() => setPage('dashboard')} onNavigateConfig={() => setPage('config')} />;
+  }
+
+  return <Dashboard onNavigateConfig={() => setPage('config')} onNavigateRedis={() => setPage('redis')} />;
 }

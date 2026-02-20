@@ -1,62 +1,104 @@
 import { useCallback } from 'react';
 
+export class APIError extends Error {
+  status: number;
+  body: unknown;
+
+  constructor(message: string, status: number, body: unknown) {
+    super(message);
+    this.name = 'APIError';
+    this.status = status;
+    this.body = body;
+  }
+}
+
 export function useAPI() {
-  const fetchJSON = useCallback(async <T>(url: string): Promise<T> => {
-    const res = await fetch(url);
+  const requestJSON = useCallback(async <T>(url: string, init?: RequestInit): Promise<T> => {
+    const res = await fetch(url, init);
 
     if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`${res.status}: ${body}`);
+      const bodyText = await res.text();
+      let body: unknown = bodyText;
+      let message = `${res.status}: ${bodyText}`;
+
+      if (bodyText) {
+        try {
+          body = JSON.parse(bodyText) as unknown;
+          if (typeof body === 'object' && body !== null && 'error' in body) {
+            const err = (body as { error?: unknown }).error;
+            if (typeof err === 'string' && err.trim() !== '') {
+              message = err;
+            }
+          }
+        } catch {
+          // ignore parse errors and keep text body
+        }
+      }
+
+      throw new APIError(message, res.status, body);
+    }
+
+    if (res.status === 204) {
+      return undefined as T;
     }
 
     return res.json() as Promise<T>;
   }, []);
 
-  const postAction = useCallback(async (service: string, action: string): Promise<void> => {
-    const res = await fetch(`/api/services/${service}/${action}`, {
-      method: 'POST',
-    });
+  const fetchJSON = useCallback(
+    async <T>(url: string): Promise<T> => {
+      return requestJSON<T>(url);
+    },
+    [requestJSON]
+  );
 
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error((body as { error?: string }).error ?? 'Action failed');
-    }
-  }, []);
+  const postAction = useCallback(
+    async (service: string, action: string): Promise<void> => {
+      await requestJSON<{ status: string }>(`/api/services/${service}/${action}`, {
+        method: 'POST',
+      });
+    },
+    [requestJSON]
+  );
 
-  const putJSON = useCallback(async <T>(url: string, body: unknown): Promise<T> => {
-    const res = await fetch(url, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+  const putJSON = useCallback(
+    async <T>(url: string, body: unknown): Promise<T> => {
+      return requestJSON<T>(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    },
+    [requestJSON]
+  );
 
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error((errBody as { error?: string }).error ?? 'Request failed');
-    }
+  const postJSON = useCallback(
+    async <T>(url: string, body?: unknown): Promise<T> => {
+      const init: RequestInit = { method: 'POST' };
 
-    return res.json() as Promise<T>;
-  }, []);
+      if (body !== undefined) {
+        init.headers = { 'Content-Type': 'application/json' };
+        init.body = JSON.stringify(body);
+      }
 
-  const postJSON = useCallback(async <T>(url: string): Promise<T> => {
-    const res = await fetch(url, { method: 'POST' });
+      return requestJSON<T>(url, init);
+    },
+    [requestJSON]
+  );
 
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error((errBody as { error?: string }).error ?? 'Request failed');
-    }
+  const deleteAction = useCallback(
+    async (url: string): Promise<void> => {
+      await requestJSON<unknown>(url, { method: 'DELETE' });
+    },
+    [requestJSON]
+  );
 
-    return res.json() as Promise<T>;
-  }, []);
+  const deleteJSON = useCallback(
+    async <T>(url: string): Promise<T> => {
+      return requestJSON<T>(url, { method: 'DELETE' });
+    },
+    [requestJSON]
+  );
 
-  const deleteAction = useCallback(async (url: string): Promise<void> => {
-    const res = await fetch(url, { method: 'DELETE' });
-
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error((errBody as { error?: string }).error ?? 'Delete failed');
-    }
-  }, []);
-
-  return { fetchJSON, postAction, putJSON, postJSON, deleteAction };
+  return { fetchJSON, postAction, putJSON, postJSON, deleteAction, deleteJSON, requestJSON };
 }

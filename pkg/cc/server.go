@@ -69,6 +69,12 @@ func NewServer(
 		gitChk:  git.NewChecker(l),
 		sseHub:  sseHub,
 	}
+	api.redis = newRedisAdmin(l, func() string {
+		api.mu.RLock()
+		defer api.mu.RUnlock()
+
+		return fmt.Sprintf("localhost:%d", api.labCfg.Infrastructure.RedisPort)
+	})
 
 	return &Server{
 		log:     l,
@@ -207,6 +213,16 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/stack/restart", s.api.handlePostStackRestart)
 	mux.HandleFunc("POST /api/stack/cancel", s.api.handlePostStackCancel)
 	mux.HandleFunc("GET /api/stack/status", s.api.handleGetStackStatus)
+
+	// Redis explorer
+	mux.HandleFunc("GET /api/redis/status", s.api.handleGetRedisStatus)
+	mux.HandleFunc("GET /api/redis/tree", s.api.handleGetRedisTree)
+	mux.HandleFunc("GET /api/redis/keys/search", s.api.handleGetRedisSearch)
+	mux.HandleFunc("GET /api/redis/key", s.api.handleGetRedisKey)
+	mux.HandleFunc("POST /api/redis/key", s.api.handlePostRedisKey)
+	mux.HandleFunc("PUT /api/redis/key", s.api.handlePutRedisKey)
+	mux.HandleFunc("DELETE /api/redis/key", s.api.handleDeleteRedisKey)
+	mux.HandleFunc("POST /api/redis/keys/delete", s.api.handlePostRedisDeleteMany)
 
 	// Logs
 	mux.HandleFunc("GET /api/services/{name}/logs", s.api.handleGetServiceLogs)
