@@ -180,6 +180,7 @@ export interface ConfigFileContent {
 
 export interface ModelEntry {
   name: string;
+  overrideKey: string;
   enabled: boolean;
 }
 

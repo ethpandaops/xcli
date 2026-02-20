@@ -143,7 +143,7 @@ export default function LogViewer({ logs, activeTab, openTabs, onSelectTab, onCl
                   e.stopPropagation();
                   onCloseTab(tab);
                 }}
-                className="mr-1 rounded-xs p-0.5 text-text-disabled transition-colors hover:bg-white/10 hover:text-text-secondary"
+                className="mr-1 rounded-xs p-0.5 text-text-disabled transition-colors hover:bg-hover/10 hover:text-text-secondary"
                 title="Close tab"
               >
                 <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>

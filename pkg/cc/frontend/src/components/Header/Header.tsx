@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import type { ServiceInfo, InfraInfo } from '@/types';
+import { useTheme } from '@/hooks/useTheme';
 
 interface HeaderProps {
   services: ServiceInfo[];
@@ -30,6 +31,7 @@ export default function Header({
 }: HeaderProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const { theme, cycleTheme } = useTheme();
 
   const running = services.filter(s => s.status === 'running').length;
   const healthy = services.filter(s => s.health === 'healthy').length;
@@ -68,6 +70,8 @@ export default function Header({
     buttonLabel = 'Boot Stack';
     buttonClass += 'bg-success/10 text-success ring-1 ring-success/20 hover:bg-success/20';
   }
+
+  const themeTitle = theme === 'system' ? 'Theme: System' : theme === 'light' ? 'Theme: Light' : 'Theme: Dark';
 
   return (
     <header className="flex items-center justify-between border-b border-border bg-surface px-5 py-2.5">
@@ -126,7 +130,7 @@ export default function Header({
                   className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs/4 transition-colors ${
                     stack === activeStack
                       ? 'bg-accent/10 font-medium text-accent-light'
-                      : 'text-text-secondary hover:bg-white/5'
+                      : 'text-text-secondary hover:bg-hover/5'
                   }`}
                 >
                   {stack === activeStack && <span className="size-1.5 rounded-full bg-accent" />}
@@ -173,7 +177,7 @@ export default function Header({
 
         <button
           onClick={onToggleNotifications}
-          className={`rounded-xs p-1.5 transition-colors hover:bg-white/5 ${
+          className={`rounded-xs p-1.5 transition-colors hover:bg-hover/5 ${
             notificationsEnabled ? 'text-warning' : 'text-text-muted hover:text-text-secondary'
           }`}
           title={notificationsEnabled ? 'Disable notifications' : 'Enable notifications'}
@@ -198,10 +202,43 @@ export default function Header({
           )}
         </button>
 
+        {/* Theme toggle */}
+        <button
+          onClick={cycleTheme}
+          className="rounded-xs p-1.5 text-text-muted transition-colors hover:bg-hover/5 hover:text-text-secondary"
+          title={themeTitle}
+        >
+          {theme === 'system' ? (
+            <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25A2.25 2.25 0 0 1 5.25 3h13.5A2.25 2.25 0 0 1 21 5.25Z"
+              />
+            </svg>
+          ) : theme === 'light' ? (
+            <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z"
+              />
+            </svg>
+          ) : (
+            <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z"
+              />
+            </svg>
+          )}
+        </button>
+
         {onNavigateConfig && (
           <button
             onClick={onNavigateConfig}
-            className="rounded-xs p-1.5 text-text-muted transition-colors hover:bg-white/5 hover:text-text-secondary"
+            className="rounded-xs p-1.5 text-text-muted transition-colors hover:bg-hover/5 hover:text-text-secondary"
             title="Config Management"
           >
             <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">

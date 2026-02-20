@@ -141,7 +141,7 @@ export default function ServiceConfigViewer({ onToast, stack }: ServiceConfigVie
                 className={`group flex items-center gap-2.5 rounded-xs px-3 py-2 text-left transition-colors ${
                   isActive
                     ? 'bg-accent/15 text-text-primary'
-                    : 'text-text-tertiary hover:bg-white/5 hover:text-text-secondary'
+                    : 'text-text-tertiary hover:bg-hover/5 hover:text-text-secondary'
                 }`}
               >
                 <svg
@@ -194,7 +194,7 @@ export default function ServiceConfigViewer({ onToast, stack }: ServiceConfigVie
                       setEditContent(fileContent.overrideContent ?? fileContent.content);
                       setEditMode(true);
                     }}
-                    className="flex items-center gap-1.5 rounded-xs px-2.5 py-1 text-xs/4 font-medium text-text-tertiary transition-colors hover:bg-white/5 hover:text-text-primary"
+                    className="flex items-center gap-1.5 rounded-xs px-2.5 py-1 text-xs/4 font-medium text-text-tertiary transition-colors hover:bg-hover/5 hover:text-text-primary"
                   >
                     <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                       <path
@@ -226,7 +226,7 @@ export default function ServiceConfigViewer({ onToast, stack }: ServiceConfigVie
                     <button
                       onClick={handleSaveOverride}
                       disabled={saving}
-                      className="rounded-xs bg-accent px-3 py-1 text-xs/4 font-medium text-text-primary transition-colors hover:bg-accent-light disabled:opacity-50"
+                      className="rounded-xs bg-accent px-3 py-1 text-xs/4 font-medium text-on-accent transition-colors hover:bg-accent-light disabled:opacity-50"
                     >
                       {saving ? 'Saving...' : 'Save Override'}
                     </button>
