@@ -9,6 +9,7 @@ type Tab = 'lab' | 'services' | 'overrides';
 interface ConfigPageProps {
   onBack: () => void;
   stack: string;
+  initialTab?: Tab;
 }
 
 const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
@@ -54,9 +55,9 @@ const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
   },
 ];
 
-export default function ConfigPage({ onBack, stack }: ConfigPageProps) {
+export default function ConfigPage({ onBack, stack, initialTab = 'lab' }: ConfigPageProps) {
   const { postJSON } = useAPI(stack);
-  const [activeTab, setActiveTab] = useState<Tab>('lab');
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const [regenerating, setRegenerating] = useState(false);
   const [toast, setToast] = useState<{
     message: string;

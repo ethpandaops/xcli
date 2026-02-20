@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { fn } from 'storybook/test';
 import ConfigPanel from './ConfigPanel';
 import { mockConfig, mockServices } from '@/stories/fixtures';
 
@@ -29,14 +28,6 @@ export const Loading: Story = {
   args: {
     config: null,
     services: [],
-  },
-};
-
-export const WithManageButton: Story = {
-  args: {
-    config: mockConfig,
-    services: mockServices,
-    onNavigateConfig: fn(),
   },
 };
 
