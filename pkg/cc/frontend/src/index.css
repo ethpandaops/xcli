@@ -78,8 +78,8 @@ button:disabled {
   --color-text-muted: oklch(0.55 0.012 260);
   --color-text-disabled: oklch(0.70 0.01 260);
 
-  /* Overlay */
-  --color-overlay: oklch(0 0 0);
+  /* Overlay — white so loading overlays blend with light surfaces */
+  --color-overlay: oklch(1 0 0);
 
   /* Hover overlay — black at low opacity on light surfaces */
   --color-hover: oklch(0 0 0);
@@ -141,4 +141,32 @@ button:disabled {
 .cc-resize-handle[data-separator='active']::before {
   background: var(--color-accent-light);
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-accent-light) 20%, transparent);
+}
+
+.cc-resize-handle--with-toggle {
+  overflow: visible;
+}
+
+.cc-panel-toggle {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-light);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background-color 150ms, color 150ms;
+}
+
+.cc-panel-toggle:hover {
+  background: var(--color-surface-lighter);
+  color: var(--color-text-secondary);
 }

@@ -10,6 +10,7 @@ import type {
   HealthStatus,
   StackStatus,
   StackProgressEvent,
+  AIDiagnosis,
 } from '@/types';
 import { useSSE } from '@/hooks/useSSE';
 import { useAPI } from '@/hooks/useAPI';
@@ -20,6 +21,7 @@ import GitStatus from '@/components/GitStatus';
 import LogViewer from '@/components/LogViewer';
 import StackProgress, { derivePhaseStates, BOOT_PHASES, STOP_PHASES } from '@/components/StackProgress';
 import Spinner from '@/components/Spinner';
+import DiagnosisPanel from '@/components/DiagnosisPanel';
 import { useFavicon } from '@/hooks/useFavicon';
 import { useNotifications } from '@/hooks/useNotifications';
 import { Group, Panel, Separator } from 'react-resizable-panels';
@@ -89,7 +91,7 @@ export default function Dashboard({
   availableStacks,
   onSwitchStack,
 }: DashboardProps) {
-  const { fetchJSON, postJSON } = useAPI(stack);
+  const { fetchJSON, postJSON, postDiagnose } = useAPI(stack);
   const { notify, enabled: notificationsEnabled, toggle: toggleNotifications } = useNotifications();
   const [services, setServices] = useState<ServiceInfo[]>([]);
   const [infrastructure, setInfrastructure] = useState<InfraInfo[]>([]);
@@ -110,6 +112,10 @@ export default function Dashboard({
   const rightPanelRef = useRef<PanelImperativeHandle | null>(null);
   const leftDefaultDesktopPx = leftCollapsed ? sidebarCollapsedPx : leftExpandedPxRef.current;
   const rightDefaultDesktopPx = rightCollapsed ? sidebarCollapsedPx : rightExpandedPxRef.current;
+  const [diagnoseAvailable, setDiagnoseAvailable] = useState(false);
+  const [diagnosing, setDiagnosing] = useState<string | null>(null);
+  const [diagnosis, setDiagnosis] = useState<AIDiagnosis | null>(null);
+  const [diagnosisError, setDiagnosisError] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -350,6 +356,33 @@ export default function Dashboard({
     postJSON<{ status: string }>(endpoint).catch(console.error);
   }, [stackStatus, postJSON]);
 
+  // Check if Claude CLI is available on mount
+  useEffect(() => {
+    fetchJSON<{ available: boolean }>('/diagnose/available')
+      .then(data => setDiagnoseAvailable(data.available))
+      .catch(() => setDiagnoseAvailable(false));
+  }, [fetchJSON]);
+
+  const handleDiagnose = useCallback(
+    (serviceName: string) => {
+      setDiagnosing(serviceName);
+      setDiagnosis(null);
+      setDiagnosisError(null);
+
+      postDiagnose<AIDiagnosis>(serviceName)
+        .then(data => setDiagnosis(data))
+        .catch(err => setDiagnosisError(err instanceof Error ? err.message : String(err)))
+        .finally(() => setDiagnosing(null));
+    },
+    [postDiagnose]
+  );
+
+  const handleCloseDiagnosis = useCallback(() => {
+    setDiagnosing(null);
+    setDiagnosis(null);
+    setDiagnosisError(null);
+  }, []);
+
   const handleLeftPanelResize = useCallback(
     (panelSize: PanelSize) => {
       if (leftCollapsed) return;
@@ -382,6 +415,8 @@ export default function Dashboard({
           selected={activeTab === svc.name}
           onSelect={() => handleSelectService(svc.name)}
           stack={stack}
+          showDiagnose={diagnoseAvailable}
+          onDiagnose={() => handleDiagnose(svc.name)}
         />
       ))}
 
@@ -492,6 +527,8 @@ export default function Dashboard({
           openTabs={openTabs}
           onSelectTab={setActiveTab}
           onCloseTab={handleCloseTab}
+          showDiagnose={diagnoseAvailable}
+          onDiagnose={activeTab ? () => handleDiagnose(activeTab) : undefined}
         />
       ) : (
         <div className="flex h-full flex-col items-center justify-center gap-4 text-text-muted">
@@ -540,31 +577,44 @@ export default function Dashboard({
             maxSize={sidebarExpandedMaxPx}
             onResize={handleLeftPanelResize}
           >
-            <div className="relative h-full border-r border-border bg-surface">
-              {leftSidebarContent}
-              <button
-                onClick={toggleLeft}
-                className="absolute top-2 -right-3 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-surface-light text-text-muted transition-colors hover:bg-surface-lighter hover:text-text-secondary"
-                title={leftCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              >
-                <svg className="size-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                  {leftCollapsed ? (
-                    <path strokeLinecap="round" strokeLinejoin="round" d="m9 5 7 7-7 7" />
-                  ) : (
-                    <path strokeLinecap="round" strokeLinejoin="round" d="m15 19-7-7 7-7" />
-                  )}
-                </svg>
-              </button>
-            </div>
+            <div className="h-full overflow-y-auto border-r border-border bg-surface">{leftSidebarContent}</div>
           </Panel>
 
-          <Separator className="cc-resize-handle" />
+          <Separator className="cc-resize-handle cc-resize-handle--with-toggle">
+            <button
+              onClick={toggleLeft}
+              className="cc-panel-toggle cc-panel-toggle--left"
+              title={leftCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              <svg className="size-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                {leftCollapsed ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m9 5 7 7-7 7" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m15 19-7-7 7-7" />
+                )}
+              </svg>
+            </button>
+          </Separator>
 
           <Panel id={mainPanelId} minSize={mainPanelMinPx}>
             <div className="h-full overflow-hidden p-3">{mainPanelContent}</div>
           </Panel>
 
-          <Separator className="cc-resize-handle" />
+          <Separator className="cc-resize-handle cc-resize-handle--with-toggle">
+            <button
+              onClick={toggleRight}
+              className="cc-panel-toggle cc-panel-toggle--right"
+              title={rightCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              <svg className="size-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                {rightCollapsed ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m15 19-7-7 7-7" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m9 5 7 7-7 7" />
+                )}
+              </svg>
+            </button>
+          </Separator>
 
           <Panel
             id={rightPanelId}
@@ -574,22 +624,7 @@ export default function Dashboard({
             maxSize={sidebarExpandedMaxPx}
             onResize={handleRightPanelResize}
           >
-            <div className="relative h-full border-l border-border bg-surface">
-              <button
-                onClick={toggleRight}
-                className="absolute top-2 -left-3 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-surface-light text-text-muted transition-colors hover:bg-surface-lighter hover:text-text-secondary"
-                title={rightCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              >
-                <svg className="size-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                  {rightCollapsed ? (
-                    <path strokeLinecap="round" strokeLinejoin="round" d="m15 19-7-7 7-7" />
-                  ) : (
-                    <path strokeLinecap="round" strokeLinejoin="round" d="m9 5 7 7-7 7" />
-                  )}
-                </svg>
-              </button>
-              {rightSidebarContent}
-            </div>
+            <div className="h-full overflow-y-auto border-l border-border bg-surface">{rightSidebarContent}</div>
           </Panel>
         </Group>
       </div>
@@ -635,6 +670,20 @@ export default function Dashboard({
           {rightSidebarContent}
         </div>
       </div>
+
+      {/* Diagnosis modal */}
+      {(diagnosing || diagnosis || diagnosisError) && (
+        <DiagnosisPanel
+          serviceName={diagnosing ?? ''}
+          diagnosis={diagnosis}
+          error={diagnosisError}
+          loading={diagnosing !== null}
+          onClose={handleCloseDiagnosis}
+          onRetry={() => {
+            if (diagnosing) handleDiagnose(diagnosing);
+          }}
+        />
+      )}
     </div>
   );
 }

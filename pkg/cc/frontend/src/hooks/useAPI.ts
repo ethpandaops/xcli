@@ -102,5 +102,29 @@ export function useAPI(stack: string) {
     [requestJSON]
   );
 
-  return { fetchJSON, postAction, putJSON, postJSON, deleteAction, deleteJSON, requestJSON };
+  const postDiagnose = useCallback(
+    async <T>(service: string): Promise<T> => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 150000);
+
+      try {
+        const res = await fetch(`${prefix}/services/${encodeURIComponent(service)}/diagnose`, {
+          method: 'POST',
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error((errBody as { error?: string }).error ?? 'Diagnosis failed');
+        }
+
+        return res.json() as Promise<T>;
+      } finally {
+        clearTimeout(timeout);
+      }
+    },
+    [prefix]
+  );
+
+  return { fetchJSON, postAction, putJSON, postJSON, deleteAction, deleteJSON, requestJSON, postDiagnose };
 }
