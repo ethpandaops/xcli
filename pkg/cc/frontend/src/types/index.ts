@@ -279,7 +279,14 @@ export interface ConfigFileContent {
 
 export interface ModelEntry {
   name: string;
+  overrideKey: string;
   enabled: boolean;
+}
+
+export interface StackInfo {
+  name: string;
+  label: string;
+  status?: string;
 }
 
 export interface CBTOverridesState {

@@ -5,7 +5,6 @@ import (
 
 	"github.com/ethpandaops/xcli/pkg/cc"
 	"github.com/ethpandaops/xcli/pkg/config"
-	"github.com/ethpandaops/xcli/pkg/orchestrator"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -32,17 +31,15 @@ The Command Center provides:
 The dashboard opens automatically in your default browser.
 Use --no-open to prevent this behavior.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			labCfg, cfgPath, err := config.LoadLabConfig(configPath)
+			result, err := config.Load(configPath)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			orch, err := orchestrator.NewOrchestrator(log, labCfg, cfgPath)
+			srv, err := cc.NewServer(log, result.Config, result.ConfigPath, port)
 			if err != nil {
-				return fmt.Errorf("failed to create orchestrator: %w", err)
+				return fmt.Errorf("failed to create server: %w", err)
 			}
-
-			srv := cc.NewServer(log, orch, labCfg, cfgPath, port)
 
 			return srv.Start(cmd.Context(), !noOpen)
 		},

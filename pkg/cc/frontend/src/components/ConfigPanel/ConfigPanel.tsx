@@ -22,10 +22,15 @@ export default function ConfigPanel({ config, services, onNavigateConfig }: Conf
   // Build a lookup from service name to its data for port/URL resolution.
   const svcMap = new Map(services.map(s => [s.name, s]));
 
-  // Helper to get the primary port for a service, falling back to computed value.
+  // Helper to get the primary port for a service by extracting it from the
+  // service URL (which always points at the HTTP port). Falls back to config value.
   const getPort = (serviceName: string, fallback: number): number => {
     const svc = svcMap.get(serviceName);
-    return svc?.ports?.[0] ?? fallback;
+    if (svc?.url && svc.url !== '-') {
+      const match = svc.url.match(/:(\d+)$/);
+      if (match) return parseInt(match[1], 10);
+    }
+    return fallback;
   };
 
   // Helper to get the URL for a service, falling back to computed value.
@@ -120,20 +125,30 @@ export default function ConfigPanel({ config, services, onNavigateConfig }: Conf
           </div>
         </div>
 
-        {/* Observability */}
-        <div className="border-t border-border/50 pt-3">
-          <div className="mb-2 text-[10px]/3 font-semibold tracking-wider text-text-disabled uppercase">
-            Observability
+        {/* Observability — only show when the services are present */}
+        {(svcMap.has('prometheus') || svcMap.has('grafana')) && (
+          <div className="border-t border-border/50 pt-3">
+            <div className="mb-2 text-[10px]/3 font-semibold tracking-wider text-text-disabled uppercase">
+              Observability
+            </div>
+            <div className="flex flex-col gap-0.5">
+              {svcMap.has('prometheus') && (
+                <PortRow
+                  label="Prometheus"
+                  port={getPort('prometheus', config.ports.prometheus)}
+                  href={`http://localhost:${getPort('prometheus', config.ports.prometheus)}`}
+                />
+              )}
+              {svcMap.has('grafana') && (
+                <PortRow
+                  label="Grafana"
+                  port={getPort('grafana', config.ports.grafana)}
+                  href={`http://localhost:${getPort('grafana', config.ports.grafana)}`}
+                />
+              )}
+            </div>
           </div>
-          <div className="flex flex-col gap-0.5">
-            <PortRow
-              label="Prometheus"
-              port={config.ports.prometheus}
-              href={`http://localhost:${config.ports.prometheus}`}
-            />
-            <PortRow label="Grafana" port={config.ports.grafana} href={`http://localhost:${config.ports.grafana}`} />
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

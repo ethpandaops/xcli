@@ -8,6 +8,7 @@ type Tab = 'lab' | 'services' | 'overrides';
 
 interface ConfigPageProps {
   onBack: () => void;
+  stack: string;
 }
 
 const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
@@ -53,8 +54,8 @@ const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
   },
 ];
 
-export default function ConfigPage({ onBack }: ConfigPageProps) {
-  const { postJSON } = useAPI();
+export default function ConfigPage({ onBack, stack }: ConfigPageProps) {
+  const { postJSON } = useAPI(stack);
   const [activeTab, setActiveTab] = useState<Tab>('lab');
   const [regenerating, setRegenerating] = useState(false);
   const [toast, setToast] = useState<{
@@ -79,7 +80,7 @@ export default function ConfigPage({ onBack }: ConfigPageProps) {
     setRegenerating(true);
 
     try {
-      await postJSON<{ status: string }>('/api/config/regenerate');
+      await postJSON<{ status: string }>('/config/regenerate');
       showToast('Configs regenerated successfully', 'success');
     } catch (err) {
       showToast(`Regeneration failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error');
@@ -162,9 +163,9 @@ export default function ConfigPage({ onBack }: ConfigPageProps) {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6">
-        {activeTab === 'lab' && <LabConfigEditor onToast={showToast} onNavigateDashboard={onBack} />}
-        {activeTab === 'services' && <ServiceConfigViewer onToast={showToast} />}
-        {activeTab === 'overrides' && <CBTOverridesEditor onToast={showToast} />}
+        {activeTab === 'lab' && <LabConfigEditor onToast={showToast} onNavigateDashboard={onBack} stack={stack} />}
+        {activeTab === 'services' && <ServiceConfigViewer onToast={showToast} stack={stack} />}
+        {activeTab === 'overrides' && <CBTOverridesEditor onToast={showToast} stack={stack} />}
       </div>
 
       {/* Toast */}

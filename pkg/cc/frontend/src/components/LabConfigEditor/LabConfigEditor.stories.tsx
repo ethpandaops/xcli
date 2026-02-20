@@ -20,6 +20,7 @@ const meta = {
   },
   args: {
     onToast: fn(),
+    stack: 'lab',
   },
 } satisfies Meta<typeof LabConfigEditor>;
 
@@ -32,7 +33,7 @@ export const HybridMode: Story = {
   parameters: {
     msw: {
       handlers: [
-        http.get('/api/config/lab', async () => {
+        http.get('/api/stacks/:stack/config', async () => {
           await delay(150);
           return HttpResponse.json({
             ...mockLabConfig,
@@ -56,7 +57,7 @@ export const Loading: Story = {
   parameters: {
     msw: {
       handlers: [
-        http.get('/api/config/lab', async () => {
+        http.get('/api/stacks/:stack/config', async () => {
           await delay(999999);
           return HttpResponse.json(mockLabConfig);
         }),
@@ -69,7 +70,7 @@ export const ErrorState: Story = {
   parameters: {
     msw: {
       handlers: [
-        http.get('/api/config/lab', async () => {
+        http.get('/api/stacks/:stack/config', async () => {
           await delay(100);
           return new HttpResponse(null, { status: 500, statusText: 'Internal Server Error' });
         }),

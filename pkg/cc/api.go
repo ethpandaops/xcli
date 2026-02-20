@@ -171,11 +171,6 @@ func (a *apiHandler) handleGetInfrastructure(w http.ResponseWriter, _ *http.Requ
 	writeJSON(w, http.StatusOK, a.getInfraData())
 }
 
-// handleGetConfig returns sanitized configuration.
-func (a *apiHandler) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, a.getConfigData())
-}
-
 // handleGetGit returns git status for all repos, caching successful
 // responses for 2 minutes to avoid repeated expensive git operations.
 func (a *apiHandler) handleGetGit(w http.ResponseWriter, r *http.Request) {

@@ -1,34 +1,58 @@
+import { useState, useRef, useEffect } from 'react';
 import type { ServiceInfo, InfraInfo } from '@/types';
+import { useTheme } from '@/hooks/useTheme';
 
 interface HeaderProps {
   services: ServiceInfo[];
   infrastructure: InfraInfo[];
-  mode: string;
   onNavigateConfig?: () => void;
   stackStatus: string | null;
   onStackAction: () => void;
   currentPhase?: string;
   notificationsEnabled: boolean;
   onToggleNotifications: () => void;
+  activeStack: string;
+  availableStacks: string[];
+  onSwitchStack: (stack: string) => void;
 }
 
 export default function Header({
   services,
   infrastructure,
-  mode,
   onNavigateConfig,
   stackStatus,
   onStackAction,
   currentPhase,
   notificationsEnabled,
   onToggleNotifications,
+  activeStack,
+  availableStacks,
+  onSwitchStack,
 }: HeaderProps) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const { theme, cycleTheme } = useTheme();
+
   const running = services.filter(s => s.status === 'running').length;
   const healthy = services.filter(s => s.health === 'healthy').length;
   const infraRunning = infrastructure.filter(i => i.status === 'running').length;
 
   const isBusy = !stackStatus || stackStatus === 'starting' || stackStatus === 'stopping';
   const isRunning = stackStatus === 'running';
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!dropdownOpen) return;
+
+    const handleClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClick);
+
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [dropdownOpen]);
 
   let buttonLabel = 'Boot Stack';
   let buttonClass = 'flex items-center gap-1.5 rounded-xs px-3 py-1.5 text-xs/4 font-medium transition-colors ';
@@ -47,15 +71,75 @@ export default function Header({
     buttonClass += 'bg-success/10 text-success ring-1 ring-success/20 hover:bg-success/20';
   }
 
+  const themeTitle = theme === 'system' ? 'Theme: System' : theme === 'light' ? 'Theme: Light' : 'Theme: Dark';
+
   return (
     <header className="flex items-center justify-between border-b border-border bg-surface px-5 py-2.5">
       <div className="flex items-center gap-3">
         <h1 className="group text-sm/5 font-bold tracking-tight text-text-primary">
           <span className="inline-block origin-bottom transition-transform group-hover:animate-wobble">🍆</span> xcli
         </h1>
-        <span className="rounded-xs bg-accent/15 px-1.5 py-0.5 text-xs/3 font-medium text-accent-light">
-          {mode || '—'}
-        </span>
+
+        <div className="h-4 w-px bg-border" />
+
+        {/* Stack switcher */}
+        <div className="relative" ref={dropdownRef}>
+          <button
+            onClick={() => setDropdownOpen(v => !v)}
+            className={`flex items-center gap-1.5 rounded-xs border px-2.5 py-1 text-xs/4 font-medium transition-colors ${
+              dropdownOpen
+                ? 'border-accent/40 bg-accent/10 text-accent-light'
+                : 'border-border bg-surface-light text-text-secondary hover:border-text-disabled hover:text-text-primary'
+            }`}
+          >
+            {/* Stack icon */}
+            <svg
+              className="size-3.5 shrink-0 text-text-muted"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={1.5}
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M6.429 9.75 2.25 12l4.179 2.25m0-4.5 5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0 4.179 2.25L12 21.75l-9.75-5.25 4.179-2.25m11.142 0-5.571 3-5.571-3"
+              />
+            </svg>
+            <span>{activeStack}</span>
+            <svg
+              className={`size-3 text-text-disabled transition-transform ${dropdownOpen ? 'rotate-180' : ''}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+            </svg>
+          </button>
+
+          {dropdownOpen && (
+            <div className="absolute top-full left-0 z-50 mt-1 min-w-36 rounded-xs border border-border bg-surface-light py-1 shadow-lg">
+              {availableStacks.map(stack => (
+                <button
+                  key={stack}
+                  onClick={() => {
+                    onSwitchStack(stack);
+                    setDropdownOpen(false);
+                  }}
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs/4 transition-colors ${
+                    stack === activeStack
+                      ? 'bg-accent/10 font-medium text-accent-light'
+                      : 'text-text-secondary hover:bg-hover/5'
+                  }`}
+                >
+                  {stack === activeStack && <span className="size-1.5 rounded-full bg-accent" />}
+                  {stack}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center gap-4 text-xs/4 text-text-muted">
@@ -93,7 +177,7 @@ export default function Header({
 
         <button
           onClick={onToggleNotifications}
-          className={`rounded-xs p-1.5 transition-colors hover:bg-white/5 ${
+          className={`rounded-xs p-1.5 transition-colors hover:bg-hover/5 ${
             notificationsEnabled ? 'text-warning' : 'text-text-muted hover:text-text-secondary'
           }`}
           title={notificationsEnabled ? 'Disable notifications' : 'Enable notifications'}
@@ -118,10 +202,43 @@ export default function Header({
           )}
         </button>
 
+        {/* Theme toggle */}
+        <button
+          onClick={cycleTheme}
+          className="rounded-xs p-1.5 text-text-muted transition-colors hover:bg-hover/5 hover:text-text-secondary"
+          title={themeTitle}
+        >
+          {theme === 'system' ? (
+            <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25A2.25 2.25 0 0 1 5.25 3h13.5A2.25 2.25 0 0 1 21 5.25Z"
+              />
+            </svg>
+          ) : theme === 'light' ? (
+            <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z"
+              />
+            </svg>
+          ) : (
+            <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z"
+              />
+            </svg>
+          )}
+        </button>
+
         {onNavigateConfig && (
           <button
             onClick={onNavigateConfig}
-            className="rounded-xs p-1.5 text-text-muted transition-colors hover:bg-white/5 hover:text-text-secondary"
+            className="rounded-xs p-1.5 text-text-muted transition-colors hover:bg-hover/5 hover:text-text-secondary"
             title="Config Management"
           >
             <svg className="size-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">

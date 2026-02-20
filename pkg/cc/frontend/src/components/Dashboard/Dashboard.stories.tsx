@@ -13,6 +13,9 @@ const meta = {
   },
   args: {
     onNavigateConfig: fn(),
+    stack: 'lab',
+    availableStacks: ['lab'],
+    onSwitchStack: fn(),
   },
 } satisfies Meta<typeof Dashboard>;
 
@@ -25,14 +28,14 @@ export const Stopped: Story = {
   parameters: {
     msw: {
       handlers: [
-        http.get('/api/status', async () => {
+        http.get('/api/stacks/:stack/status', async () => {
           await delay(100);
           return HttpResponse.json({
             ...mockStatusResponse,
             services: mockServices.map(s => ({ ...s, status: 'stopped', pid: 0, uptime: '' })),
           });
         }),
-        http.get('/api/stack/status', async () => {
+        http.get('/api/stacks/:stack/stack/status', async () => {
           await delay(100);
           return HttpResponse.json({
             ...mockStackStatus,
@@ -50,14 +53,14 @@ export const Starting: Story = {
   parameters: {
     msw: {
       handlers: [
-        http.get('/api/status', async () => {
+        http.get('/api/stacks/:stack/status', async () => {
           await delay(100);
           return HttpResponse.json({
             ...mockStatusResponse,
             services: [],
           });
         }),
-        http.get('/api/stack/status', async () => {
+        http.get('/api/stacks/:stack/stack/status', async () => {
           await delay(100);
           return HttpResponse.json({
             status: 'starting',

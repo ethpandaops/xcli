@@ -20,6 +20,7 @@ const meta = {
   },
   args: {
     onToast: fn(),
+    stack: 'lab',
   },
 } satisfies Meta<typeof CBTOverridesEditor>;
 
@@ -32,7 +33,7 @@ export const WithMissingDeps: Story = {
   parameters: {
     msw: {
       handlers: [
-        http.get('/api/config/overrides', async () => {
+        http.get('/api/stacks/:stack/config/overrides', async () => {
           await delay(150);
           return HttpResponse.json({
             ...mockCBTOverrides,
@@ -56,11 +57,11 @@ export const Loading: Story = {
   parameters: {
     msw: {
       handlers: [
-        http.get('/api/config/overrides', async () => {
+        http.get('/api/stacks/:stack/config/overrides', async () => {
           await delay(999999);
           return HttpResponse.json(mockCBTOverrides);
         }),
-        http.get('/api/config', async () => {
+        http.get('/api/stacks/:stack/config', async () => {
           await delay(999999);
           return HttpResponse.json({ mode: 'local' });
         }),

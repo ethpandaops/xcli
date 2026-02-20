@@ -6,24 +6,25 @@ import Spinner from '@/components/Spinner';
 interface LabConfigEditorProps {
   onToast: (message: string, type: 'success' | 'error') => void;
   onNavigateDashboard?: () => void;
+  stack: string;
 }
 
-export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabConfigEditorProps) {
-  const { fetchJSON, putJSON, postJSON } = useAPI();
+export default function LabConfigEditor({ onToast, onNavigateDashboard, stack }: LabConfigEditorProps) {
+  const { fetchJSON, putJSON, postJSON } = useAPI(stack);
   const [config, setConfig] = useState<LabConfigFull | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
 
   useEffect(() => {
-    fetchJSON<LabConfigFull>('/api/config/lab')
+    fetchJSON<LabConfigFull>('/config')
       .then(setConfig)
       .catch(err => setError(err.message));
   }, [fetchJSON]);
 
   const handleSave = async () => {
     try {
-      const status = await fetchJSON<{ services: { name: string; status: string }[] }>('/api/status');
+      const status = await fetchJSON<{ services: { name: string; status: string }[] }>('/status');
       const anyRunning = status.services.some(s => s.status === 'running');
 
       if (anyRunning) {
@@ -55,7 +56,7 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabCon
       const resp = await putJSON<{
         status: string;
         regenerateError?: string;
-      }>('/api/config/lab', config);
+      }>('/config', config);
 
       if (resp.regenerateError) {
         onToast(`Saved but regeneration failed: ${resp.regenerateError}`, 'error');
@@ -81,7 +82,7 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabCon
     if (!ok) return;
 
     try {
-      await postJSON<{ status: string }>('/api/stack/restart');
+      await postJSON<{ status: string }>('/stack/restart');
     } catch {
       // If restart fails to start, fall through — dashboard will show error.
     }
@@ -129,15 +130,15 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabCon
                     updated.infrastructure = {
                       ...config.infrastructure,
                       ClickHouse: {
-                        ...config.infrastructure.ClickHouse,
-                        Xatu: { ...config.infrastructure.ClickHouse.Xatu, Mode: xatuMode },
+                        ...config.infrastructure?.ClickHouse,
+                        Xatu: { ...config.infrastructure?.ClickHouse?.Xatu, Mode: xatuMode },
                       },
                     };
                     setConfig(updated);
                   }}
                   className={`rounded-xs px-4 py-1.5 text-sm/5 font-medium transition-colors ${
                     config.mode === m
-                      ? 'bg-accent text-text-primary'
+                      ? 'bg-accent text-on-accent'
                       : 'bg-surface-lighter text-text-tertiary hover:text-text-primary'
                   }`}
                 >
@@ -156,14 +157,14 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabCon
               <div className="relative">
                 <input
                   type="checkbox"
-                  checked={config.infrastructure.Observability.Enabled}
+                  checked={config.infrastructure?.Observability?.Enabled ?? false}
                   onChange={e =>
                     setConfig({
                       ...config,
                       infrastructure: {
                         ...config.infrastructure,
                         Observability: {
-                          ...config.infrastructure.Observability,
+                          ...config.infrastructure?.Observability,
                           Enabled: e.target.checked,
                         },
                       },
@@ -175,7 +176,7 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabCon
                 <div className="absolute top-0.5 left-0.5 size-4 rounded-full bg-text-tertiary transition-all peer-checked:translate-x-4 peer-checked:bg-text-primary" />
               </div>
               <span className="text-sm/5 text-text-secondary">
-                {config.infrastructure.Observability.Enabled ? 'Prometheus & Grafana enabled' : 'Disabled'}
+                {config.infrastructure?.Observability?.Enabled ? 'Prometheus & Grafana enabled' : 'Disabled'}
               </span>
             </label>
           </Section>
@@ -218,14 +219,14 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabCon
             <ClusterCard
               label="Xatu"
               description={isHybrid ? 'External production data' : 'Local instance'}
-              cluster={config.infrastructure.ClickHouse.Xatu}
+              cluster={config.infrastructure?.ClickHouse?.Xatu}
               onChange={xatu =>
                 setConfig({
                   ...config,
                   infrastructure: {
                     ...config.infrastructure,
                     ClickHouse: {
-                      ...config.infrastructure.ClickHouse,
+                      ...config.infrastructure?.ClickHouse,
                       Xatu: xatu,
                     },
                   },
@@ -235,14 +236,14 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabCon
             <ClusterCard
               label="CBT"
               description="Local processing & storage"
-              cluster={config.infrastructure.ClickHouse.CBT}
+              cluster={config.infrastructure?.ClickHouse?.CBT}
               onChange={cbt =>
                 setConfig({
                   ...config,
                   infrastructure: {
                     ...config.infrastructure,
                     ClickHouse: {
-                      ...config.infrastructure.ClickHouse,
+                      ...config.infrastructure?.ClickHouse,
                       CBT: cbt,
                     },
                   },
@@ -345,7 +346,7 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabCon
                 </button>
                 <button
                   onClick={handleConfirmRestart}
-                  className="rounded-xs bg-error px-3 py-1.5 text-xs/4 font-medium text-text-primary transition-colors hover:bg-error/80"
+                  className="rounded-xs bg-error px-3 py-1.5 text-xs/4 font-medium text-on-accent transition-colors hover:bg-error/80"
                 >
                   Save & Restart
                 </button>
@@ -359,7 +360,7 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard }: LabCon
           <button
             onClick={handleSave}
             disabled={saving}
-            className="rounded-xs bg-accent px-5 py-2 text-sm/5 font-medium text-text-primary transition-colors hover:bg-accent-light disabled:opacity-50"
+            className="rounded-xs bg-accent px-5 py-2 text-sm/5 font-medium text-on-accent transition-colors hover:bg-accent-light disabled:opacity-50"
           >
             {saving ? 'Saving...' : 'Save & Regenerate'}
           </button>
@@ -409,15 +410,26 @@ function ClusterCard({
 }: {
   label: string;
   description: string;
-  cluster: {
-    Mode: string;
-    ExternalURL?: string;
-    ExternalDatabase?: string;
-    ExternalUsername?: string;
-    ExternalPassword?: string;
-  };
-  onChange: (c: typeof cluster) => void;
+  cluster:
+    | {
+        Mode: string;
+        ExternalURL?: string;
+        ExternalDatabase?: string;
+        ExternalUsername?: string;
+        ExternalPassword?: string;
+      }
+    | undefined;
+  onChange: (c: NonNullable<typeof cluster>) => void;
 }) {
+  if (!cluster) {
+    return (
+      <div className="flex flex-col gap-3 rounded-xs border border-border/50 bg-surface p-4">
+        <div className="text-sm/5 font-medium text-text-primary">{label}</div>
+        <div className="text-xs/4 text-text-disabled">{description}</div>
+      </div>
+    );
+  }
+
   const isExternal = cluster.Mode === 'external';
 
   return (
@@ -434,7 +446,7 @@ function ClusterCard({
               onClick={() => onChange({ ...cluster, Mode: m })}
               className={`rounded-xs px-2.5 py-1 text-xs/4 font-medium transition-colors ${
                 cluster.Mode === m
-                  ? 'bg-accent text-text-primary'
+                  ? 'bg-accent text-on-accent'
                   : 'bg-surface-lighter text-text-muted hover:text-text-secondary'
               }`}
             >

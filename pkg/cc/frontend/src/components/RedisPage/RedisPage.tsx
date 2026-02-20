@@ -21,6 +21,7 @@ type TTLMode = 'keep' | 'set' | 'clear';
 interface RedisPageProps {
   onBack: () => void;
   onNavigateConfig?: () => void;
+  stack: string;
 }
 
 interface EditableValue {
@@ -420,8 +421,8 @@ function EncodedInput({
   );
 }
 
-export default function RedisPage({ onBack, onNavigateConfig }: RedisPageProps) {
-  const { fetchJSON, postJSON, putJSON, deleteJSON } = useAPI();
+export default function RedisPage({ onBack, onNavigateConfig, stack }: RedisPageProps) {
+  const { fetchJSON, postJSON, putJSON, deleteJSON } = useAPI(stack);
   const redisLeftInitialPxRef = useRef(
     loadPanelWidth(redisLeftPanelWidthStorageKey, redisLeftPanelDefaultPx, redisLeftPanelMinPx, redisLeftPanelMaxPx)
   );
@@ -483,7 +484,7 @@ export default function RedisPage({ onBack, onNavigateConfig }: RedisPageProps) 
 
   const loadStatus = useCallback(async () => {
     try {
-      const resp = await fetchJSON<RedisStatusResponse>(`/api/redis/status?db=${db}`);
+      const resp = await fetchJSON<RedisStatusResponse>(`/redis/status?db=${db}`);
       setStatus(resp);
       setStatusError(null);
     } catch (err) {
@@ -505,7 +506,7 @@ export default function RedisPage({ onBack, onNavigateConfig }: RedisPageProps) 
 
       try {
         const resp = await fetchJSON<RedisTreeResponse>(
-          `/api/redis/tree?db=${db}&prefix=${encodeURIComponent(prefix)}&count=250`
+          `/redis/tree?db=${db}&prefix=${encodeURIComponent(prefix)}&count=250`
         );
 
         setTree(prev => ({
@@ -537,7 +538,7 @@ export default function RedisPage({ onBack, onNavigateConfig }: RedisPageProps) 
       setDetailError(null);
 
       try {
-        const resp = await fetchJSON<RedisKeyResponse>(`/api/redis/key?db=${db}&key=${encodeURIComponent(key)}`);
+        const resp = await fetchJSON<RedisKeyResponse>(`/redis/key?db=${db}&key=${encodeURIComponent(key)}`);
         setDetail(resp);
         if (overwriteDraft) {
           setDraft(draftFromKey(resp));
@@ -640,7 +641,7 @@ export default function RedisPage({ onBack, onNavigateConfig }: RedisPageProps) 
       if (!window.confirm(`Delete key '${key}'? This cannot be undone.`)) return;
 
       try {
-        await deleteJSON<{ deleted: boolean }>(`/api/redis/key?db=${db}&key=${encodeURIComponent(key)}`);
+        await deleteJSON<{ deleted: boolean }>(`/redis/key?db=${db}&key=${encodeURIComponent(key)}`);
         if (selectedKey === key) {
           setSelectedKey(null);
           setDetail(null);
@@ -669,7 +670,7 @@ export default function RedisPage({ onBack, onNavigateConfig }: RedisPageProps) 
     if (!window.confirm(`Delete ${keys.length} selected key(s)? This cannot be undone.`)) return;
 
     try {
-      const resp = await postJSON<RedisDeleteManyResponse>('/api/redis/keys/delete', { db, keys });
+      const resp = await postJSON<RedisDeleteManyResponse>('/redis/keys/delete', { db, keys });
       const deletedCount = resp.results.filter(item => item.deleted).length;
       const failedCount = resp.results.length - deletedCount;
 
@@ -698,7 +699,7 @@ export default function RedisPage({ onBack, onNavigateConfig }: RedisPageProps) 
 
     try {
       const req = buildWriteRequest(db, detail.key, detail.version, draft);
-      const updated = await putJSON<RedisKeyResponse>('/api/redis/key', req);
+      const updated = await putJSON<RedisKeyResponse>('/redis/key', req);
       setDetail(updated);
       setDraft(draftFromKey(updated));
       setDirty(false);
@@ -749,7 +750,7 @@ export default function RedisPage({ onBack, onNavigateConfig }: RedisPageProps) 
         Object.assign(req, parsed);
       }
 
-      const created = await postJSON<RedisKeyResponse>('/api/redis/key', req);
+      const created = await postJSON<RedisKeyResponse>('/redis/key', req);
       setCreateOpen(false);
       setCreateKey('');
       setCreateValue({ mode: 'text', value: '' });
@@ -787,7 +788,7 @@ export default function RedisPage({ onBack, onNavigateConfig }: RedisPageProps) 
 
     try {
       const resp = await fetchJSON<RedisSearchResponse>(
-        `/api/redis/keys/search?db=${db}&q=${encodeURIComponent(search.trim())}&count=250`
+        `/redis/keys/search?db=${db}&q=${encodeURIComponent(search.trim())}&count=250`
       );
       setSearchResults(resp.keys);
     } catch (err) {
