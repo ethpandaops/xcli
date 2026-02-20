@@ -2,6 +2,7 @@ package cc
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -62,6 +63,12 @@ func newStackContext(
 		gitChk:  gitChk,
 		sseHub:  sseHub,
 	}
+	api.redis = newRedisAdmin(l, func() string {
+		api.mu.RLock()
+		defer api.mu.RUnlock()
+
+		return fmt.Sprintf("localhost:%d", api.labCfg.Infrastructure.RedisPort)
+	})
 
 	return &stackContext{
 		name:   name,

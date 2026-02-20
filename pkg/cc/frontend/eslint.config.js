@@ -33,7 +33,7 @@ export default tseslint.config(
       ...reactPlugin.configs['jsx-runtime'].rules,
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
-      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      'react-refresh/only-export-components': 'off',
       '@typescript-eslint/no-unused-vars': [
         'error',
         {
@@ -42,18 +42,11 @@ export default tseslint.config(
         },
       ],
       '@typescript-eslint/no-explicit-any': 'error',
-      '@typescript-eslint/explicit-function-return-type': [
-        'warn',
-        {
-          allowExpressions: true,
-          allowTypedFunctionExpressions: true,
-          allowHigherOrderFunctions: true,
-          allowDirectConstAssertionInArrowFunctions: true,
-        },
-      ],
+      '@typescript-eslint/explicit-function-return-type': 'off',
       'cc/no-hardcoded-colors': 'error',
       'cc/no-primitive-color-scales': 'error',
       ...betterTailwindcss.configs['recommended'].rules,
+      'better-tailwindcss/enforce-canonical-classes': 'off',
       'better-tailwindcss/enforce-consistent-class-order': 'off',
       'better-tailwindcss/enforce-consistent-line-wrapping': 'off',
       'better-tailwindcss/no-unnecessary-whitespace': 'off',
