@@ -4,17 +4,11 @@ import Spinner from '@/components/Spinner';
 interface ConfigPanelProps {
   config: ConfigInfo | null;
   services: ServiceInfo[];
-  onNavigateConfig?: () => void;
 }
 
-export default function ConfigPanel({ config, services, onNavigateConfig }: ConfigPanelProps) {
+export default function ConfigPanel({ config, services }: ConfigPanelProps) {
   if (!config) {
-    return (
-      <div className="rounded-xs border border-border bg-surface-light p-4">
-        <h3 className="mb-2 text-sm/5 font-semibold text-text-tertiary">Config</h3>
-        <Spinner />
-      </div>
-    );
+    return <Spinner />;
   }
 
   const enabledNetworks = config.networks.filter(n => n.enabled);
@@ -41,115 +35,101 @@ export default function ConfigPanel({ config, services, onNavigateConfig }: Conf
   };
 
   return (
-    <div className="rounded-xs border border-border bg-surface-light p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm/5 font-semibold text-text-tertiary">Config</h3>
-        {onNavigateConfig && (
-          <button
-            onClick={onNavigateConfig}
-            className="text-xs/4 text-accent-light transition-colors hover:text-accent-light/80"
-          >
-            Manage
-          </button>
-        )}
+    <div className="flex flex-col gap-3 text-xs/4">
+      {/* Mode + Networks inline */}
+      <div className="flex items-center gap-2">
+        <span className="rounded-xs bg-accent/20 px-2 py-0.5 font-medium text-accent-light">{config.mode}</span>
+        {enabledNetworks.map(n => (
+          <span key={n.name} className="rounded-xs bg-success/20 px-2 py-0.5 text-success">
+            {n.name}
+          </span>
+        ))}
       </div>
 
-      <div className="flex flex-col gap-3 text-xs/4">
-        {/* Mode + Networks inline */}
-        <div className="flex items-center gap-2">
-          <span className="rounded-xs bg-accent/20 px-2 py-0.5 font-medium text-accent-light">{config.mode}</span>
-          {enabledNetworks.map(n => (
-            <span key={n.name} className="rounded-xs bg-success/20 px-2 py-0.5 text-success">
-              {n.name}
-            </span>
-          ))}
+      {/* Services — per-network ports */}
+      <div className="border-t border-border/50 pt-3">
+        <div className="mb-2 text-[10px]/3 font-semibold tracking-wider text-text-disabled uppercase">Services</div>
+        <div className="flex flex-col gap-0.5">
+          <PortRow
+            label="Lab Frontend"
+            port={getPort('lab-frontend', config.ports.labFrontend)}
+            href={getUrl('lab-frontend', `http://localhost:${config.ports.labFrontend}`)}
+          />
+          {enabledNetworks.map(n => {
+            const name = `cbt-api-${n.name}`;
+            const fallbackPort = config.ports.cbtApiBase + n.portOffset;
+            const port = getPort(name, fallbackPort);
+            return (
+              <PortRow
+                key={name}
+                label={`CBT API${enabledNetworks.length > 1 ? ` (${n.name})` : ''}`}
+                port={port}
+                href={`http://localhost:${port}/docs`}
+              />
+            );
+          })}
+          {enabledNetworks.map(n => {
+            const name = `cbt-${n.name}`;
+            const fallbackPort = config.ports.cbtFrontendBase + n.portOffset;
+            const port = getPort(name, fallbackPort);
+            return (
+              <PortRow
+                key={`cbt-fe-${n.name}`}
+                label={`CBT Frontend${enabledNetworks.length > 1 ? ` (${n.name})` : ''}`}
+                port={port}
+                href={`http://localhost:${port}`}
+              />
+            );
+          })}
         </div>
+      </div>
 
-        {/* Services — per-network ports */}
-        <div className="border-t border-border/50 pt-3">
-          <div className="mb-2 text-[10px]/3 font-semibold tracking-wider text-text-disabled uppercase">Services</div>
-          <div className="flex flex-col gap-0.5">
+      {/* Infrastructure */}
+      <div className="border-t border-border/50 pt-3">
+        <div className="mb-2 text-[10px]/3 font-semibold tracking-wider text-text-disabled uppercase">
+          Infrastructure
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <PortRow
+            label="ClickHouse CBT"
+            port={config.ports.clickhouseCbt}
+            href={`http://localhost:${config.ports.clickhouseCbt}/play`}
+          />
+          {config.mode === 'local' && (
             <PortRow
-              label="Lab Frontend"
-              port={getPort('lab-frontend', config.ports.labFrontend)}
-              href={getUrl('lab-frontend', `http://localhost:${config.ports.labFrontend}`)}
+              label="ClickHouse Xatu"
+              port={config.ports.clickhouseXatu}
+              href={`http://localhost:${config.ports.clickhouseXatu}/play`}
             />
-            {enabledNetworks.map(n => {
-              const name = `cbt-api-${n.name}`;
-              const fallbackPort = config.ports.cbtApiBase + n.portOffset;
-              const port = getPort(name, fallbackPort);
-              return (
-                <PortRow
-                  key={name}
-                  label={`CBT API${enabledNetworks.length > 1 ? ` (${n.name})` : ''}`}
-                  port={port}
-                  href={`http://localhost:${port}/docs`}
-                />
-              );
-            })}
-            {enabledNetworks.map(n => {
-              const name = `cbt-${n.name}`;
-              const fallbackPort = config.ports.cbtFrontendBase + n.portOffset;
-              const port = getPort(name, fallbackPort);
-              return (
-                <PortRow
-                  key={`cbt-fe-${n.name}`}
-                  label={`CBT Frontend${enabledNetworks.length > 1 ? ` (${n.name})` : ''}`}
-                  port={port}
-                  href={`http://localhost:${port}`}
-                />
-              );
-            })}
-          </div>
+          )}
+          <PortRow label="Redis" port={config.ports.redis} />
         </div>
+      </div>
 
-        {/* Infrastructure */}
+      {/* Observability — only show when the services are present */}
+      {(svcMap.has('prometheus') || svcMap.has('grafana')) && (
         <div className="border-t border-border/50 pt-3">
           <div className="mb-2 text-[10px]/3 font-semibold tracking-wider text-text-disabled uppercase">
-            Infrastructure
+            Observability
           </div>
           <div className="flex flex-col gap-0.5">
-            <PortRow
-              label="ClickHouse CBT"
-              port={config.ports.clickhouseCbt}
-              href={`http://localhost:${config.ports.clickhouseCbt}/play`}
-            />
-            {config.mode === 'local' && (
+            {svcMap.has('prometheus') && (
               <PortRow
-                label="ClickHouse Xatu"
-                port={config.ports.clickhouseXatu}
-                href={`http://localhost:${config.ports.clickhouseXatu}/play`}
+                label="Prometheus"
+                port={getPort('prometheus', config.ports.prometheus)}
+                href={`http://localhost:${getPort('prometheus', config.ports.prometheus)}`}
               />
             )}
-            <PortRow label="Redis" port={config.ports.redis} />
+            {svcMap.has('grafana') && (
+              <PortRow
+                label="Grafana"
+                port={getPort('grafana', config.ports.grafana)}
+                href={`http://localhost:${getPort('grafana', config.ports.grafana)}`}
+              />
+            )}
           </div>
         </div>
-
-        {/* Observability — only show when the services are present */}
-        {(svcMap.has('prometheus') || svcMap.has('grafana')) && (
-          <div className="border-t border-border/50 pt-3">
-            <div className="mb-2 text-[10px]/3 font-semibold tracking-wider text-text-disabled uppercase">
-              Observability
-            </div>
-            <div className="flex flex-col gap-0.5">
-              {svcMap.has('prometheus') && (
-                <PortRow
-                  label="Prometheus"
-                  port={getPort('prometheus', config.ports.prometheus)}
-                  href={`http://localhost:${getPort('prometheus', config.ports.prometheus)}`}
-                />
-              )}
-              {svcMap.has('grafana') && (
-                <PortRow
-                  label="Grafana"
-                  port={getPort('grafana', config.ports.grafana)}
-                  href={`http://localhost:${getPort('grafana', config.ports.grafana)}`}
-                />
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }
@@ -160,9 +140,12 @@ function PortRow({ label, port, href }: { label: string; port: number; href?: st
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-text-tertiary transition-colors hover:text-accent-light"
+      className="inline-flex items-center gap-1 text-text-tertiary transition-colors hover:text-accent-light"
     >
       {label}
+      <svg className="size-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M7 17 17 7m0 0H9m8 0v8" />
+      </svg>
     </a>
   ) : (
     <span className="text-text-tertiary">{label}</span>
