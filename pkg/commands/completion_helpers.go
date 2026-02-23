@@ -1,44 +1,9 @@
 package commands
 
 import (
-	"io"
-
-	"github.com/ethpandaops/xcli/pkg/compose"
-	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
-	"github.com/ethpandaops/xcli/pkg/orchestrator"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
-
-// completeServices returns a ValidArgsFunction that completes service names.
-// It loads the config and creates an orchestrator to get the dynamic service list.
-func completeServices(configPath string) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-	return func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
-		// Don't complete if we already have an argument (for single-arg commands)
-		if len(args) > 0 {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
-		// Create a silent logger for completion (no output)
-		log := logrus.New()
-		log.SetOutput(io.Discard)
-
-		// Try to load config - fail gracefully
-		labCfg, cfgPath, err := config.LoadLabConfig(configPath)
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
-		// Try to create orchestrator - fail gracefully
-		orch, err := orchestrator.NewOrchestrator(log, labCfg, cfgPath)
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
-		return orch.GetValidServices(), cobra.ShellCompDirectiveNoFileComp
-	}
-}
 
 // completeModes returns a ValidArgsFunction that completes mode values.
 func completeModes() func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
@@ -51,31 +16,10 @@ func completeModes() func(*cobra.Command, []string, string) ([]string, cobra.She
 	}
 }
 
-// completeRebuildProjects returns a ValidArgsFunction that completes rebuild project names.
-func completeRebuildProjects() func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-	return func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
-		if len(args) > 0 {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
-		return []string{
-			"xatu-cbt",
-			"all",
-			"cbt",
-			"cbt-api",
-			"lab-backend",
-			"lab-frontend",
-			"prometheus",
-			"grafana",
-		}, cobra.ShellCompDirectiveNoFileComp
-	}
-}
-
 // completeReleasableProjects returns a ValidArgsFunction that completes releasable project names.
 // Supports multiple arguments since release accepts multiple projects.
 func completeReleasableProjects() func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
-		// Filter out already-provided arguments
 		alreadyUsed := make(map[string]bool, len(args))
 		for _, arg := range args {
 			alreadyUsed[arg] = true
@@ -89,35 +33,5 @@ func completeReleasableProjects() func(*cobra.Command, []string, string) ([]stri
 		}
 
 		return completions, cobra.ShellCompDirectiveNoFileComp
-	}
-}
-
-// completeXatuServices returns a ValidArgsFunction that completes xatu service names.
-// It loads the xatu config, creates a compose runner, and lists available services.
-func completeXatuServices(configPath string) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-	return func(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
-		if len(args) > 0 {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
-		log := logrus.New()
-		log.SetOutput(io.Discard)
-
-		xatuCfg, _, err := config.LoadXatuConfig(configPath)
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
-		runner, err := compose.NewRunner(log, xatuCfg.Repos.Xatu, xatuCfg.Profiles, xatuCfg.EnvOverrides)
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
-		services, err := runner.ListServices(cmd.Context())
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
-		return services, cobra.ShellCompDirectiveNoFileComp
 	}
 }

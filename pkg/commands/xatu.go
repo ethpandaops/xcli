@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"github.com/ethpandaops/xcli/pkg/stack"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -39,19 +40,21 @@ Common workflows:
 Use 'xcli xatu [command] --help' for more information about a command.`,
 	}
 
-	// Add xatu subcommands
-	cmd.AddCommand(NewXatuInitCommand(log, configPath))
-	cmd.AddCommand(NewXatuCheckCommand(log, configPath))
-	cmd.AddCommand(NewXatuUpCommand(log, configPath))
-	cmd.AddCommand(NewXatuDownCommand(log, configPath))
-	cmd.AddCommand(NewXatuCleanCommand(log, configPath))
-	cmd.AddCommand(NewXatuStatusCommand(log, configPath))
-	cmd.AddCommand(NewXatuStartCommand(log, configPath))
-	cmd.AddCommand(NewXatuStopCommand(log, configPath))
-	cmd.AddCommand(NewXatuRestartCommand(log, configPath))
-	cmd.AddCommand(NewXatuLogsCommand(log, configPath))
-	cmd.AddCommand(NewXatuBuildCommand(log, configPath))
-	cmd.AddCommand(NewXatuRebuildCommand(log, configPath))
+	s := stack.NewXatuStack(log, configPath)
+
+	// All commands via shared factories
+	cmd.AddCommand(stack.NewInitCommand(s))
+	cmd.AddCommand(stack.NewCheckCommand(s))
+	cmd.AddCommand(stack.NewUpCommand(s))
+	cmd.AddCommand(stack.NewDownCommand(s))
+	cmd.AddCommand(stack.NewCleanCommand(s))
+	cmd.AddCommand(stack.NewBuildCommand(s))
+	cmd.AddCommand(stack.NewRebuildCommand(s))
+	cmd.AddCommand(stack.NewStatusCommand(s))
+	cmd.AddCommand(stack.NewLogsCommand(s))
+	cmd.AddCommand(stack.NewStartCommand(s))
+	cmd.AddCommand(stack.NewStopCommand(s))
+	cmd.AddCommand(stack.NewRestartCommand(s))
 
 	return cmd
 }

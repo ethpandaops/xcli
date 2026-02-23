@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"github.com/ethpandaops/xcli/pkg/stack"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -38,19 +39,23 @@ Common workflows:
 Use 'xcli lab [command] --help' for more information about a command.`,
 	}
 
-	// Add lab subcommands
-	cmd.AddCommand(NewLabInitCommand(log, configPath))
-	cmd.AddCommand(NewLabCheckCommand(log, configPath))
-	cmd.AddCommand(NewLabUpCommand(log, configPath))
-	cmd.AddCommand(NewLabDownCommand(log, configPath))
-	cmd.AddCommand(NewLabCleanCommand(log, configPath))
-	cmd.AddCommand(NewLabBuildCommand(log, configPath))
-	cmd.AddCommand(NewLabRebuildCommand(log, configPath))
-	cmd.AddCommand(NewLabStatusCommand(log, configPath))
-	cmd.AddCommand(NewLabLogsCommand(log, configPath))
-	cmd.AddCommand(NewLabStartCommand(log, configPath))
-	cmd.AddCommand(NewLabStopCommand(log, configPath))
-	cmd.AddCommand(NewLabRestartCommand(log, configPath))
+	s := stack.NewLabStack(log, configPath)
+
+	// Shared stack commands via factories
+	cmd.AddCommand(stack.NewInitCommand(s))
+	cmd.AddCommand(stack.NewCheckCommand(s))
+	cmd.AddCommand(stack.NewUpCommand(s))
+	cmd.AddCommand(stack.NewDownCommand(s))
+	cmd.AddCommand(stack.NewCleanCommand(s))
+	cmd.AddCommand(stack.NewBuildCommand(s))
+	cmd.AddCommand(stack.NewRebuildCommand(s))
+	cmd.AddCommand(stack.NewStatusCommand(s))
+	cmd.AddCommand(stack.NewLogsCommand(s))
+	cmd.AddCommand(stack.NewStartCommand(s))
+	cmd.AddCommand(stack.NewStopCommand(s))
+	cmd.AddCommand(stack.NewRestartCommand(s))
+
+	// Lab-only commands
 	cmd.AddCommand(NewLabModeCommand(log, configPath))
 	cmd.AddCommand(NewLabConfigCommand(log, configPath))
 	cmd.AddCommand(NewLabOverridesCommand(configPath))
