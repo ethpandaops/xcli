@@ -3,6 +3,7 @@ package commands
 import (
 	"io"
 
+	"github.com/ethpandaops/xcli/pkg/compose"
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
@@ -88,5 +89,35 @@ func completeReleasableProjects() func(*cobra.Command, []string, string) ([]stri
 		}
 
 		return completions, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+// completeXatuServices returns a ValidArgsFunction that completes xatu service names.
+// It loads the xatu config, creates a compose runner, and lists available services.
+func completeXatuServices(configPath string) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+		if len(args) > 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		log := logrus.New()
+		log.SetOutput(io.Discard)
+
+		xatuCfg, _, err := config.LoadXatuConfig(configPath)
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		runner, err := compose.NewRunner(log, xatuCfg.Repos.Xatu, xatuCfg.Profiles, xatuCfg.EnvOverrides)
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		services, err := runner.ListServices(cmd.Context())
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+
+		return services, cobra.ShellCompDirectiveNoFileComp
 	}
 }
