@@ -19,9 +19,8 @@ type Config struct {
 	// Lab stack configuration
 	Lab *LabConfig `yaml:"lab,omitempty"`
 
-	// Future stacks can be added here:
-	// Contributoor *ContributoorConfig `yaml:"contributoor,omitempty"`
-	// Xatu *XatuConfig `yaml:"xatu,omitempty"`
+	// Xatu stack configuration (docker-compose based)
+	Xatu *XatuConfig `yaml:"xatu,omitempty"`
 
 	// Workspace-level settings (optional, for future use)
 	// Workspace *WorkspaceConfig `yaml:"workspace,omitempty"`
@@ -122,6 +121,18 @@ type TUIConfig struct {
 	MaxLogLines int `yaml:"maxLogLines"`
 }
 
+// XatuConfig represents the xatu stack configuration (docker-compose based).
+type XatuConfig struct {
+	Repos        XatuReposConfig   `yaml:"repos"`
+	Profiles     []string          `yaml:"profiles,omitempty"`     // Docker compose profiles
+	EnvOverrides map[string]string `yaml:"envOverrides,omitempty"` // Override .env vars
+}
+
+// XatuReposConfig contains paths to xatu repositories.
+type XatuReposConfig struct {
+	Xatu string `yaml:"xatu"`
+}
+
 // LoadResult contains the loaded config and the resolved config file path.
 type LoadResult struct {
 	Config     *Config
@@ -160,9 +171,12 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// Future: Validate other stacks when added
-	// if c.Contributoor != nil { ... }
-	// if c.Xatu != nil { ... }
+	// Validate xatu config if present
+	if c.Xatu != nil {
+		if err := c.Xatu.Validate(); err != nil {
+			return fmt.Errorf("xatu config validation failed: %w", err)
+		}
+	}
 
 	return nil
 }
@@ -284,6 +298,52 @@ func (c *LabConfig) GetCBTFrontendPort(network string) int {
 	}
 
 	return 0
+}
+
+// Validate checks if the xatu configuration is valid.
+// Validate checks if the xatu configuration is valid.
+func (c *XatuConfig) Validate() error {
+	if c.Repos.Xatu == "" {
+		return fmt.Errorf("xatu repo path is required")
+	}
+
+	absPath, err := filepath.Abs(c.Repos.Xatu)
+	if err != nil {
+		return fmt.Errorf("invalid xatu repo path: %w", err)
+	}
+
+	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+		return fmt.Errorf("xatu repo not found at: %s", absPath)
+	}
+
+	// Check docker-compose.yml exists
+	composePath := filepath.Join(absPath, "docker-compose.yml")
+	if _, err := os.Stat(composePath); os.IsNotExist(err) {
+		return fmt.Errorf("docker-compose.yml not found in xatu repo: %s", composePath)
+	}
+
+	return nil
+}
+
+// DefaultXatu returns a xatu configuration with sensible defaults.
+func DefaultXatu() *XatuConfig {
+	return &XatuConfig{}
+}
+
+// LoadXatuConfig loads and validates xatu configuration from the config file.
+// Returns the xatu config and the config file path, or an error if loading fails
+// or if the xatu configuration is not found.
+func LoadXatuConfig(configPath string) (*XatuConfig, string, error) {
+	result, err := Load(configPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if result.Config.Xatu == nil {
+		return nil, "", fmt.Errorf("xatu configuration not found - run 'xcli xatu init' first")
+	}
+
+	return result.Config.Xatu, result.ConfigPath, nil
 }
 
 // Default returns a root configuration with sensible defaults.
