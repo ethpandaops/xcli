@@ -82,18 +82,19 @@ Examples:
   xcli xatu up --build      # Build images and start`
 
 	case "down":
-		cmd.Flags().BoolVarP(&s.downVolumes, "volumes", "v", false,
+		// No shorthand -v: conflicts with root persistent --verbose flag.
+		cmd.Flags().BoolVar(&s.downVolumes, "volumes", false,
 			"Remove named volumes")
 		cmd.Long = `Stop all running services in the xatu docker-compose stack.
 
 This runs 'docker compose down' in the xatu repository directory.
 
 Flags:
-  --volumes/-v   Remove named volumes declared in the volumes section
+  --volumes   Remove named volumes declared in the volumes section
 
 Examples:
-  xcli xatu down           # Stop all services
-  xcli xatu down -v        # Stop and remove volumes`
+  xcli xatu down              # Stop all services
+  xcli xatu down --volumes    # Stop and remove volumes`
 
 	case "clean":
 		cmd.Long = `Completely clean the xatu docker-compose stack.
