@@ -321,6 +321,7 @@ export interface DiagnosisTurn {
 }
 
 export interface CBTOverridesState {
+  defaultEnabled?: boolean;
   externalModels: ModelEntry[];
   transformationModels: ModelEntry[];
   dependencies: Record<string, string[]>;

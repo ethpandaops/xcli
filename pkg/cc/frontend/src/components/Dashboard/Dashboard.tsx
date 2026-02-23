@@ -13,6 +13,7 @@ import type {
   DiagnosisReport,
   DiagnosisTurn,
   AIProviderInfo,
+  CBTOverridesState,
 } from '@/types';
 import { useSSE } from '@/hooks/useSSE';
 import { useAPI } from '@/hooks/useAPI';
@@ -20,6 +21,8 @@ import Header from '@/components/Header';
 import ServiceCard from '@/components/ServiceCard';
 import ConfigPanel from '@/components/ConfigPanel';
 import GitStatus from '@/components/GitStatus';
+import CBTOverridesGlance from '@/components/CBTOverridesGlance';
+import SidebarSection from '@/components/SidebarSection';
 import LogViewer from '@/components/LogViewer';
 import StackProgress, { derivePhaseStates, BOOT_PHASES, STOP_PHASES } from '@/components/StackProgress';
 import Spinner from '@/components/Spinner';
@@ -103,6 +106,7 @@ function appendLine(prev: string, text: string): string {
 
 interface DashboardProps {
   onNavigateConfig?: () => void;
+  onNavigateOverrides?: () => void;
   onNavigateRedis?: () => void;
   stack: string;
   availableStacks: string[];
@@ -111,6 +115,7 @@ interface DashboardProps {
 
 export default function Dashboard({
   onNavigateConfig,
+  onNavigateOverrides,
   onNavigateRedis,
   stack,
   availableStacks,
@@ -123,6 +128,7 @@ export default function Dashboard({
   const [infrastructure, setInfrastructure] = useState<InfraInfo[]>([]);
   const [config, setConfig] = useState<ConfigInfo | null>(null);
   const [repos, setRepos] = useState<RepoInfo[]>([]);
+  const [overrides, setOverrides] = useState<CBTOverridesState | null>(null);
   const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const logsRef = useRef<LogLine[]>([]);
@@ -246,6 +252,8 @@ export default function Dashboard({
         }
       })
       .catch(console.error);
+
+    fetchJSON<CBTOverridesState>('/config/overrides').then(setOverrides).catch(console.error);
   }, [fetchJSON]);
 
   // Initial data load + periodic git refresh
@@ -642,46 +650,57 @@ export default function Dashboard({
       {infrastructure.length > 0 && (
         <>
           <div className="mt-2 text-xs/4 font-semibold tracking-wider text-text-muted uppercase">Infrastructure</div>
-          {infrastructure.map(item =>
-            item.name.toLowerCase().includes('redis') && onNavigateRedis ? (
-              <button
+          {infrastructure.map(item => {
+            const isRedis = item.name.toLowerCase().includes('redis');
+            const isUp = item.status === 'running';
+            const statusDot = isUp ? 'bg-success' : 'bg-text-disabled';
+
+            const Wrapper = isRedis && onNavigateRedis ? 'button' : 'div';
+            const wrapperProps =
+              isRedis && onNavigateRedis ? { onClick: onNavigateRedis, title: 'Open Redis Explorer' } : {};
+
+            return (
+              <Wrapper
                 key={item.name}
-                onClick={onNavigateRedis}
-                className="group flex w-full items-center justify-between rounded-sm border border-border bg-surface-light p-3 text-left transition-colors hover:border-accent/40 hover:bg-surface-lighter"
-                title="Open Redis Explorer"
+                {...wrapperProps}
+                className="group relative cursor-pointer rounded-xs px-3 py-2.5 text-left transition-colors hover:bg-hover/3"
               >
-                <span className="flex items-center gap-2">
-                  <span className="text-sm/5 font-medium text-text-primary">{item.name}</span>
+                <div className="flex items-center gap-2.5">
+                  <span className={`size-1.5 shrink-0 rounded-full ${statusDot}`} />
+                  <span className="min-w-0 flex-1 truncate text-sm/5 font-medium text-text-secondary">{item.name}</span>
+                  {isRedis && onNavigateRedis && (
+                    <svg
+                      className="size-3.5 shrink-0 text-text-disabled opacity-0 transition-all group-hover:text-accent-light group-hover:opacity-100"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M7 17 17 7m0 0H9m8 0v8" />
+                    </svg>
+                  )}
                   <svg
-                    className="size-3 text-text-muted transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-accent-light"
-                    fill="none"
+                    className={`size-3.5 shrink-0 ${isUp ? 'text-success' : 'text-text-disabled'}`}
                     viewBox="0 0 24 24"
-                    strokeWidth={2}
+                    fill="none"
                     stroke="currentColor"
+                    strokeWidth={1.5}
                   >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M7 17 17 7m0 0H9m8 0v8" />
+                    <title>{isUp ? 'Running' : item.status}</title>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d={
+                        isUp
+                          ? 'M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z'
+                          : 'M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z'
+                      }
+                    />
                   </svg>
-                </span>
-                <span
-                  className={`text-xs/4 font-medium ${item.status === 'running' ? 'text-success' : 'text-text-muted'}`}
-                >
-                  {item.status}
-                </span>
-              </button>
-            ) : (
-              <div
-                key={item.name}
-                className="flex items-center justify-between rounded-sm border border-border bg-surface-light p-3"
-              >
-                <span className="text-sm/5 font-medium text-text-primary">{item.name}</span>
-                <span
-                  className={`text-xs/4 font-medium ${item.status === 'running' ? 'text-success' : 'text-text-muted'}`}
-                >
-                  {item.status}
-                </span>
-              </div>
-            )
-          )}
+                </div>
+              </Wrapper>
+            );
+          })}
         </>
       )}
     </div>
@@ -689,8 +708,23 @@ export default function Dashboard({
 
   const rightSidebarContent = (
     <div className={`flex h-full flex-col gap-3 overflow-y-auto p-3 ${rightCollapsed ? 'invisible' : ''}`}>
-      <ConfigPanel config={config} services={services} onNavigateConfig={onNavigateConfig} />
-      <GitStatus repos={repos} />
+      <SidebarSection
+        title="Config"
+        storageKey="xcli:sidebar:config"
+        action={onNavigateConfig ? { label: 'Manage', onClick: onNavigateConfig } : undefined}
+      >
+        <ConfigPanel config={config} services={services} />
+      </SidebarSection>
+      <SidebarSection
+        title="CBT Overrides"
+        storageKey="xcli:sidebar:overrides"
+        action={onNavigateOverrides ? { label: 'Manage', onClick: onNavigateOverrides } : undefined}
+      >
+        <CBTOverridesGlance overrides={overrides} />
+      </SidebarSection>
+      <SidebarSection title="Git Status" storageKey="xcli:sidebar:git" defaultOpen={false}>
+        <GitStatus repos={repos} />
+      </SidebarSection>
     </div>
   );
 
