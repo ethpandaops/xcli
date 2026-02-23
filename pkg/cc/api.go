@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethpandaops/xcli/pkg/ai"
 	"github.com/ethpandaops/xcli/pkg/config"
-	"github.com/ethpandaops/xcli/pkg/diagnostic"
 	"github.com/ethpandaops/xcli/pkg/git"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
 	"github.com/ethpandaops/xcli/pkg/tui"
@@ -48,20 +48,22 @@ type stackState struct {
 
 // apiHandler holds dependencies for REST API handlers.
 type apiHandler struct {
-	log          logrus.FieldLogger
-	wrapper      *tui.OrchestratorWrapper
-	health       *tui.HealthMonitor
-	orch         *orchestrator.Orchestrator
-	redis        *RedisAdmin
-	labCfg       *config.LabConfig
-	cfgPath      string
-	gitChk       *git.Checker
-	claude       *diagnostic.ClaudeClient
-	logHistoryFn func(service string) []string
-	sseHub       *SSEHub
-	stack        stackState
-	gitCache     gitCache
-	mu           sync.RWMutex
+	log               logrus.FieldLogger
+	wrapper           *tui.OrchestratorWrapper
+	health            *tui.HealthMonitor
+	orch              *orchestrator.Orchestrator
+	redis             *RedisAdmin
+	labCfg            *config.LabConfig
+	cfgPath           string
+	gitChk            *git.Checker
+	aiDefaultProvider ai.ProviderID
+	diagnoseSessions  map[string]*diagnoseSession
+	diagnoseMu        sync.Mutex
+	logHistoryFn      func(service string) []string
+	sseHub            *SSEHub
+	stack             stackState
+	gitCache          gitCache
+	mu                sync.RWMutex
 }
 
 // statusResponse is the full dashboard snapshot.

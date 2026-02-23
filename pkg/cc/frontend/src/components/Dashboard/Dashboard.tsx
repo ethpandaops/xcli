@@ -10,7 +10,9 @@ import type {
   HealthStatus,
   StackStatus,
   StackProgressEvent,
-  AIDiagnosis,
+  DiagnosisReport,
+  DiagnosisTurn,
+  AIProviderInfo,
   CBTOverridesState,
 } from '@/types';
 import { useSSE } from '@/hooks/useSSE';
@@ -79,6 +81,29 @@ function persistPanelWidth(key: string, widthPx: number) {
   }
 }
 
+function createRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `req-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function normalizeDiagnosis(report: DiagnosisReport): DiagnosisReport {
+  return {
+    rootCause: report.rootCause ?? '',
+    explanation: report.explanation ?? '',
+    affectedFiles: Array.isArray(report.affectedFiles) ? report.affectedFiles : [],
+    suggestions: Array.isArray(report.suggestions) ? report.suggestions : [],
+    fixCommands: Array.isArray(report.fixCommands) ? report.fixCommands : [],
+  };
+}
+
+function appendLine(prev: string, text: string): string {
+  if (text.trim() === '') return prev;
+  return prev + (text.endsWith('\n') ? text : `${text}\n`);
+}
+
 interface DashboardProps {
   onNavigateConfig?: () => void;
   onNavigateOverrides?: () => void;
@@ -96,7 +121,8 @@ export default function Dashboard({
   availableStacks,
   onSwitchStack,
 }: DashboardProps) {
-  const { fetchJSON, postJSON, postDiagnose } = useAPI(stack);
+  const { fetchJSON, postJSON, postDiagnoseStart, postDiagnoseMessage, postDiagnoseInterrupt, deleteDiagnoseSession } =
+    useAPI(stack);
   const { notify, enabled: notificationsEnabled, toggle: toggleNotifications } = useNotifications();
   const [services, setServices] = useState<ServiceInfo[]>([]);
   const [infrastructure, setInfrastructure] = useState<InfraInfo[]>([]);
@@ -118,10 +144,31 @@ export default function Dashboard({
   const rightPanelRef = useRef<PanelImperativeHandle | null>(null);
   const leftDefaultDesktopPx = leftCollapsed ? sidebarCollapsedPx : leftExpandedPxRef.current;
   const rightDefaultDesktopPx = rightCollapsed ? sidebarCollapsedPx : rightExpandedPxRef.current;
-  const [diagnoseAvailable, setDiagnoseAvailable] = useState(false);
-  const [diagnosing, setDiagnosing] = useState<string | null>(null);
-  const [diagnosis, setDiagnosis] = useState<AIDiagnosis | null>(null);
+  const [providers, setProviders] = useState<AIProviderInfo[]>([]);
+  const [selectedProvider, setSelectedProvider] = useState<string>('claude');
+  const [diagnoseService, setDiagnoseService] = useState<string | null>(null);
+  const [diagnoseSessionId, setDiagnoseSessionId] = useState<string | null>(null);
+  const [diagnoseRequestId, setDiagnoseRequestId] = useState<string | null>(null);
+  const [diagnosing, setDiagnosing] = useState(false);
+  const [diagnosis, setDiagnosis] = useState<DiagnosisReport | null>(null);
   const [diagnosisError, setDiagnosisError] = useState<string | null>(null);
+  const [thinkingText, setThinkingText] = useState('');
+  const [answerText, setAnswerText] = useState('');
+  const [activityText, setActivityText] = useState('');
+  const [completedTurns, setCompletedTurns] = useState<DiagnosisTurn[]>([]);
+  const [currentTurnPrompt, setCurrentTurnPrompt] = useState<string | undefined>(undefined);
+  const diagnoseAvailable = providers.some(provider => provider.available);
+  const selectedProviderInfo = providers.find(provider => provider.id === selectedProvider);
+  const diagnoseSessionRef = useRef<string | null>(null);
+  const diagnoseRequestRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    diagnoseSessionRef.current = diagnoseSessionId;
+  }, [diagnoseSessionId]);
+
+  useEffect(() => {
+    diagnoseRequestRef.current = diagnoseRequestId;
+  }, [diagnoseRequestId]);
 
   useEffect(() => {
     try {
@@ -302,6 +349,92 @@ export default function Dashboard({
 
           break;
         }
+        case 'diagnose_stream': {
+          const evt = data as {
+            sessionId?: string;
+            requestId?: string;
+            kind?: string;
+            text?: string;
+            eventType?: string;
+          };
+          if (!evt.sessionId) break;
+          if (diagnoseSessionRef.current && evt.sessionId !== diagnoseSessionRef.current) break;
+          if (!evt.requestId || evt.requestId !== diagnoseRequestRef.current) break;
+
+          if (evt.kind === 'thinking') {
+            setThinkingText(prev => prev + (evt.text ?? ''));
+          } else if (evt.kind === 'meta') {
+            const msg = evt.text?.trim() || evt.eventType || 'activity';
+            setActivityText(prev => appendLine(prev, msg));
+          } else {
+            setAnswerText(prev => prev + (evt.text ?? ''));
+          }
+          break;
+        }
+        case 'diagnose_started': {
+          const evt = data as {
+            sessionId?: string;
+            requestId?: string;
+          };
+          if (!evt.sessionId) break;
+          if (diagnoseSessionRef.current && evt.sessionId !== diagnoseSessionRef.current) break;
+          if (!evt.requestId || evt.requestId !== diagnoseRequestRef.current) break;
+          setDiagnosing(true);
+          break;
+        }
+        case 'diagnose_result': {
+          const evt = data as {
+            sessionId?: string;
+            requestId?: string;
+            rawText?: string;
+            diagnosis?: DiagnosisReport;
+          };
+          if (!evt.sessionId) break;
+          if (diagnoseSessionRef.current && evt.sessionId !== diagnoseSessionRef.current) break;
+          if (!evt.requestId || evt.requestId !== diagnoseRequestRef.current) break;
+
+          if (evt.diagnosis && evt.diagnosis.rootCause && evt.diagnosis.rootCause !== 'See explanation below') {
+            setDiagnosis(normalizeDiagnosis(evt.diagnosis));
+          }
+          if (evt.rawText && evt.rawText.trim() !== '') {
+            setAnswerText(prev => (prev.trim() !== '' ? prev : (evt.rawText ?? '')));
+          }
+
+          setDiagnosing(false);
+          break;
+        }
+        case 'diagnose_error': {
+          const evt = data as {
+            sessionId?: string;
+            requestId?: string;
+            error?: string;
+          };
+          if (!evt.sessionId) break;
+          if (diagnoseSessionRef.current && evt.sessionId !== diagnoseSessionRef.current) break;
+          if (!evt.requestId || evt.requestId !== diagnoseRequestRef.current) break;
+
+          setDiagnosisError(evt.error ?? 'Diagnosis failed');
+          setDiagnosing(false);
+          break;
+        }
+        case 'diagnose_interrupted': {
+          const evt = data as {
+            sessionId?: string;
+          };
+          if (!evt.sessionId || evt.sessionId !== diagnoseSessionRef.current) break;
+          setDiagnosing(false);
+          break;
+        }
+        case 'diagnose_session_closed': {
+          const evt = data as {
+            sessionId?: string;
+          };
+          if (!evt.sessionId || evt.sessionId !== diagnoseSessionRef.current) break;
+          setDiagnoseSessionId(null);
+          setDiagnoseRequestId(null);
+          setDiagnosing(false);
+          break;
+        }
       }
     },
     [notify]
@@ -364,32 +497,118 @@ export default function Dashboard({
     postJSON<{ status: string }>(endpoint).catch(console.error);
   }, [stackStatus, postJSON]);
 
-  // Check if Claude CLI is available on mount
   useEffect(() => {
-    fetchJSON<{ available: boolean }>('/diagnose/available')
-      .then(data => setDiagnoseAvailable(data.available))
-      .catch(() => setDiagnoseAvailable(false));
+    fetchJSON<AIProviderInfo[]>('/ai/providers')
+      .then(data => {
+        setProviders(data);
+        const preferred = data.find(p => p.default && p.available) ?? data.find(p => p.available) ?? data[0];
+        if (preferred) {
+          setSelectedProvider(preferred.id);
+        }
+      })
+      .catch(() => {
+        setProviders([]);
+      });
   }, [fetchJSON]);
 
   const handleDiagnose = useCallback(
     (serviceName: string) => {
-      setDiagnosing(serviceName);
+      const provider = selectedProvider || 'claude';
+      const requestId = createRequestId();
+
+      setDiagnoseService(serviceName);
+      setDiagnoseRequestId(requestId);
+      setDiagnoseSessionId(null);
+      setDiagnosing(true);
       setDiagnosis(null);
       setDiagnosisError(null);
+      setThinkingText('');
+      setAnswerText('');
+      setActivityText('');
+      setCompletedTurns([]);
+      setCurrentTurnPrompt(undefined);
 
-      postDiagnose<AIDiagnosis>(serviceName)
-        .then(data => setDiagnosis(data))
-        .catch(err => setDiagnosisError(err instanceof Error ? err.message : String(err)))
-        .finally(() => setDiagnosing(null));
+      postDiagnoseStart<{ sessionId: string; requestId: string }>(serviceName, {
+        provider,
+        requestId,
+      })
+        .then(data => {
+          setDiagnoseSessionId(data.sessionId);
+        })
+        .catch(err => {
+          setDiagnosisError(err instanceof Error ? err.message : String(err));
+          setDiagnosing(false);
+        });
     },
-    [postDiagnose]
+    [postDiagnoseStart, selectedProvider]
   );
 
+  const handleDiagnoseFollowUp = useCallback(
+    (prompt: string) => {
+      if (!diagnoseService || !diagnoseSessionId) return;
+
+      const requestId = createRequestId();
+      setDiagnoseRequestId(requestId);
+      setCompletedTurns(prev => [
+        ...prev,
+        { prompt: currentTurnPrompt, thinking: thinkingText, activity: activityText, answer: answerText },
+      ]);
+      setCurrentTurnPrompt(prompt);
+      setDiagnosing(true);
+      setDiagnosis(null);
+      setDiagnosisError(null);
+      setThinkingText('');
+      setAnswerText('');
+      setActivityText('');
+
+      postDiagnoseMessage<{ sessionId: string }>(diagnoseService, {
+        sessionId: diagnoseSessionId,
+        provider: selectedProvider,
+        prompt,
+        requestId,
+      }).catch(err => {
+        setDiagnosisError(err instanceof Error ? err.message : String(err));
+        setDiagnosing(false);
+      });
+    },
+    [
+      activityText,
+      answerText,
+      currentTurnPrompt,
+      diagnoseService,
+      diagnoseSessionId,
+      postDiagnoseMessage,
+      selectedProvider,
+      thinkingText,
+    ]
+  );
+
+  const handleDiagnoseInterrupt = useCallback(() => {
+    if (!diagnoseService || !diagnoseSessionId) return;
+
+    postDiagnoseInterrupt<{ status: string }>(diagnoseService, {
+      sessionId: diagnoseSessionId,
+      requestId: diagnoseRequestId,
+    }).catch(err => setDiagnosisError(err instanceof Error ? err.message : String(err)));
+  }, [diagnoseRequestId, diagnoseService, diagnoseSessionId, postDiagnoseInterrupt]);
+
   const handleCloseDiagnosis = useCallback(() => {
-    setDiagnosing(null);
+    if (diagnoseService && diagnoseSessionId) {
+      deleteDiagnoseSession(diagnoseService, diagnoseSessionId).catch(() => undefined);
+    }
+
+    setDiagnoseService(null);
+    setDiagnoseSessionId(null);
+    setDiagnoseRequestId(null);
+    setDiagnosing(false);
     setDiagnosis(null);
     setDiagnosisError(null);
-  }, []);
+    setThinkingText('');
+    setAnswerText('');
+    setActivityText('');
+    setCompletedTurns([]);
+    setCurrentTurnPrompt(undefined);
+  }, [deleteDiagnoseSession, diagnoseService, diagnoseSessionId]);
 
   const handleLeftPanelResize = useCallback(
     (panelSize: PanelSize) => {
@@ -706,15 +925,28 @@ export default function Dashboard({
       </div>
 
       {/* Diagnosis modal */}
-      {(diagnosing || diagnosis || diagnosisError) && (
+      {(diagnoseService || diagnosis || diagnosisError || diagnosing) && (
         <DiagnosisPanel
-          serviceName={diagnosing ?? ''}
+          serviceName={diagnoseService ?? ''}
+          providers={providers}
+          selectedProvider={selectedProvider}
+          onProviderChange={setSelectedProvider}
+          sessionId={diagnoseSessionId}
+          thinkingText={thinkingText}
+          activityText={activityText}
+          answerText={answerText}
+          completedTurns={completedTurns}
+          currentTurnPrompt={currentTurnPrompt}
           diagnosis={diagnosis}
           error={diagnosisError}
-          loading={diagnosing !== null}
+          loading={diagnosing}
+          canInterrupt={!!selectedProviderInfo?.capabilities.interrupt}
+          canInteract={!!selectedProviderInfo?.capabilities.sessions}
+          onInterrupt={handleDiagnoseInterrupt}
+          onSendFollowUp={handleDiagnoseFollowUp}
           onClose={handleCloseDiagnosis}
           onRetry={() => {
-            if (diagnosing) handleDiagnose(diagnosing);
+            if (diagnoseService) handleDiagnose(diagnoseService);
           }}
         />
       )}

@@ -94,6 +94,20 @@ export interface StackProgressEvent {
   message: string;
 }
 
+export interface ProviderCapabilities {
+  streaming: boolean;
+  interrupt: boolean;
+  sessions: boolean;
+}
+
+export interface AIProviderInfo {
+  id: string;
+  label: string;
+  default: boolean;
+  available: boolean;
+  capabilities: ProviderCapabilities;
+}
+
 export type RedisValueMode = 'text' | 'base64';
 
 export interface RedisEncodedValue {
@@ -289,12 +303,21 @@ export interface StackInfo {
   status?: string;
 }
 
-export interface AIDiagnosis {
+export interface DiagnosisReport {
   rootCause: string;
   explanation: string;
   affectedFiles: string[];
   suggestions: string[];
   fixCommands: string[];
+}
+
+export type AIDiagnosis = DiagnosisReport;
+
+export interface DiagnosisTurn {
+  prompt?: string;
+  thinking: string;
+  activity: string;
+  answer: string;
 }
 
 export interface CBTOverridesState {

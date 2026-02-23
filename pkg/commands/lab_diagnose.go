@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/ethpandaops/xcli/pkg/ai"
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/diagnostic"
 	"github.com/ethpandaops/xcli/pkg/ui"
@@ -13,9 +14,11 @@ import (
 
 // NewLabDiagnoseCommand creates the lab diagnose command.
 func NewLabDiagnoseCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
-	var useAI bool
-
-	var reportID string
+	var (
+		useAI    bool
+		provider string
+		reportID string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "diagnose",
@@ -75,16 +78,22 @@ Examples:
 
 			// Try AI diagnosis if requested
 			if useAI {
-				client, clientErr := diagnostic.NewClaudeClient(log)
-				if clientErr != nil {
-					ui.Warning("Claude Code not available: " + clientErr.Error())
+				engine, engineErr := ai.NewEngine(ai.ProviderID(provider), log)
+				if engineErr != nil {
+					ui.Warning("AI provider is not available: " + engineErr.Error())
+					ui.Info("Falling back to pattern matching...")
+
+					useAI = false
+				} else if !engine.IsAvailable() {
+					ui.Warning(fmt.Sprintf("AI provider %q is not available", provider))
 					ui.Info("Falling back to pattern matching...")
 
 					useAI = false
 				} else {
-					spinner := ui.NewSpinner("Analyzing with Claude Code...")
+					spinner := ui.NewSpinner(fmt.Sprintf("Analyzing with %s...", provider))
+					prompt := diagnostic.BuildReportPrompt(report)
 
-					diagnosis, diagErr := client.Diagnose(cmd.Context(), report)
+					response, diagErr := engine.Ask(cmd.Context(), prompt)
 					if diagErr != nil {
 						spinner.Fail("AI diagnosis failed")
 						ui.Warning(diagErr.Error())
@@ -92,6 +101,8 @@ Examples:
 
 						useAI = false
 					} else {
+						diagnosis := diagnostic.ParseDiagnosisResponse(response)
+
 						spinner.Success("Analysis complete")
 						ui.DisplayAIDiagnosis(diagnosis)
 
@@ -116,7 +127,8 @@ Examples:
 		},
 	}
 
-	cmd.Flags().BoolVar(&useAI, "ai", false, "Use Claude Code for AI-powered diagnosis")
+	cmd.Flags().BoolVar(&useAI, "ai", false, "Use AI for diagnosis")
+	cmd.Flags().StringVar(&provider, "provider", string(ai.DefaultProvider), "AI provider to use")
 	cmd.Flags().StringVar(&reportID, "id", "", "Diagnose specific report by ID")
 
 	return cmd

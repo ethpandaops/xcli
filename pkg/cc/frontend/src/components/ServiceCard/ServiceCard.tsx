@@ -119,7 +119,7 @@ export default function ServiceCard({
                 onDiagnose();
               }}
               className="shrink-0 rounded-xs p-0.5 text-text-disabled opacity-0 transition-all group-hover:opacity-100 hover:text-accent-light"
-              title="Diagnose with Claude"
+              title="Diagnose with AI"
             >
               <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
                 <path
