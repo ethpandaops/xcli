@@ -158,7 +158,7 @@ export default function DiagnosisPanel({
                 </div>
               )}
 
-              {loading && !isEmpty && <Spinner text="Streaming..." centered />}
+              {loading && !isEmpty && !hasCurrentContent && <Spinner text="Streaming..." centered />}
 
               {thinkingText && (
                 <div className="mb-3">
