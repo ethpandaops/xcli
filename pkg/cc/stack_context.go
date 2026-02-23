@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethpandaops/xcli/pkg/ai"
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
-	"github.com/ethpandaops/xcli/pkg/diagnostic"
 	"github.com/ethpandaops/xcli/pkg/git"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
 	"github.com/ethpandaops/xcli/pkg/tui"
@@ -54,16 +54,6 @@ func newStackContext(
 	logStreamer := tui.NewLogStreamer()
 	sseHub := NewSSEHub(l)
 
-	// Create Claude client (nil if binary not found — non-fatal)
-	var claude *diagnostic.ClaudeClient
-
-	claudeClient, err := diagnostic.NewClaudeClient(l)
-	if err != nil {
-		l.WithError(err).Debug("Claude CLI not available, diagnose feature disabled")
-	} else {
-		claude = claudeClient
-	}
-
 	sc := &stackContext{
 		name:   name,
 		label:  label,
@@ -74,14 +64,15 @@ func newStackContext(
 	}
 
 	sc.api = &apiHandler{
-		log:     l,
-		wrapper: wrapper,
-		health:  healthMon,
-		orch:    orch,
-		labCfg:  labCfg,
-		cfgPath: cfgPath,
-		gitChk:  gitChk,
-		claude:  claude,
+		log:               l,
+		wrapper:           wrapper,
+		health:            healthMon,
+		orch:              orch,
+		labCfg:            labCfg,
+		cfgPath:           cfgPath,
+		gitChk:            gitChk,
+		aiDefaultProvider: ai.DefaultProvider,
+		diagnoseSessions:  make(map[string]*diagnoseSession, 8),
 		logHistoryFn: func(service string) []string {
 			sc.logHistoryMu.RLock()
 			defer sc.logHistoryMu.RUnlock()
@@ -118,6 +109,7 @@ func (sc *stackContext) Start(ctx context.Context, wg *sync.WaitGroup) {
 
 // Stop shuts down the SSE hub, health monitor, and log streamer.
 func (sc *stackContext) Stop() {
+	sc.api.closeDiagnoseSessions()
 	sc.sseHub.Stop()
 	sc.health.Stop()
 	sc.logs.Stop()

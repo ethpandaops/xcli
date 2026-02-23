@@ -153,6 +153,39 @@ export const stacksHandlers = [
   }),
 ];
 
+// --- AI Providers & Diagnose ---
+
+export const aiHandlers = [
+  http.get('/api/stacks/:stack/ai/providers', async () => {
+    await delay(50);
+    return HttpResponse.json([
+      {
+        id: 'claude',
+        label: 'Claude',
+        default: true,
+        available: true,
+        capabilities: { streaming: true, interrupt: true, sessions: true },
+      },
+    ]);
+  }),
+  http.post('/api/stacks/:stack/services/:name/diagnose/start', async () => {
+    await delay(100);
+    return HttpResponse.json({ sessionId: 'sess-storybook', requestId: 'req-storybook', provider: 'claude' });
+  }),
+  http.post('/api/stacks/:stack/services/:name/diagnose/message', async () => {
+    await delay(100);
+    return HttpResponse.json({ sessionId: 'sess-storybook', requestId: 'req-storybook', provider: 'claude' });
+  }),
+  http.post('/api/stacks/:stack/services/:name/diagnose/interrupt', async () => {
+    await delay(50);
+    return HttpResponse.json({ status: 'interrupted', sessionId: 'sess-storybook', requestId: 'req-storybook' });
+  }),
+  http.delete('/api/stacks/:stack/services/:name/diagnose/session/:session', async () => {
+    await delay(50);
+    return HttpResponse.json({ status: 'closed', sessionId: 'sess-storybook' });
+  }),
+];
+
 // --- All Handlers ---
 
 export const allHandlers = [
@@ -166,4 +199,5 @@ export const allHandlers = [
   ...cbtOverridesHandlers,
   ...configRegenerateHandlers,
   ...stacksHandlers,
+  ...aiHandlers,
 ];

@@ -103,28 +103,74 @@ export function useAPI(stack: string) {
   );
 
   const postDiagnose = useCallback(
-    async <T>(service: string): Promise<T> => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 150000);
-
-      try {
-        const res = await fetch(`${prefix}/services/${encodeURIComponent(service)}/diagnose`, {
+    async <T>(service: string, provider: string): Promise<T> => {
+      return requestJSON<T>(
+        `/services/${encodeURIComponent(service)}/diagnose?provider=${encodeURIComponent(provider)}`,
+        {
           method: 'POST',
-          signal: controller.signal,
-        });
-
-        if (!res.ok) {
-          const errBody = await res.json().catch(() => ({ error: res.statusText }));
-          throw new Error((errBody as { error?: string }).error ?? 'Diagnosis failed');
         }
-
-        return res.json() as Promise<T>;
-      } finally {
-        clearTimeout(timeout);
-      }
+      );
     },
-    [prefix]
+    [requestJSON]
   );
 
-  return { fetchJSON, postAction, putJSON, postJSON, deleteAction, deleteJSON, requestJSON, postDiagnose };
+  const postDiagnoseStart = useCallback(
+    async <T>(service: string, body: unknown): Promise<T> => {
+      return requestJSON<T>(`/services/${encodeURIComponent(service)}/diagnose/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    },
+    [requestJSON]
+  );
+
+  const postDiagnoseMessage = useCallback(
+    async <T>(service: string, body: unknown): Promise<T> => {
+      return requestJSON<T>(`/services/${encodeURIComponent(service)}/diagnose/message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    },
+    [requestJSON]
+  );
+
+  const postDiagnoseInterrupt = useCallback(
+    async <T>(service: string, body: unknown): Promise<T> => {
+      return requestJSON<T>(`/services/${encodeURIComponent(service)}/diagnose/interrupt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    },
+    [requestJSON]
+  );
+
+  const deleteDiagnoseSession = useCallback(
+    async <T>(service: string, sessionId: string): Promise<T> => {
+      return requestJSON<T>(
+        `/services/${encodeURIComponent(service)}/diagnose/session/${encodeURIComponent(sessionId)}`,
+        {
+          method: 'DELETE',
+        }
+      );
+    },
+    [requestJSON]
+  );
+
+  return {
+    fetchJSON,
+    postAction,
+    putJSON,
+    postJSON,
+    deleteAction,
+    deleteJSON,
+    requestJSON,
+    postDiagnose,
+    postDiagnoseStart,
+    postDiagnoseMessage,
+    postDiagnoseInterrupt,
+    deleteDiagnoseSession,
+  };
 }

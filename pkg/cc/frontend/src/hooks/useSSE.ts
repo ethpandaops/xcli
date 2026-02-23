@@ -34,6 +34,12 @@ export function useSSE(handler: SSEHandler, onConnect: (() => void) | undefined,
     es.addEventListener('stack_stopped', onEvent('stack_stopped'));
     es.addEventListener('stack_error', onEvent('stack_error'));
     es.addEventListener('stack_stopping', onEvent('stack_stopping'));
+    es.addEventListener('diagnose_started', onEvent('diagnose_started'));
+    es.addEventListener('diagnose_stream', onEvent('diagnose_stream'));
+    es.addEventListener('diagnose_result', onEvent('diagnose_result'));
+    es.addEventListener('diagnose_error', onEvent('diagnose_error'));
+    es.addEventListener('diagnose_interrupted', onEvent('diagnose_interrupted'));
+    es.addEventListener('diagnose_session_closed', onEvent('diagnose_session_closed'));
 
     es.onerror = () => {
       es.close();

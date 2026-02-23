@@ -349,9 +349,29 @@ func (s *Server) registerStackRoutes(
 		}))
 
 	// Diagnosis
+	mux.HandleFunc("GET "+prefix+"/ai/providers",
+		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
+			sc.api.handleGetAIProviders(w, r)
+		}))
 	mux.HandleFunc("POST "+prefix+"/services/{name}/diagnose",
 		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
 			sc.api.handlePostDiagnose(w, r)
+		}))
+	mux.HandleFunc("POST "+prefix+"/services/{name}/diagnose/start",
+		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
+			sc.api.handlePostDiagnoseStart(w, r)
+		}))
+	mux.HandleFunc("POST "+prefix+"/services/{name}/diagnose/message",
+		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
+			sc.api.handlePostDiagnoseMessage(w, r)
+		}))
+	mux.HandleFunc("POST "+prefix+"/services/{name}/diagnose/interrupt",
+		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
+			sc.api.handlePostDiagnoseInterrupt(w, r)
+		}))
+	mux.HandleFunc("DELETE "+prefix+"/services/{name}/diagnose/session/{session}",
+		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
+			sc.api.handleDeleteDiagnoseSession(w, r)
 		}))
 	mux.HandleFunc("GET "+prefix+"/diagnose/available",
 		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
