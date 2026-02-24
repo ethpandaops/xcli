@@ -25,7 +25,6 @@ export function useSSE(handler: SSEHandler, onConnect: (() => void) | undefined,
     };
 
     es.addEventListener('services', onEvent('services'));
-    es.addEventListener('infrastructure', onEvent('infrastructure'));
     es.addEventListener('health', onEvent('health'));
     es.addEventListener('log', onEvent('log'));
     es.addEventListener('stack_progress', onEvent('stack_progress'));

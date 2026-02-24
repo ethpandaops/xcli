@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { fn } from 'storybook/test';
 import Header from './Header';
-import { mockServices, mockInfrastructure } from '@/stories/fixtures';
+import { mockServices } from '@/stories/fixtures';
 
 const meta = {
   title: 'Components/Header',
@@ -15,7 +15,6 @@ const meta = {
   ],
   args: {
     services: mockServices,
-    infrastructure: mockInfrastructure,
     stackStatus: 'stopped',
     onStackAction: fn(),
     notificationsEnabled: true,

@@ -1,6 +1,5 @@
 import type {
   ServiceInfo,
-  InfraInfo,
   RepoInfo,
   LogLine,
   ConfigInfo,
@@ -66,13 +65,6 @@ export const mockServices: ServiceInfo[] = [
     health: 'healthy',
     logFile: '',
   },
-];
-
-// --- Infrastructure ---
-
-export const mockInfrastructure: InfraInfo[] = [
-  { name: 'clickhouse-cbt', status: 'running', type: 'clickhouse' },
-  { name: 'redis', status: 'running', type: 'redis' },
 ];
 
 // --- Repos ---
@@ -340,7 +332,6 @@ export const mockGitResponse: GitResponse = {
 
 export const mockStatusResponse: StatusResponse = {
   services: mockServices,
-  infrastructure: mockInfrastructure,
   config: mockConfig,
   timestamp: new Date().toISOString(),
 };

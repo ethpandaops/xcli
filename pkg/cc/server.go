@@ -12,6 +12,7 @@ import (
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/git"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
+	"github.com/ethpandaops/xcli/pkg/tui"
 	"github.com/sirupsen/logrus"
 )
 
@@ -28,8 +29,9 @@ type Server struct {
 
 // stackInfoResponse describes an available stack for the frontend switcher.
 type stackInfoResponse struct {
-	Name  string `json:"name"`
-	Label string `json:"label"`
+	Name         string            `json:"name"`
+	Label        string            `json:"label"`
+	Capabilities StackCapabilities `json:"capabilities"`
 }
 
 // NewServer creates a new Command Center server from the full config.
@@ -58,14 +60,34 @@ func NewServer(
 			)
 		}
 
-		s.stacks["lab"] = newStackContext(
-			l, "lab", "Lab", orch, cfg.Lab, cfgPath, gitChk,
-		)
+		backend := newLabBackend(l, orch, cfg.Lab, cfgPath, gitChk)
+		wrapper := tui.NewOrchestratorWrapper(orch)
+		healthMon := tui.NewHealthMonitor(wrapper)
+		redisAdmin := newRedisAdmin(l, backend.RedisAddr)
+
+		sc := newStackContext(l, backend, healthMon, redisAdmin)
+		sc.api.gitChk = gitChk
+
+		s.stacks["lab"] = sc
+	}
+
+	if cfg.Xatu != nil {
+		backend, err := newXatuBackend(l, cfg.Xatu, cfgPath, gitChk)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to create xatu backend: %w", err,
+			)
+		}
+
+		sc := newStackContext(l, backend, nil, nil)
+		sc.api.gitChk = gitChk
+
+		s.stacks["xatu"] = sc
 	}
 
 	if len(s.stacks) == 0 {
 		return nil, fmt.Errorf(
-			"no stacks configured — need at least a lab section",
+			"no stacks configured — need at least a lab or xatu section",
 		)
 	}
 
@@ -159,8 +181,9 @@ func (s *Server) handleGetStacks(
 
 	for _, sc := range s.stacks {
 		stacks = append(stacks, stackInfoResponse{
-			Name:  sc.name,
-			Label: sc.label,
+			Name:         sc.name,
+			Label:        sc.label,
+			Capabilities: sc.backend.Capabilities(),
 		})
 	}
 
@@ -220,10 +243,6 @@ func (s *Server) registerStackRoutes(
 	mux.HandleFunc("GET "+prefix+"/services",
 		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
 			sc.api.handleGetServices(w, r)
-		}))
-	mux.HandleFunc("GET "+prefix+"/infrastructure",
-		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {
-			sc.api.handleGetInfrastructure(w, r)
 		}))
 	mux.HandleFunc("GET "+prefix+"/git",
 		sh(func(sc *stackContext, w http.ResponseWriter, r *http.Request) {

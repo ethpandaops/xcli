@@ -14,9 +14,7 @@ import (
 	"time"
 
 	"github.com/ethpandaops/xcli/pkg/ai"
-	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/git"
-	"github.com/ethpandaops/xcli/pkg/orchestrator"
 	"github.com/ethpandaops/xcli/pkg/tui"
 	"github.com/sirupsen/logrus"
 )
@@ -39,7 +37,7 @@ type stackProgressEvent struct {
 
 // stackState tracks background stack operations to prevent concurrent boots/stops.
 type stackState struct {
-	status         string               // "idle", "starting", "stopping"
+	status         string               // "idle", "starting", "running", "stopping"
 	lastError      string               // last boot/stop error, cleared on next operation
 	cancelBoot     context.CancelFunc   // cancels the in-progress boot context; nil when not booting
 	progressEvents []stackProgressEvent // accumulated progress events for the current operation
@@ -49,12 +47,8 @@ type stackState struct {
 // apiHandler holds dependencies for REST API handlers.
 type apiHandler struct {
 	log               logrus.FieldLogger
-	wrapper           *tui.OrchestratorWrapper
-	health            *tui.HealthMonitor
-	orch              *orchestrator.Orchestrator
+	backend           StackBackend
 	redis             *RedisAdmin
-	labCfg            *config.LabConfig
-	cfgPath           string
 	gitChk            *git.Checker
 	aiDefaultProvider ai.ProviderID
 	diagnoseSessions  map[string]*diagnoseSession
@@ -68,10 +62,9 @@ type apiHandler struct {
 
 // statusResponse is the full dashboard snapshot.
 type statusResponse struct {
-	Services       []serviceResponse `json:"services"`
-	Infrastructure []infraResponse   `json:"infrastructure"`
-	Config         configResponse    `json:"config"`
-	Timestamp      time.Time         `json:"timestamp"`
+	Services  []serviceResponse `json:"services"`
+	Config    any               `json:"config"`
+	Timestamp time.Time         `json:"timestamp"`
 }
 
 // serviceResponse represents a service with merged health info.
@@ -84,13 +77,6 @@ type serviceResponse struct {
 	Ports   []int  `json:"ports"`
 	Health  string `json:"health"`
 	LogFile string `json:"logFile"`
-}
-
-// infraResponse represents infrastructure status.
-type infraResponse struct {
-	Name   string `json:"name"`
-	Status string `json:"status"`
-	Type   string `json:"type"`
 }
 
 // configResponse is a sanitized view of the lab configuration.
@@ -139,41 +125,22 @@ type repoInfo struct {
 	Error            string `json:"error,omitempty"`
 }
 
-// recreateOrchestrator rebuilds the orchestrator with the current config.
-// This is needed after config changes (e.g. mode switch) so the orchestrator
-// picks up the new mode, ports, etc. Must be called with a.mu held for writing.
-func (a *apiHandler) recreateOrchestrator() error {
-	newOrch, err := orchestrator.NewOrchestrator(a.log, a.labCfg, a.cfgPath)
-	if err != nil {
-		return fmt.Errorf("failed to recreate orchestrator: %w", err)
-	}
-
-	a.orch = newOrch
-	a.wrapper.SetOrchestrator(newOrch)
-
-	return nil
-}
-
 // handleGetStatus returns the full dashboard snapshot.
-func (a *apiHandler) handleGetStatus(w http.ResponseWriter, _ *http.Request) {
+func (a *apiHandler) handleGetStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
 	resp := statusResponse{
-		Services:       a.getServicesData(),
-		Infrastructure: a.getInfraData(),
-		Config:         a.getConfigData(),
-		Timestamp:      time.Now(),
+		Services:  a.backend.GetServices(ctx),
+		Config:    a.backend.GetConfigSummary(),
+		Timestamp: time.Now(),
 	}
 
 	writeJSON(w, http.StatusOK, resp)
 }
 
 // handleGetServices returns all services with health info.
-func (a *apiHandler) handleGetServices(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, a.getServicesData())
-}
-
-// handleGetInfrastructure returns infrastructure status.
-func (a *apiHandler) handleGetInfrastructure(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, a.getInfraData())
+func (a *apiHandler) handleGetServices(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, a.backend.GetServices(r.Context()))
 }
 
 // handleGetGit returns git status for all repos, caching successful
@@ -192,12 +159,11 @@ func (a *apiHandler) handleGetGit(w http.ResponseWriter, r *http.Request) {
 
 	a.gitCache.mu.RUnlock()
 
-	repos := map[string]string{
-		"cbt":         a.labCfg.Repos.CBT,
-		"xatu-cbt":    a.labCfg.Repos.XatuCBT,
-		"cbt-api":     a.labCfg.Repos.CBTAPI,
-		"lab-backend": a.labCfg.Repos.LabBackend,
-		"lab":         a.labCfg.Repos.Lab,
+	repos := a.backend.GitRepos()
+	if len(repos) == 0 {
+		writeJSON(w, http.StatusOK, gitResponse{Repos: []repoInfo{}})
+
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
@@ -277,13 +243,13 @@ func (a *apiHandler) handlePostServiceAction(
 
 	switch action {
 	case "start":
-		err = a.wrapper.StartService(ctx, name)
+		err = a.backend.StartService(ctx, name)
 	case "stop":
-		err = a.wrapper.StopService(ctx, name)
+		err = a.backend.StopService(ctx, name)
 	case "restart":
-		err = a.wrapper.RestartService(ctx, name)
+		err = a.backend.RestartService(ctx, name)
 	case "rebuild":
-		err = a.wrapper.RebuildService(ctx, name)
+		err = a.backend.RebuildService(ctx, name)
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error": "unknown action: " + action,
@@ -326,7 +292,7 @@ func (a *apiHandler) handleGetServiceLogs(
 		return
 	}
 
-	logPath := filepath.Clean(a.orch.LogFilePath(name))
+	logPath := filepath.Clean(a.backend.LogFilePath(name))
 
 	f, err := os.Open(logPath) //nolint:gosec // path is constructed by LogFilePath from internal config
 	if err != nil {
@@ -353,78 +319,6 @@ func (a *apiHandler) handleGetServiceLogs(
 	}
 
 	writeJSON(w, http.StatusOK, lines)
-}
-
-// getServicesData builds the services response slice.
-func (a *apiHandler) getServicesData() []serviceResponse {
-	services := a.wrapper.GetServices()
-	result := make([]serviceResponse, 0, len(services))
-
-	for _, svc := range services {
-		resp := serviceResponse{
-			Name:    svc.Name,
-			Status:  svc.Status,
-			PID:     svc.PID,
-			URL:     svc.URL,
-			Ports:   svc.Ports,
-			Health:  svc.Health,
-			LogFile: svc.LogFile,
-		}
-
-		if svc.Uptime > 0 {
-			resp.Uptime = formatDuration(svc.Uptime)
-		}
-
-		result = append(result, resp)
-	}
-
-	return result
-}
-
-// getInfraData builds the infrastructure response slice.
-func (a *apiHandler) getInfraData() []infraResponse {
-	infra := a.wrapper.GetInfrastructure()
-	result := make([]infraResponse, 0, len(infra))
-
-	for _, i := range infra {
-		result = append(result, infraResponse{
-			Name:   i.Name,
-			Status: i.Status,
-			Type:   i.Type,
-		})
-	}
-
-	return result
-}
-
-// getConfigData builds the sanitized config response.
-func (a *apiHandler) getConfigData() configResponse {
-	networks := make([]networkInfo, 0, len(a.labCfg.Networks))
-	for _, n := range a.labCfg.Networks {
-		networks = append(networks, networkInfo{
-			Name:       n.Name,
-			Enabled:    n.Enabled,
-			PortOffset: n.PortOffset,
-		})
-	}
-
-	return configResponse{
-		Mode:     a.labCfg.Mode,
-		Networks: networks,
-		Ports: portsInfo{
-			LabBackend:      a.labCfg.Ports.LabBackend,
-			LabFrontend:     a.labCfg.Ports.LabFrontend,
-			CBTBase:         a.labCfg.Ports.CBTBase,
-			CBTAPIBase:      a.labCfg.Ports.CBTAPIBase,
-			CBTFrontendBase: a.labCfg.Ports.CBTFrontendBase,
-			ClickHouseCBT:   a.labCfg.Infrastructure.ClickHouseCBTPort,
-			ClickHouseXatu:  a.labCfg.Infrastructure.ClickHouseXatuPort,
-			Redis:           a.labCfg.Infrastructure.RedisPort,
-			Prometheus:      a.labCfg.Infrastructure.Observability.PrometheusPort,
-			Grafana:         a.labCfg.Infrastructure.Observability.GrafanaPort,
-		},
-		CfgPath: a.cfgPath,
-	}
 }
 
 // formatDuration formats a duration into a human-readable string.

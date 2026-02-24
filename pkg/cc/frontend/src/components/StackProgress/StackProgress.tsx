@@ -16,6 +16,14 @@ export const STOP_PHASES = [
   { id: 'stop_infrastructure', label: 'Stop Infrastructure' },
 ];
 
+export const XATU_BOOT_PHASES = [
+  { id: 'validate_config', label: 'Validate Configuration' },
+  { id: 'pull_images', label: 'Pull Docker Images' },
+  { id: 'compose_up', label: 'Start Containers' },
+];
+
+export const XATU_STOP_PHASES = [{ id: 'compose_down', label: 'Stop Containers' }];
+
 export interface PhaseState {
   id: string;
   label: string;

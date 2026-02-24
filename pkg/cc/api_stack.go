@@ -4,8 +4,6 @@ import (
 	"context"
 	"net/http"
 	"time"
-
-	"github.com/ethpandaops/xcli/pkg/orchestrator"
 )
 
 const (
@@ -28,36 +26,17 @@ type stackStatusResponse struct {
 	Progress        []stackProgressEvent `json:"progress,omitempty"`
 }
 
-// handlePostStackUp boots the full stack (equivalent to `xcli lab up`).
-// Runs the orchestrator's Up() in a background goroutine and returns immediately.
+// handlePostStackUp boots the full stack via the backend.
+// Runs in a background goroutine and returns immediately.
 func (a *apiHandler) handlePostStackUp(w http.ResponseWriter, _ *http.Request) {
 	a.stack.mu.Lock()
-	if a.stack.status == stackStatusStarting || a.stack.status == stackStatusStopping {
+	if a.stack.status == stackStatusStarting || a.stack.status == stackStatusStopping ||
+		a.stack.status == stackStatusRunning {
 		current := a.stack.status
 		a.stack.mu.Unlock()
 
 		writeJSON(w, http.StatusConflict, map[string]string{
 			"error": "stack is currently " + current,
-		})
-
-		return
-	}
-
-	// Check if services are already running
-	services := a.wrapper.GetServices()
-	running := 0
-
-	for _, svc := range services {
-		if svc.Status == stackStatusRunning {
-			running++
-		}
-	}
-
-	if running > 0 {
-		a.stack.mu.Unlock()
-
-		writeJSON(w, http.StatusConflict, map[string]string{
-			"error": "stack is already running",
 		})
 
 		return
@@ -70,7 +49,6 @@ func (a *apiHandler) handlePostStackUp(w http.ResponseWriter, _ *http.Request) {
 
 	a.sseHub.Broadcast("stack_starting", nil)
 
-	// Run Up() in a background goroutine — terminal UI output goes to server stdout
 	go func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -87,7 +65,7 @@ func (a *apiHandler) handlePostStackUp(w http.ResponseWriter, _ *http.Request) {
 
 		a.log.Info("starting stack from CC dashboard")
 
-		progress := orchestrator.ProgressFunc(func(phase string, message string) {
+		progress := func(phase string, message string) {
 			evt := stackProgressEvent{Phase: phase, Message: message}
 
 			a.stack.mu.Lock()
@@ -98,15 +76,17 @@ func (a *apiHandler) handlePostStackUp(w http.ResponseWriter, _ *http.Request) {
 				"phase":   phase,
 				"message": message,
 			})
-		})
+		}
 
-		err := a.orch.Up(ctx, false, false, progress)
+		err := a.backend.Up(ctx, progress)
 
 		a.stack.mu.Lock()
-		a.stack.status = stackStatusIdle
 
 		if err != nil {
+			a.stack.status = stackStatusIdle
 			a.stack.lastError = err.Error()
+		} else {
+			a.stack.status = stackStatusRunning
 		}
 
 		a.stack.mu.Unlock()
@@ -129,8 +109,8 @@ func (a *apiHandler) handlePostStackUp(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-// handlePostStackDown tears down the full stack (equivalent to `xcli lab down`).
-// Runs the orchestrator's Down() in a background goroutine and returns immediately.
+// handlePostStackDown tears down the full stack via the backend.
+// Runs in a background goroutine and returns immediately.
 func (a *apiHandler) handlePostStackDown(
 	w http.ResponseWriter,
 	_ *http.Request,
@@ -154,15 +134,13 @@ func (a *apiHandler) handlePostStackDown(
 
 	a.sseHub.Broadcast("stack_stopping", nil)
 
-	// Run Down() in a background goroutine so it doesn't depend on the HTTP
-	// request lifecycle. Same pattern as handlePostStackUp.
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), stackShutdownTimeout)
 		defer cancel()
 
 		a.log.Info("tearing down stack from CC dashboard")
 
-		progress := orchestrator.ProgressFunc(func(phase string, message string) {
+		progress := func(phase string, message string) {
 			evt := stackProgressEvent{Phase: phase, Message: message}
 
 			a.stack.mu.Lock()
@@ -173,9 +151,9 @@ func (a *apiHandler) handlePostStackDown(
 				"phase":   phase,
 				"message": message,
 			})
-		})
+		}
 
-		err := a.orch.Down(ctx, progress)
+		err := a.backend.Down(ctx, progress)
 
 		a.stack.mu.Lock()
 		a.stack.status = stackStatusIdle
@@ -230,7 +208,7 @@ func (a *apiHandler) handlePostStackRestart(
 	a.sseHub.Broadcast("stack_stopping", nil)
 
 	go func() {
-		progress := orchestrator.ProgressFunc(func(phase string, message string) {
+		progress := func(phase string, message string) {
 			evt := stackProgressEvent{Phase: phase, Message: message}
 
 			a.stack.mu.Lock()
@@ -241,7 +219,7 @@ func (a *apiHandler) handlePostStackRestart(
 				"phase":   phase,
 				"message": message,
 			})
-		})
+		}
 
 		// Phase 1: Tear down
 		a.log.Info("restarting stack from CC dashboard — tearing down")
@@ -249,7 +227,7 @@ func (a *apiHandler) handlePostStackRestart(
 		downCtx, downCancel := context.WithTimeout(context.Background(), stackShutdownTimeout)
 		defer downCancel()
 
-		if err := a.orch.Down(downCtx, progress); err != nil {
+		if err := a.backend.Down(downCtx, progress); err != nil {
 			a.log.WithError(err).Error("stack teardown failed during restart")
 
 			a.stack.mu.Lock()
@@ -264,8 +242,7 @@ func (a *apiHandler) handlePostStackRestart(
 			return
 		}
 
-		// Phase 2: Boot — skip "stack_stopped" broadcast to avoid a flash
-		// of "Stack is not running" in the dashboard between down→up.
+		// Phase 2: Boot
 		a.log.Info("restarting stack from CC dashboard — booting")
 
 		a.stack.mu.Lock()
@@ -288,7 +265,7 @@ func (a *apiHandler) handlePostStackRestart(
 			a.stack.mu.Unlock()
 		}()
 
-		if err := a.orch.Up(upCtx, false, false, progress); err != nil {
+		if err := a.backend.Up(upCtx, progress); err != nil {
 			a.log.WithError(err).Error("stack boot failed during restart")
 
 			a.stack.mu.Lock()
@@ -330,7 +307,7 @@ func (a *apiHandler) getStackStatusData() stackStatusResponse {
 
 	a.stack.mu.Unlock()
 
-	services := a.wrapper.GetServices()
+	services := a.backend.GetServices(context.Background())
 	running := 0
 
 	for _, svc := range services {
@@ -339,7 +316,10 @@ func (a *apiHandler) getStackStatusData() stackStatusResponse {
 		}
 	}
 
-	// Derive display status
+	// Derive display status.
+	// Only report "running" if the stack was explicitly booted (currentStatus == "running").
+	// If currentStatus is "idle" but some services happen to be up (e.g. port conflicts
+	// from another stack), report "stopped" so we don't confuse the frontend.
 	status := stackStatusStopped
 
 	switch {
@@ -347,7 +327,7 @@ func (a *apiHandler) getStackStatusData() stackStatusResponse {
 		status = stackStatusStarting
 	case currentStatus == stackStatusStopping:
 		status = stackStatusStopping
-	case running > 0:
+	case currentStatus == stackStatusRunning:
 		status = stackStatusRunning
 	}
 
@@ -386,7 +366,6 @@ func (a *apiHandler) handlePostStackCancel(
 		return
 	}
 
-	// Cancel the boot context so the orchestrator's Up() returns early.
 	if a.stack.cancelBoot != nil {
 		a.stack.cancelBoot()
 	}
@@ -398,7 +377,6 @@ func (a *apiHandler) handlePostStackCancel(
 
 	a.sseHub.Broadcast("stack_stopping", nil)
 
-	// Tear down any partially-started services/infra in the background.
 	go func() {
 		ctx, cancel := context.WithTimeout(
 			context.Background(), stackShutdownTimeout,
@@ -407,7 +385,7 @@ func (a *apiHandler) handlePostStackCancel(
 
 		a.log.Info("cancelling boot — tearing down partial stack")
 
-		progress := orchestrator.ProgressFunc(func(phase string, message string) {
+		progress := func(phase string, message string) {
 			evt := stackProgressEvent{Phase: phase, Message: message}
 
 			a.stack.mu.Lock()
@@ -418,9 +396,9 @@ func (a *apiHandler) handlePostStackCancel(
 				"phase":   phase,
 				"message": message,
 			})
-		})
+		}
 
-		if err := a.orch.Down(ctx, progress); err != nil {
+		if err := a.backend.Down(ctx, progress); err != nil {
 			a.log.WithError(err).Error("teardown after cancel failed")
 
 			a.stack.mu.Lock()

@@ -21,17 +21,24 @@ type LogLine struct {
 	Raw       string
 }
 
+// serviceStream tracks a running log stream for a service.
+type serviceStream struct {
+	cancel    context.CancelFunc
+	container string        // docker container name, empty for file-based streams
+	done      chan struct{} // closed when the stream goroutine exits
+}
+
 // LogStreamer streams logs from multiple services.
 type LogStreamer struct {
 	mu       sync.Mutex
-	services map[string]context.CancelFunc
+	services map[string]*serviceStream
 	output   chan LogLine
 }
 
 // NewLogStreamer creates a log streamer.
 func NewLogStreamer() *LogStreamer {
 	return &LogStreamer{
-		services: make(map[string]context.CancelFunc, 10),
+		services: make(map[string]*serviceStream, 10),
 		output:   make(chan LogLine, 10000), // Large buffer for high-volume logs
 	}
 }
@@ -63,8 +70,8 @@ func (ls *LogStreamer) Start(serviceName, logFile string) error {
 		return err
 	}
 
-	// Store cancel function for cleanup
-	ls.services[serviceName] = cancel
+	// Store stream for cleanup
+	ls.services[serviceName] = &serviceStream{cancel: cancel}
 
 	// Parse logs in background — removes itself from map when done
 	go ls.streamLogs(ctx, serviceName, stdout)
@@ -73,18 +80,30 @@ func (ls *LogStreamer) Start(serviceName, logFile string) error {
 }
 
 // StartDocker begins tailing Docker container logs for a service.
+// If the container name has changed (e.g. after a restart/rebuild), the old
+// stream is stopped and a new one is started automatically.
 func (ls *LogStreamer) StartDocker(serviceName, containerName string) error {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 
-	// Check if already tailing this service
-	if _, exists := ls.services[serviceName]; exists {
-		return nil // Already streaming
+	// If already streaming, check whether the stream is still alive.
+	// After a container restart/rebuild the docker logs process exits but the
+	// cleanup goroutine may not have removed the entry yet.
+	if existing, exists := ls.services[serviceName]; exists {
+		select {
+		case <-existing.done:
+			// Stream goroutine has exited — clean up stale entry and re-stream.
+			delete(ls.services, serviceName)
+		default:
+			// Stream is still alive — nothing to do.
+			return nil
+		}
 	}
 
+	done := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
 
-	cmd := exec.CommandContext(ctx, "docker", "logs", "-f", "--tail", "100", containerName)
+	cmd := exec.CommandContext(ctx, "docker", "logs", "-f", "--tail", "1000", containerName)
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
@@ -106,12 +125,14 @@ func (ls *LogStreamer) StartDocker(serviceName, containerName string) error {
 		return err
 	}
 
-	// Store cancel function for cleanup
-	ls.services[serviceName] = cancel
+	// Store stream with done channel for liveness detection
+	ls.services[serviceName] = &serviceStream{cancel: cancel, container: containerName, done: done}
 
 	// Stream stdout and stderr concurrently — Docker containers may write to
 	// either, and a sequential reader would block on the first until EOF.
 	go func() {
+		defer close(done)
+
 		var wg sync.WaitGroup
 
 		wg.Add(2) //nolint:mnd // stdout + stderr
@@ -145,8 +166,8 @@ func (ls *LogStreamer) StopService(serviceName string) {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 
-	if cancel, exists := ls.services[serviceName]; exists {
-		cancel()
+	if stream, exists := ls.services[serviceName]; exists {
+		stream.cancel()
 		delete(ls.services, serviceName)
 	}
 }
@@ -173,8 +194,8 @@ func (ls *LogStreamer) Output() <-chan LogLine {
 func (ls *LogStreamer) Stop() {
 	ls.mu.Lock()
 	// Cancel all service contexts, which will kill the tail processes
-	for name, cancel := range ls.services {
-		cancel()
+	for name, stream := range ls.services {
+		stream.cancel()
 		delete(ls.services, name)
 	}
 	ls.mu.Unlock()

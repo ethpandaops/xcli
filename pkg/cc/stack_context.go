@@ -2,21 +2,17 @@ package cc
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/ethpandaops/xcli/pkg/ai"
-	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
-	"github.com/ethpandaops/xcli/pkg/git"
-	"github.com/ethpandaops/xcli/pkg/orchestrator"
 	"github.com/ethpandaops/xcli/pkg/tui"
 	"github.com/sirupsen/logrus"
 )
 
-const logHistorySize = 1000
+const logHistorySize = 10000
 
 // dockerContainerNames maps observability service names to Docker container names.
 var dockerContainerNames = map[string]string{
@@ -27,50 +23,44 @@ var dockerContainerNames = map[string]string{
 // stackContext bundles all per-stack components so each stack operates
 // independently with its own SSE hub, health monitor, log streamer, etc.
 type stackContext struct {
-	name   string
-	label  string
-	log    logrus.FieldLogger
-	api    *apiHandler
-	health *tui.HealthMonitor
-	logs   *tui.LogStreamer
-	sseHub *SSEHub
+	name    string
+	label   string
+	log     logrus.FieldLogger
+	backend StackBackend
+	api     *apiHandler
+	health  *tui.HealthMonitor // nil for stacks without health monitoring
+	logs    *tui.LogStreamer
+	sseHub  *SSEHub
 
 	logHistory   []tui.LogLine
 	logHistoryMu sync.RWMutex
 }
 
-// newStackContext creates a fully wired stack context for the given stack.
+// newStackContext creates a fully wired stack context for the given backend.
 func newStackContext(
 	log logrus.FieldLogger,
-	name, label string,
-	orch *orchestrator.Orchestrator,
-	labCfg *config.LabConfig,
-	cfgPath string,
-	gitChk *git.Checker,
+	backend StackBackend,
+	health *tui.HealthMonitor,
+	redis *RedisAdmin,
 ) *stackContext {
-	l := log.WithField("stack", name)
-	wrapper := tui.NewOrchestratorWrapper(orch)
-	healthMon := tui.NewHealthMonitor(wrapper)
+	l := log.WithField("stack", backend.Name())
 	logStreamer := tui.NewLogStreamer()
 	sseHub := NewSSEHub(l)
 
 	sc := &stackContext{
-		name:   name,
-		label:  label,
-		log:    l,
-		health: healthMon,
-		logs:   logStreamer,
-		sseHub: sseHub,
+		name:    backend.Name(),
+		label:   backend.Label(),
+		log:     l,
+		backend: backend,
+		health:  health,
+		logs:    logStreamer,
+		sseHub:  sseHub,
 	}
 
 	sc.api = &apiHandler{
 		log:               l,
-		wrapper:           wrapper,
-		health:            healthMon,
-		orch:              orch,
-		labCfg:            labCfg,
-		cfgPath:           cfgPath,
-		gitChk:            gitChk,
+		backend:           backend,
+		redis:             redis,
 		aiDefaultProvider: ai.DefaultProvider,
 		diagnoseSessions:  make(map[string]*diagnoseSession, 8),
 		logHistoryFn: func(service string) []string {
@@ -88,19 +78,34 @@ func newStackContext(
 		},
 		sseHub: sseHub,
 	}
-	sc.api.redis = newRedisAdmin(l, func() string {
-		sc.api.mu.RLock()
-		defer sc.api.mu.RUnlock()
 
-		return fmt.Sprintf("localhost:%d", sc.api.labCfg.Infrastructure.RedisPort)
-	})
+	// Detect if the stack was already running (e.g. docker containers from a previous session)
+	// and initialise the stack status accordingly. We require a majority of services to be
+	// running to avoid false positives from port conflicts (e.g. Lab detecting Xatu's
+	// ClickHouse on a shared port).
+	services := backend.GetServices(context.Background())
+	running := 0
+
+	for _, svc := range services {
+		if svc.Status == stackStatusRunning {
+			running++
+		}
+	}
+
+	if len(services) > 0 && running > len(services)/2 {
+		sc.api.stack.status = stackStatusRunning
+
+		l.WithField("running_services", running).Info("detected pre-existing running services")
+	}
 
 	return sc
 }
 
 // Start begins health monitoring and the broadcast loop for this stack.
 func (sc *stackContext) Start(ctx context.Context, wg *sync.WaitGroup) {
-	sc.health.Start()
+	if sc.health != nil {
+		sc.health.Start()
+	}
 
 	wg.Add(1)
 
@@ -111,7 +116,11 @@ func (sc *stackContext) Start(ctx context.Context, wg *sync.WaitGroup) {
 func (sc *stackContext) Stop() {
 	sc.api.closeDiagnoseSessions()
 	sc.sseHub.Stop()
-	sc.health.Stop()
+
+	if sc.health != nil {
+		sc.health.Stop()
+	}
+
 	sc.logs.Stop()
 }
 
@@ -119,7 +128,11 @@ func (sc *stackContext) Stop() {
 func (sc *stackContext) broadcastLoop(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	healthCh := sc.health.Output()
+	var healthCh <-chan map[string]tui.HealthStatus
+	if sc.health != nil {
+		healthCh = sc.health.Output()
+	}
+
 	logCh := sc.logs.Output()
 
 	statusTicker := time.NewTicker(2 * time.Second)
@@ -143,24 +156,21 @@ func (sc *stackContext) broadcastLoop(ctx context.Context, wg *sync.WaitGroup) {
 			sc.appendLog(logLine)
 			sc.sseHub.Broadcast("log", logLine)
 		case <-statusTicker.C:
-			services := sc.api.getServicesData()
+			services := sc.backend.GetServices(ctx)
 			sc.sseHub.Broadcast("services", services)
-
-			infra := sc.api.getInfraData()
-			sc.sseHub.Broadcast("infrastructure", infra)
 
 			stackStatus := sc.api.getStackStatusData()
 			sc.sseHub.Broadcast("stack_status", stackStatus)
 
-			sc.startLogStreaming()
+			sc.startLogStreaming(ctx)
 		}
 	}
 }
 
 // startLogStreaming starts tailing logs for running services and stops
 // streaming for services that are no longer running.
-func (sc *stackContext) startLogStreaming() {
-	services := sc.api.wrapper.GetServices()
+func (sc *stackContext) startLogStreaming(ctx context.Context) {
+	services := sc.backend.GetServices(ctx)
 
 	running := make(map[string]bool, len(services))
 	for _, svc := range services {
@@ -176,26 +186,27 @@ func (sc *stackContext) startLogStreaming() {
 	}
 
 	for _, svc := range services {
-		if svc.Status == "running" {
-			if container, ok := dockerContainerNames[svc.Name]; ok {
-				if err := sc.logs.StartDocker(svc.Name, container); err != nil {
-					sc.log.WithError(err).WithField(
-						"service", svc.Name,
-					).Warn("Failed to start Docker log streaming")
-				}
+		if svc.Status != "running" {
+			continue
+		}
 
-				continue
+		src := sc.backend.LogSource(svc.Name)
+
+		switch src.Type {
+		case "docker":
+			if err := sc.logs.StartDocker(svc.Name, src.Container); err != nil {
+				sc.log.WithError(err).WithField(
+					"service", svc.Name,
+				).Warn("Failed to start Docker log streaming")
 			}
-
-			if svc.LogFile != "" {
-				if err := sc.logs.Start(svc.Name, svc.LogFile); err != nil {
+		case "file":
+			if src.Path != "" {
+				if err := sc.logs.Start(svc.Name, src.Path); err != nil {
 					sc.log.WithError(err).WithField(
 						"service", svc.Name,
 					).Warn("Failed to start log streaming")
 				}
 			}
-
-			continue
 		}
 	}
 }

@@ -455,7 +455,7 @@ func (a *apiHandler) providerFromString(provider string) ai.ProviderID {
 }
 
 func (a *apiHandler) getServiceStatus(name string) (status, health string, ok bool) {
-	for _, svc := range a.getServicesData() {
+	for _, svc := range a.backend.GetServices(context.Background()) {
 		if svc.Name == name {
 			return svc.Status, svc.Health, true
 		}
@@ -552,7 +552,7 @@ func normalizeRequestID(requestID string) string {
 // collectServiceLogs gathers recent log lines for a service from disk
 // (last ~300 lines) with a fallback to the in-memory ring buffer.
 func (a *apiHandler) collectServiceLogs(name string) []string {
-	logPath := filepath.Clean(a.orch.LogFilePath(name))
+	logPath := filepath.Clean(a.backend.LogFilePath(name))
 
 	lines := readLastLines(logPath, 300)
 	if len(lines) > 0 {
