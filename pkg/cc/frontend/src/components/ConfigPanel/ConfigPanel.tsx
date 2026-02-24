@@ -7,7 +7,7 @@ interface ConfigPanelProps {
 }
 
 export default function ConfigPanel({ config, services }: ConfigPanelProps) {
-  if (!config) {
+  if (!config || !config.networks) {
     return <Spinner />;
   }
 

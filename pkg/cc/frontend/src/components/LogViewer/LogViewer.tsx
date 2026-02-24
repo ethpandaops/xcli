@@ -270,7 +270,7 @@ export default function LogViewer({
             </span>
           </div>
         ) : (
-          filteredLogs.slice(-5000).map((line, i) => (
+          filteredLogs.slice(-10000).map((line, i) => (
             <div key={i} className={`break-all whitespace-pre-wrap ${levelColors[line.Level] ?? 'text-text-tertiary'}`}>
               {line.Message}
             </div>

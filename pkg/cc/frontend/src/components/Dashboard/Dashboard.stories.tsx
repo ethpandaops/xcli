@@ -16,6 +16,15 @@ const meta = {
     stack: 'lab',
     availableStacks: ['lab'],
     onSwitchStack: fn(),
+    capabilities: {
+      hasEditableConfig: true,
+      hasServiceConfigs: true,
+      hasCbtOverrides: true,
+      hasRedis: true,
+      hasGitRepos: true,
+      hasRegenerate: true,
+      hasRebuild: true,
+    },
   },
 } satisfies Meta<typeof Dashboard>;
 

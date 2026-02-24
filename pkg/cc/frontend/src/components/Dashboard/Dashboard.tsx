@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type {
   ServiceInfo,
-  InfraInfo,
   ConfigInfo,
   LogLine,
   RepoInfo,
@@ -14,17 +13,26 @@ import type {
   DiagnosisTurn,
   AIProviderInfo,
   CBTOverridesState,
+  StackCapabilities,
+  XatuConfigResponse,
 } from '@/types';
 import { useSSE } from '@/hooks/useSSE';
 import { useAPI } from '@/hooks/useAPI';
 import Header from '@/components/Header';
 import ServiceCard from '@/components/ServiceCard';
 import ConfigPanel from '@/components/ConfigPanel';
+import XatuConfigPanel from '@/components/XatuConfigPanel';
 import GitStatus from '@/components/GitStatus';
 import CBTOverridesGlance from '@/components/CBTOverridesGlance';
 import SidebarSection from '@/components/SidebarSection';
 import LogViewer from '@/components/LogViewer';
-import StackProgress, { derivePhaseStates, BOOT_PHASES, STOP_PHASES } from '@/components/StackProgress';
+import StackProgress, {
+  derivePhaseStates,
+  BOOT_PHASES,
+  STOP_PHASES,
+  XATU_BOOT_PHASES,
+  XATU_STOP_PHASES,
+} from '@/components/StackProgress';
 import Spinner from '@/components/Spinner';
 import DiagnosisPanel from '@/components/DiagnosisPanel';
 import { useFavicon } from '@/hooks/useFavicon';
@@ -32,7 +40,15 @@ import { useNotifications } from '@/hooks/useNotifications';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import type { PanelImperativeHandle, PanelSize } from 'react-resizable-panels';
 
-const MAX_LOGS = 10000;
+const MAX_LOGS = 100_000;
+
+function bootPhasesFor(isLab: boolean) {
+  return isLab ? BOOT_PHASES : XATU_BOOT_PHASES;
+}
+
+function stopPhasesFor(isLab: boolean) {
+  return isLab ? STOP_PHASES : XATU_STOP_PHASES;
+}
 const leftCollapsedStorageKey = 'xcli:sidebar-left-collapsed';
 const rightCollapsedStorageKey = 'xcli:sidebar-right-collapsed';
 const dashboardLegacyLayoutStorageKey = 'xcli:dashboard:panel-layout';
@@ -107,26 +123,30 @@ function appendLine(prev: string, text: string): string {
 interface DashboardProps {
   onNavigateConfig?: () => void;
   onNavigateOverrides?: () => void;
-  onNavigateRedis?: () => void;
   stack: string;
   availableStacks: string[];
   onSwitchStack: (stack: string) => void;
+  capabilities: StackCapabilities;
+  otherRunningStack?: string | null;
+  onStackStatusChange?: (status: string) => void;
 }
 
 export default function Dashboard({
   onNavigateConfig,
   onNavigateOverrides,
-  onNavigateRedis,
   stack,
   availableStacks,
   onSwitchStack,
+  capabilities,
+  otherRunningStack,
+  onStackStatusChange,
 }: DashboardProps) {
   const { fetchJSON, postJSON, postDiagnoseStart, postDiagnoseMessage, postDiagnoseInterrupt, deleteDiagnoseSession } =
     useAPI(stack);
   const { notify, enabled: notificationsEnabled, toggle: toggleNotifications } = useNotifications();
   const [services, setServices] = useState<ServiceInfo[]>([]);
-  const [infrastructure, setInfrastructure] = useState<InfraInfo[]>([]);
   const [config, setConfig] = useState<ConfigInfo | null>(null);
+  const [xatuConfig, setXatuConfig] = useState<XatuConfigResponse | null>(null);
   const [repos, setRepos] = useState<RepoInfo[]>([]);
   const [overrides, setOverrides] = useState<CBTOverridesState | null>(null);
   const [openTabs, setOpenTabs] = useState<string[]>([]);
@@ -161,6 +181,11 @@ export default function Dashboard({
   const selectedProviderInfo = providers.find(provider => provider.id === selectedProvider);
   const diagnoseSessionRef = useRef<string | null>(null);
   const diagnoseRequestRef = useRef<string | null>(null);
+
+  // Determine which sidebar sections to show based on stack capabilities
+  const isLabStack = capabilities.hasServiceConfigs;
+  const showCbtOverrides = capabilities.hasCbtOverrides;
+  const showGitRepos = capabilities.hasGitRepos;
 
   useEffect(() => {
     diagnoseSessionRef.current = diagnoseSessionId;
@@ -218,17 +243,18 @@ export default function Dashboard({
   const loadAllData = useCallback(() => {
     fetchJSON<StatusResponse>('/status')
       .then(data => {
-        setServices(data.services);
-        setInfrastructure(data.infrastructure);
+        setServices(data.services ?? []);
         setConfig(data.config);
       })
       .catch(console.error);
 
-    fetchJSON<GitResponse>('/git')
-      .then(data => {
-        setRepos(data.repos);
-      })
-      .catch(console.error);
+    if (showGitRepos) {
+      fetchJSON<GitResponse>('/git')
+        .then(data => {
+          setRepos(data.repos);
+        })
+        .catch(console.error);
+    }
 
     fetchJSON<LogLine[]>('/logs')
       .then(data => {
@@ -253,25 +279,35 @@ export default function Dashboard({
       })
       .catch(console.error);
 
-    fetchJSON<CBTOverridesState>('/config/overrides').then(setOverrides).catch(console.error);
-  }, [fetchJSON]);
+    if (showCbtOverrides) {
+      fetchJSON<CBTOverridesState>('/config/overrides').then(setOverrides).catch(console.error);
+    }
+
+    if (!isLabStack) {
+      fetchJSON<XatuConfigResponse>('/config').then(setXatuConfig).catch(console.error);
+    }
+  }, [fetchJSON, showGitRepos, showCbtOverrides, isLabStack]);
 
   // Initial data load + periodic git refresh
   useEffect(() => {
     loadAllData();
 
-    const gitInterval = setInterval(() => {
-      fetchJSON<GitResponse>('/git')
-        .then(data => {
-          setRepos(data.repos);
-        })
-        .catch(console.error);
-    }, 60000);
+    let gitInterval: ReturnType<typeof setInterval> | undefined;
+
+    if (showGitRepos) {
+      gitInterval = setInterval(() => {
+        fetchJSON<GitResponse>('/git')
+          .then(data => {
+            setRepos(data.repos);
+          })
+          .catch(console.error);
+      }, 60000);
+    }
 
     return () => {
-      clearInterval(gitInterval);
+      if (gitInterval) clearInterval(gitInterval);
     };
-  }, [fetchJSON, loadAllData]);
+  }, [fetchJSON, loadAllData, showGitRepos]);
 
   // SSE handler
   const handleSSE = useCallback(
@@ -288,9 +324,6 @@ export default function Dashboard({
           });
           break;
         }
-        case 'infrastructure':
-          setInfrastructure(data as InfraInfo[]);
-          break;
         case 'health': {
           const health = data as HealthStatus;
           setServices(prev =>
@@ -442,6 +475,17 @@ export default function Dashboard({
 
   useSSE(handleSSE, loadAllData, stack);
   useFavicon(stackStatus, !!stackError);
+
+  // Notify parent when the raw stack status changes so App can track which stack is running.
+  useEffect(() => {
+    if (stackStatus && onStackStatusChange) {
+      onStackStatusChange(stackStatus);
+    }
+  }, [stackStatus, onStackStatusChange]);
+
+  // When another stack is running, treat this stack as stopped regardless of what the
+  // backend reports (leftover services like ClickHouse may still be up from a previous session).
+  const effectiveStatus = otherRunningStack && stackStatus === 'running' ? 'stopped' : stackStatus;
 
   // Track which stopped-service logs we've already fetched to avoid duplicate requests
   const fetchedStoppedLogs = useRef<Set<string>>(new Set());
@@ -632,10 +676,17 @@ export default function Dashboard({
     [rightCollapsed]
   );
 
+  // When the stack is effectively stopped (another stack owns the running state),
+  // override all service statuses so leftover port-conflicts don't show green dots.
+  const displayServices =
+    effectiveStatus === 'stopped' && otherRunningStack
+      ? services.map(s => ({ ...s, status: 'stopped', health: 'unknown', pid: 0, uptime: '' }))
+      : services;
+
   const leftSidebarContent = (
     <div className={`flex h-full flex-col gap-3 overflow-y-auto p-3 ${leftCollapsed ? 'invisible' : ''}`}>
       <div className="text-xs/4 font-semibold tracking-wider text-text-muted uppercase">Services</div>
-      {services.map(svc => (
+      {displayServices.map(svc => (
         <ServiceCard
           key={svc.name}
           service={svc}
@@ -644,65 +695,9 @@ export default function Dashboard({
           stack={stack}
           showDiagnose={diagnoseAvailable}
           onDiagnose={() => handleDiagnose(svc.name)}
+          disableActions={!!otherRunningStack && stackStatus !== 'running'}
         />
       ))}
-
-      {infrastructure.length > 0 && (
-        <>
-          <div className="mt-2 text-xs/4 font-semibold tracking-wider text-text-muted uppercase">Infrastructure</div>
-          {infrastructure.map(item => {
-            const isRedis = item.name.toLowerCase().includes('redis');
-            const isUp = item.status === 'running';
-            const statusDot = isUp ? 'bg-success' : 'bg-text-disabled';
-
-            const Wrapper = isRedis && onNavigateRedis ? 'button' : 'div';
-            const wrapperProps =
-              isRedis && onNavigateRedis ? { onClick: onNavigateRedis, title: 'Open Redis Explorer' } : {};
-
-            return (
-              <Wrapper
-                key={item.name}
-                {...wrapperProps}
-                className="group relative cursor-pointer rounded-xs px-3 py-2.5 text-left transition-colors hover:bg-hover/3"
-              >
-                <div className="flex items-center gap-2.5">
-                  <span className={`size-1.5 shrink-0 rounded-full ${statusDot}`} />
-                  <span className="min-w-0 flex-1 truncate text-sm/5 font-medium text-text-secondary">{item.name}</span>
-                  {isRedis && onNavigateRedis && (
-                    <svg
-                      className="size-3.5 shrink-0 text-text-disabled opacity-0 transition-all group-hover:text-accent-light group-hover:opacity-100"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M7 17 17 7m0 0H9m8 0v8" />
-                    </svg>
-                  )}
-                  <svg
-                    className={`size-3.5 shrink-0 ${isUp ? 'text-success' : 'text-text-disabled'}`}
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={1.5}
-                  >
-                    <title>{isUp ? 'Running' : item.status}</title>
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d={
-                        isUp
-                          ? 'M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z'
-                          : 'M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z'
-                      }
-                    />
-                  </svg>
-                </div>
-              </Wrapper>
-            );
-          })}
-        </>
-      )}
     </div>
   );
 
@@ -713,36 +708,44 @@ export default function Dashboard({
         storageKey="xcli:sidebar:config"
         action={onNavigateConfig ? { label: 'Manage', onClick: onNavigateConfig } : undefined}
       >
-        <ConfigPanel config={config} services={services} />
+        {isLabStack ? <ConfigPanel config={config} services={services} /> : <XatuConfigPanel config={xatuConfig} />}
       </SidebarSection>
-      <SidebarSection
-        title="CBT Overrides"
-        storageKey="xcli:sidebar:overrides"
-        action={onNavigateOverrides ? { label: 'Manage', onClick: onNavigateOverrides } : undefined}
-      >
-        <CBTOverridesGlance overrides={overrides} />
-      </SidebarSection>
-      <SidebarSection title="Git Status" storageKey="xcli:sidebar:git" defaultOpen={false}>
-        <GitStatus repos={repos} />
-      </SidebarSection>
+      {showCbtOverrides && (
+        <SidebarSection
+          title="CBT Overrides"
+          storageKey="xcli:sidebar:overrides"
+          action={onNavigateOverrides ? { label: 'Manage', onClick: onNavigateOverrides } : undefined}
+        >
+          <CBTOverridesGlance overrides={overrides} />
+        </SidebarSection>
+      )}
+      {showGitRepos && (
+        <SidebarSection title="Git Status" storageKey="xcli:sidebar:git" defaultOpen={false}>
+          <GitStatus repos={repos} />
+        </SidebarSection>
+      )}
     </div>
   );
 
   const mainPanelContent = (
     <>
-      {stackStatus === null ? (
+      {effectiveStatus === null ? (
         <Spinner centered />
-      ) : stackStatus === 'starting' || stackStatus === 'stopping' ? (
+      ) : effectiveStatus === 'starting' || effectiveStatus === 'stopping' ? (
         <StackProgress
-          phases={derivePhaseStates(progressPhases, stackError, stackStatus === 'stopping' ? STOP_PHASES : BOOT_PHASES)}
+          phases={derivePhaseStates(
+            progressPhases,
+            stackError,
+            effectiveStatus === 'stopping' ? stopPhasesFor(isLabStack) : bootPhasesFor(isLabStack)
+          )}
           error={stackError}
-          title={stackStatus === 'stopping' ? 'Stopping Stack' : 'Booting Stack'}
-          onCancel={stackStatus === 'starting' ? handleCancelBoot : undefined}
+          title={effectiveStatus === 'stopping' ? 'Stopping Stack' : 'Booting Stack'}
+          onCancel={effectiveStatus === 'starting' ? handleCancelBoot : undefined}
         />
       ) : stackError ? (
         progressPhases.length > 0 ? (
           <StackProgress
-            phases={derivePhaseStates(progressPhases, stackError, BOOT_PHASES)}
+            phases={derivePhaseStates(progressPhases, stackError, bootPhasesFor(isLabStack))}
             error={stackError}
             title="Boot Failed"
             onRetry={() => {
@@ -773,7 +776,7 @@ export default function Dashboard({
             </button>
           </div>
         )
-      ) : services.some(s => s.status === 'running') || openTabs.length > 0 ? (
+      ) : (effectiveStatus === 'running' && services.some(s => s.status === 'running')) || openTabs.length > 0 ? (
         <LogViewer
           logs={logs}
           activeTab={activeTab}
@@ -793,12 +796,16 @@ export default function Dashboard({
             />
           </svg>
           <p className="text-sm">Stack is not running</p>
-          <button
-            onClick={handleStackAction}
-            className="rounded-md bg-success/20 px-4 py-2 text-sm font-medium text-success transition-colors hover:bg-success/30"
-          >
-            Boot Stack
-          </button>
+          {otherRunningStack ? (
+            <p className="text-xs text-text-disabled">{otherRunningStack} stack is already running — stop it first</p>
+          ) : (
+            <button
+              onClick={handleStackAction}
+              className="rounded-md bg-success/20 px-4 py-2 text-sm font-medium text-success transition-colors hover:bg-success/30"
+            >
+              Boot Stack
+            </button>
+          )}
         </div>
       )}
     </>
@@ -807,10 +814,9 @@ export default function Dashboard({
   return (
     <div className="flex h-dvh flex-col">
       <Header
-        services={services}
-        infrastructure={infrastructure}
+        services={displayServices}
         onNavigateConfig={onNavigateConfig}
-        stackStatus={stackStatus}
+        stackStatus={effectiveStatus}
         onStackAction={handleStackAction}
         currentPhase={progressPhases.length > 0 ? progressPhases[progressPhases.length - 1].message : undefined}
         notificationsEnabled={notificationsEnabled}
@@ -818,6 +824,7 @@ export default function Dashboard({
         activeStack={stack}
         availableStacks={availableStacks}
         onSwitchStack={onSwitchStack}
+        otherRunningStack={otherRunningStack}
       />
 
       <div className="hidden flex-1 overflow-hidden xl:flex">

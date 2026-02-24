@@ -99,6 +99,15 @@ func (r *Runner) Restart(ctx context.Context, service string) error {
 	return r.run(ctx, "restart", service)
 }
 
+// Pull pulls the latest images for services.
+func (r *Runner) Pull(ctx context.Context, services ...string) error {
+	args := make([]string, 1, 1+len(services))
+	args[0] = "pull"
+	args = append(args, services...)
+
+	return r.run(ctx, args...)
+}
+
 // Build builds or rebuilds service images.
 func (r *Runner) Build(ctx context.Context, services ...string) error {
 	args := make([]string, 1, 1+len(services))
@@ -126,13 +135,13 @@ func (r *Runner) Logs(ctx context.Context, service string, follow bool) error {
 func (r *Runner) PS(ctx context.Context) ([]ServiceStatus, error) {
 	cmd := r.buildCommand(ctx, "ps", "--format", "json")
 
-	var stdout bytes.Buffer
+	var stdout, stderr bytes.Buffer
 
 	cmd.Stdout = &stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("docker compose ps failed: %w", err)
+		return nil, fmt.Errorf("docker compose ps failed: %w (stderr: %s)", err, stderr.String())
 	}
 
 	output := strings.TrimSpace(stdout.String())
@@ -166,13 +175,13 @@ func (r *Runner) PS(ctx context.Context) ([]ServiceStatus, error) {
 func (r *Runner) ListServices(ctx context.Context) ([]string, error) {
 	cmd := r.buildCommand(ctx, "config", "--services")
 
-	var stdout bytes.Buffer
+	var stdout, stderr bytes.Buffer
 
 	cmd.Stdout = &stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("docker compose config --services failed: %w", err)
+		return nil, fmt.Errorf("docker compose config --services failed: %w (stderr: %s)", err, stderr.String())
 	}
 
 	output := strings.TrimSpace(stdout.String())

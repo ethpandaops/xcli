@@ -9,12 +9,6 @@ export interface ServiceInfo {
   logFile: string;
 }
 
-export interface InfraInfo {
-  name: string;
-  status: string;
-  type: string;
-}
-
 export interface HealthStatus {
   [service: string]: {
     Status: string;
@@ -58,7 +52,6 @@ export interface ConfigInfo {
 
 export interface StatusResponse {
   services: ServiceInfo[];
-  infrastructure: InfraInfo[];
   config: ConfigInfo;
   timestamp: string;
 }
@@ -297,10 +290,27 @@ export interface ModelEntry {
   enabled: boolean;
 }
 
+export interface StackCapabilities {
+  hasEditableConfig: boolean;
+  hasServiceConfigs: boolean;
+  hasCbtOverrides: boolean;
+  hasRedis: boolean;
+  hasGitRepos: boolean;
+  hasRegenerate: boolean;
+  hasRebuild: boolean;
+}
+
 export interface StackInfo {
   name: string;
   label: string;
+  capabilities: StackCapabilities;
   status?: string;
+}
+
+export interface XatuConfigResponse {
+  profiles: string[];
+  envOverrides: Record<string, string>;
+  repoPath: string;
 }
 
 export interface DiagnosisReport {

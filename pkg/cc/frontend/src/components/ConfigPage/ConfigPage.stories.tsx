@@ -26,6 +26,15 @@ const meta = {
   args: {
     onBack: fn(),
     stack: 'lab',
+    capabilities: {
+      hasEditableConfig: true,
+      hasServiceConfigs: true,
+      hasCbtOverrides: true,
+      hasRedis: true,
+      hasGitRepos: true,
+      hasRegenerate: true,
+      hasRebuild: true,
+    },
   },
 } satisfies Meta<typeof ConfigPage>;
 

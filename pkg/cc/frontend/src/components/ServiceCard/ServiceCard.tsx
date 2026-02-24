@@ -9,6 +9,7 @@ interface ServiceCardProps {
   stack: string;
   onDiagnose?: () => void;
   showDiagnose?: boolean;
+  disableActions?: boolean;
 }
 
 const healthIcons: Record<string, { color: string; title: string; path: string }> = {
@@ -41,6 +42,7 @@ export default function ServiceCard({
   stack,
   onDiagnose,
   showDiagnose,
+  disableActions,
 }: ServiceCardProps) {
   const { postAction } = useAPI(stack);
   const [loading, setLoading] = useState<string | null>(null);
@@ -149,20 +151,22 @@ export default function ServiceCard({
         </div>
 
         {/* Actions — visible on hover */}
-        <div
-          className={`mt-2 flex gap-1 overflow-hidden transition-all ${
-            loading ? 'invisible' : 'h-0 opacity-0 group-hover:h-6 group-hover:opacity-100'
-          }`}
-        >
-          {!isRunning && <ActionBtn label="Start" onClick={() => doAction('start')} />}
-          {isRunning && (
-            <>
-              <ActionBtn label="Stop" onClick={() => doAction('stop')} />
-              <ActionBtn label="Restart" onClick={() => doAction('restart')} />
-            </>
-          )}
-          {!isDocker && <ActionBtn label="Rebuild" onClick={() => doAction('rebuild')} />}
-        </div>
+        {!disableActions && (
+          <div
+            className={`mt-2 flex gap-1 overflow-hidden transition-all ${
+              loading ? 'invisible' : 'h-0 opacity-0 group-hover:h-6 group-hover:opacity-100'
+            }`}
+          >
+            {!isRunning && <ActionBtn label="Start" onClick={() => doAction('start')} />}
+            {isRunning && (
+              <>
+                <ActionBtn label="Stop" onClick={() => doAction('stop')} />
+                <ActionBtn label="Restart" onClick={() => doAction('restart')} />
+              </>
+            )}
+            {!isDocker && <ActionBtn label="Rebuild" onClick={() => doAction('rebuild')} />}
+          </div>
+        )}
       </div>
     </div>
   );

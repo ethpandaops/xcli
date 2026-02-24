@@ -1,10 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import type { ServiceInfo, InfraInfo } from '@/types';
+import type { ServiceInfo } from '@/types';
 import { useTheme } from '@/hooks/useTheme';
 
 interface HeaderProps {
   services: ServiceInfo[];
-  infrastructure: InfraInfo[];
   onNavigateConfig?: () => void;
   stackStatus: string | null;
   onStackAction: () => void;
@@ -14,11 +13,11 @@ interface HeaderProps {
   activeStack: string;
   availableStacks: string[];
   onSwitchStack: (stack: string) => void;
+  otherRunningStack?: string | null;
 }
 
 export default function Header({
   services,
-  infrastructure,
   onNavigateConfig,
   stackStatus,
   onStackAction,
@@ -28,6 +27,7 @@ export default function Header({
   activeStack,
   availableStacks,
   onSwitchStack,
+  otherRunningStack,
 }: HeaderProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -35,10 +35,10 @@ export default function Header({
 
   const running = services.filter(s => s.status === 'running').length;
   const healthy = services.filter(s => s.health === 'healthy').length;
-  const infraRunning = infrastructure.filter(i => i.status === 'running').length;
 
   const isBusy = !stackStatus || stackStatus === 'starting' || stackStatus === 'stopping';
   const isRunning = stackStatus === 'running';
+  const bootBlocked = !isRunning && !!otherRunningStack;
   // Close dropdown on outside click
   useEffect(() => {
     if (!dropdownOpen) return;
@@ -66,6 +66,9 @@ export default function Header({
   } else if (isRunning) {
     buttonLabel = 'Stop Stack';
     buttonClass += 'bg-error/10 text-error ring-1 ring-error/20 hover:bg-error/20';
+  } else if (bootBlocked) {
+    buttonLabel = `${otherRunningStack} is running`;
+    buttonClass += 'cursor-not-allowed bg-surface-light text-text-disabled ring-1 ring-border';
   } else {
     buttonLabel = 'Boot Stack';
     buttonClass += 'bg-success/10 text-success ring-1 ring-success/20 hover:bg-success/20';
@@ -152,19 +155,30 @@ export default function Header({
             <span className={`size-1.5 rounded-full ${healthy > 0 ? 'bg-info' : 'bg-text-disabled'}`} />
             {healthy} healthy
           </span>
-          <span className="flex items-center gap-1.5">
-            <span className={`size-1.5 rounded-full ${infraRunning > 0 ? 'bg-accent' : 'bg-text-disabled'}`} />
-            {infraRunning}/{infrastructure.length} infra
-          </span>
         </div>
 
         <div className="h-4 w-px bg-border" />
 
+        {otherRunningStack && isRunning && (
+          <span
+            className="rounded-xs bg-warning/10 px-2 py-1 text-xs/4 text-warning ring-1 ring-warning/20"
+            title={`${otherRunningStack} stack is also running`}
+          >
+            {otherRunningStack} is running
+          </span>
+        )}
+
         <button
           onClick={onStackAction}
-          disabled={isBusy}
+          disabled={isBusy || bootBlocked}
           className={buttonClass}
-          title={isRunning ? 'Stop all services' : 'Boot the full stack'}
+          title={
+            bootBlocked
+              ? `${otherRunningStack} stack is already running — stop it first`
+              : isRunning
+                ? 'Stop all services'
+                : 'Boot the full stack'
+          }
         >
           {isBusy && (
             <svg className="size-3 animate-spin" fill="none" viewBox="0 0 24 24">
