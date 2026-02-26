@@ -26,6 +26,70 @@ const levelColors: Record<string, string> = {
   DEBUG: 'text-text-muted',
 };
 
+/** Parse a logfmt-style line into ordered key=value pairs. */
+function parseLogfmt(raw: string): [string, string][] | null {
+  const pairs: [string, string][] = [];
+  let i = 0;
+  const len = raw.length;
+
+  while (i < len) {
+    // Skip whitespace
+    while (i < len && raw[i] === ' ') i++;
+    if (i >= len) break;
+
+    // Read key
+    const keyStart = i;
+    while (i < len && raw[i] !== '=' && raw[i] !== ' ') i++;
+    const key = raw.slice(keyStart, i);
+    if (!key) break;
+
+    if (i >= len || raw[i] !== '=') {
+      pairs.push([key, '']);
+      continue;
+    }
+    i++; // skip '='
+
+    // Read value
+    let value: string;
+    if (i < len && raw[i] === '"') {
+      // Quoted value — scan until unescaped closing quote
+      i++; // skip opening quote
+      const valParts: string[] = [];
+      while (i < len && raw[i] !== '"') {
+        if (raw[i] === '\\' && i + 1 < len) {
+          valParts.push(raw[i + 1]);
+          i += 2;
+        } else {
+          valParts.push(raw[i]);
+          i++;
+        }
+      }
+      value = valParts.join('');
+      if (i < len) i++; // skip closing quote
+    } else {
+      const valStart = i;
+      while (i < len && raw[i] !== ' ') i++;
+      value = raw.slice(valStart, i);
+    }
+
+    pairs.push([key, value]);
+  }
+
+  return pairs.length >= 2 ? pairs : null;
+}
+
+/** Render a value string, converting literal \n sequences to real newlines. */
+function renderValue(val: string): React.ReactNode {
+  if (!val.includes('\\n')) return val;
+  const parts = val.split('\\n');
+  return parts.map((part, i) => (
+    <span key={i}>
+      {part}
+      {i < parts.length - 1 && <br />}
+    </span>
+  ));
+}
+
 const levels = ['ALL', 'FATAL', 'ERROR', 'WARN', 'INFO', 'DEBUG'] as const;
 
 function getDefaultTabState(): TabState {
@@ -42,6 +106,7 @@ export default function LogViewer({
   showDiagnose,
 }: LogViewerProps) {
   const [tabStates, setTabStates] = useState<Map<string, TabState>>(() => new Map());
+  const [expandedLine, setExpandedLine] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const tabBarRef = useRef<HTMLDivElement>(null);
 
@@ -270,11 +335,37 @@ export default function LogViewer({
             </span>
           </div>
         ) : (
-          filteredLogs.slice(-10000).map((line, i) => (
-            <div key={i} className={`break-all whitespace-pre-wrap ${levelColors[line.Level] ?? 'text-text-tertiary'}`}>
-              {line.Message}
-            </div>
-          ))
+          filteredLogs.slice(-10000).map((line, i) => {
+            const isExpanded = expandedLine === i;
+            const parsed = isExpanded ? parseLogfmt(line.Message) : null;
+
+            return (
+              <div key={i}>
+                <div
+                  onClick={() => setExpandedLine(isExpanded ? null : i)}
+                  className={`cursor-pointer break-all whitespace-pre-wrap hover:bg-surface-light/50 ${levelColors[line.Level] ?? 'text-text-tertiary'}`}
+                >
+                  {line.Message}
+                </div>
+                {isExpanded && parsed && (
+                  <div className="my-1 ml-4 rounded-xs border border-border bg-surface-light p-2 text-xs/5">
+                    <table className="w-full border-collapse">
+                      <tbody>
+                        {parsed.map(([key, val], j) => (
+                          <tr key={j} className="border-b border-border/50 last:border-b-0">
+                            <td className="pr-3 align-top whitespace-nowrap text-accent-light">{key}</td>
+                            <td className="py-0.5 break-all whitespace-pre-wrap text-text-secondary">
+                              {renderValue(val)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
 
