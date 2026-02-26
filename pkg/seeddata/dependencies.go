@@ -457,6 +457,33 @@ func GetExternalModelDatabase(model, xatuCBTPath string) string {
 	return fm.Database
 }
 
+// GetExternalModelOverrideKey returns the override key for an external model
+// that matches the model ID used by the CBT binary.
+// When frontmatter has both database and table, returns "database.table".
+// When frontmatter has only database, returns "database.modelName".
+// Otherwise returns just the model name (bare filename without extension).
+func GetExternalModelOverrideKey(model, xatuCBTPath string) string {
+	modelPath := findModelFile(xatuCBTPath, "external", model)
+	if modelPath == "" {
+		return model
+	}
+
+	fm, err := parseFrontmatter(modelPath)
+	if err != nil {
+		return model
+	}
+
+	if fm.Database != "" && fm.Table != "" {
+		return fm.Database + "." + fm.Table
+	}
+
+	if fm.Database != "" {
+		return fm.Database + "." + model
+	}
+
+	return model
+}
+
 // IsEntityModel checks if an external model is an entity/dimension table.
 func IsEntityModel(model, xatuCBTPath string) bool {
 	intervalType, err := GetExternalModelIntervalType(model, xatuCBTPath)

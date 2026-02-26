@@ -200,19 +200,42 @@ models:
 }
 
 func TestDiscoverAllModels(t *testing.T) {
-	repoDir := setupFakeXatuCBTRepo(
-		t,
-		[]string{"fct_block", "fct_attestation"},
-		[]string{"fct_summary"},
-	)
+	t.Run("models without database frontmatter", func(t *testing.T) {
+		repoDir := setupFakeXatuCBTRepo(
+			t,
+			[]string{"fct_block", "fct_attestation"},
+			[]string{"fct_summary"},
+		)
 
-	models, err := discoverAllModels(repoDir)
-	require.NoError(t, err)
-	assert.Equal(t, []string{
-		"fct_attestation",
-		"fct_block",
-		"fct_summary",
-	}, models)
+		models, err := discoverAllModels(repoDir)
+		require.NoError(t, err)
+		assert.Equal(t, []string{
+			"fct_attestation",
+			"fct_block",
+			"fct_summary",
+		}, models)
+	})
+
+	t.Run("external models with database frontmatter use prefixed keys", func(t *testing.T) {
+		repoDir := setupFakeXatuCBTRepo(
+			t,
+			[]string{"cpu_utilization", "fct_block"},
+			[]string{"fct_summary"},
+		)
+
+		// Add database frontmatter to cpu_utilization to simulate observoor.
+		sqlWithFrontmatter := "---\ndatabase: observoor\ntable: cpu_utilization\n---\nSELECT 1"
+		path := filepath.Join(repoDir, "models", "external", "cpu_utilization.sql")
+		require.NoError(t, os.WriteFile(path, []byte(sqlWithFrontmatter), 0600))
+
+		models, err := discoverAllModels(repoDir)
+		require.NoError(t, err)
+		assert.Equal(t, []string{
+			"fct_block",
+			"fct_summary",
+			"observoor.cpu_utilization",
+		}, models)
+	})
 }
 
 func TestLoadModelStates(t *testing.T) {

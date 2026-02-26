@@ -149,6 +149,7 @@ export default function App() {
       key={activeStack}
       onNavigateConfig={() => navigateConfig()}
       onNavigateOverrides={() => navigateConfig('overrides')}
+      onNavigateRedis={capabilities.hasRedis ? () => setPage('redis') : undefined}
       stack={activeStack}
       availableStacks={availableStacks}
       onSwitchStack={handleSwitchStack}

@@ -312,10 +312,7 @@ func (b *labBackend) GetOverrides() (any, error) {
 	}
 
 	for _, name := range externalNames {
-		overrideKey := name
-		if db := seeddata.GetExternalModelDatabase(name, xatuCBTPath); db != "" {
-			overrideKey = db + "." + name
-		}
+		overrideKey := seeddata.GetExternalModelOverrideKey(name, xatuCBTPath)
 
 		enabled := fileExists && !configtui.IsModelDisabled(overrides, overrideKey)
 
