@@ -1,6 +1,6 @@
 module github.com/ethpandaops/xcli
 
-go 1.26
+go 1.26.0
 
 require (
 	dario.cat/mergo v1.0.2
@@ -21,7 +21,8 @@ require (
 	github.com/sirupsen/logrus v1.9.4
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
-	github.com/wagiedev/claude-agent-sdk-go v0.0.2
+	github.com/wagiedev/claude-agent-sdk-go v0.0.1
+	github.com/wagiedev/codex-agent-sdk-go v0.0.1
 	golang.org/x/sync v0.19.0
 	gopkg.in/yaml.v3 v3.0.1
 )

@@ -9,38 +9,38 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	claudesdk "github.com/wagiedev/claude-agent-sdk-go"
+	codexsdk "github.com/wagiedev/codex-agent-sdk-go"
 )
 
-type claudeEngine struct {
+type codexEngine struct {
 	log       logrus.FieldLogger
 	timeout   time.Duration
 	available bool
 }
 
-func newClaudeEngine(log logrus.FieldLogger) *claudeEngine {
-	_, err := exec.LookPath("claude")
+func newCodexEngine(log logrus.FieldLogger) *codexEngine {
+	_, err := exec.LookPath("codex")
 
-	return &claudeEngine{
-		log:       log.WithField("component", "ai-provider-claude"),
+	return &codexEngine{
+		log:       log.WithField("component", "ai-provider-codex"),
 		timeout:   defaultTimeout,
 		available: err == nil,
 	}
 }
 
-func (e *claudeEngine) Provider() ProviderID {
-	return ProviderClaude
+func (e *codexEngine) Provider() ProviderID {
+	return ProviderCodex
 }
 
-func (e *claudeEngine) Capabilities() Capabilities {
+func (e *codexEngine) Capabilities() Capabilities {
 	return Capabilities{Streaming: true, Interrupt: true, Sessions: true}
 }
 
-func (e *claudeEngine) IsAvailable() bool {
+func (e *codexEngine) IsAvailable() bool {
 	return e.available
 }
 
-func (e *claudeEngine) Ask(ctx context.Context, prompt string) (string, error) {
+func (e *codexEngine) Ask(ctx context.Context, prompt string) (string, error) {
 	if !e.available {
 		return "", fmt.Errorf("provider %s is not available", e.Provider())
 	}
@@ -53,15 +53,16 @@ func (e *claudeEngine) Ask(ctx context.Context, prompt string) (string, error) {
 		resultText    string
 	)
 
-	for msg, err := range claudesdk.Query(ctx, prompt) {
+	for msg, err := range codexsdk.Query(ctx, prompt) {
 		if err != nil {
 			return "", err
 		}
 
 		switch m := msg.(type) {
-		case *claudesdk.AssistantMessage:
+		case *codexsdk.AssistantMessage:
 			for _, block := range m.Content {
-				if textBlock, ok := block.(*claudesdk.TextBlock); ok && strings.TrimSpace(textBlock.Text) != "" {
+				if textBlock, ok := block.(*codexsdk.TextBlock); ok &&
+					strings.TrimSpace(textBlock.Text) != "" {
 					if assistantText.Len() > 0 {
 						assistantText.WriteString("\n")
 					}
@@ -69,7 +70,7 @@ func (e *claudeEngine) Ask(ctx context.Context, prompt string) (string, error) {
 					assistantText.WriteString(textBlock.Text)
 				}
 			}
-		case *claudesdk.ResultMessage:
+		case *codexsdk.ResultMessage:
 			if m.Result != nil && strings.TrimSpace(*m.Result) != "" {
 				resultText = *m.Result
 			}
@@ -88,14 +89,14 @@ func (e *claudeEngine) Ask(ctx context.Context, prompt string) (string, error) {
 	return out, nil
 }
 
-func (e *claudeEngine) StartSession(ctx context.Context) (Session, error) {
+func (e *codexEngine) StartSession(ctx context.Context) (Session, error) {
 	if !e.available {
 		return nil, fmt.Errorf("provider %s is not available", e.Provider())
 	}
 
-	client := claudesdk.NewClient()
+	client := codexsdk.NewClient()
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())
-	session := &claudeSession{
+	session := &codexSession{
 		id:              newSessionID(),
 		log:             e.log,
 		client:          client,
@@ -109,9 +110,8 @@ func (e *claudeEngine) StartSession(ctx context.Context) (Session, error) {
 	go func() {
 		startErrCh <- client.Start(
 			sessionCtx,
-			claudesdk.WithIncludePartialMessages(true),
-			claudesdk.WithPermissionMode("bypassPermissions"),
-			claudesdk.WithStderr(session.pushStderr),
+			codexsdk.WithPermissionMode("bypassPermissions"),
+			codexsdk.WithStderr(session.pushStderr),
 		)
 	}()
 
@@ -131,10 +131,10 @@ func (e *claudeEngine) StartSession(ctx context.Context) (Session, error) {
 	return session, nil
 }
 
-type claudeSession struct {
+type codexSession struct {
 	id              string
 	log             logrus.FieldLogger
-	client          claudesdk.Client
+	client          codexsdk.Client
 	timeout         time.Duration
 	sessionCancel   context.CancelFunc
 	mu              sync.Mutex
@@ -144,11 +144,11 @@ type claudeSession struct {
 	closed          bool
 }
 
-func (s *claudeSession) ID() string {
+func (s *codexSession) ID() string {
 	return s.id
 }
 
-func (s *claudeSession) AskStream(
+func (s *codexSession) AskStream(
 	ctx context.Context,
 	prompt string,
 	onChunk func(StreamChunk),
@@ -187,7 +187,7 @@ func (s *claudeSession) AskStream(
 			continue
 		}
 
-		if out, done, retErr := handleClaudeMessage(state, msg, onChunk, debugInfo); done {
+		if out, done, retErr := handleCodexMessage(state, msg, onChunk, debugInfo); done {
 			if retErr != nil {
 				return "", retErr
 			}
@@ -199,8 +199,8 @@ func (s *claudeSession) AskStream(
 	return state.finalResponse(debugInfo)
 }
 
-// handleClaudeMessage processes a single message from the Claude SDK stream.
-func handleClaudeMessage(
+// handleCodexMessage processes a single message from the Codex SDK stream.
+func handleCodexMessage(
 	st *askStreamState,
 	msg any,
 	onChunk func(StreamChunk),
@@ -209,7 +209,7 @@ func handleClaudeMessage(
 	st.msgCount++
 
 	switch m := msg.(type) {
-	case *claudesdk.StreamEvent:
+	case *codexsdk.StreamEvent:
 		st.lastMessageType = "stream_event"
 		st.streamEventCount++
 
@@ -229,7 +229,7 @@ func handleClaudeMessage(
 				st.streamChars += len(parts.Text)
 			}
 		}
-	case *claudesdk.AssistantMessage:
+	case *codexsdk.AssistantMessage:
 		st.lastMessageType = "assistant"
 		st.assistantCount++
 
@@ -238,7 +238,7 @@ func handleClaudeMessage(
 		}
 
 		for _, block := range m.Content {
-			textBlock, ok := block.(*claudesdk.TextBlock)
+			textBlock, ok := block.(*codexsdk.TextBlock)
 			if !ok || strings.TrimSpace(textBlock.Text) == "" {
 				continue
 			}
@@ -250,9 +250,10 @@ func handleClaudeMessage(
 			st.assistantText.WriteString(textBlock.Text)
 			st.assistantChars += len(textBlock.Text)
 
-			// Some CLI/SDK runs only surface thinking in stream events and provide
-			// answer text via assistant messages before final result. Emit fallback
-			// answer chunks so the UI streams visible answer text during the turn.
+			// Some CLI/SDK runs only surface thinking in stream events and
+			// provide answer text via assistant messages before final result.
+			// Emit fallback answer chunks so the UI streams visible answer
+			// text during the turn.
 			if onChunk != nil && st.streamChars == 0 {
 				st.seq++
 				onChunk(StreamChunk{
@@ -263,65 +264,14 @@ func handleClaudeMessage(
 				})
 			}
 		}
-	case *claudesdk.ResultMessage:
+	case *codexsdk.ResultMessage:
 		return handleResultMessage(st, m.Subtype, m.IsError, m.Result, debugInfo)
 	}
 
 	return "", false, nil
 }
 
-// handleResultMessage processes a result message for any provider.
-func handleResultMessage(
-	st *askStreamState,
-	subtype string,
-	isError bool,
-	result *string,
-	debugInfo func() map[string]any,
-) (string, bool, error) {
-	st.lastMessageType = "result"
-	st.resultCount++
-	st.resultSubtype = subtype
-	st.resultIsError = isError
-
-	if isError {
-		st.resultErr = subtype
-
-		if result != nil && strings.TrimSpace(*result) != "" {
-			st.resultErr = strings.TrimSpace(*result)
-		}
-	}
-
-	if result != nil && strings.TrimSpace(*result) != "" {
-		st.resultText = *result
-		st.resultChars = len(*result)
-	}
-
-	out := st.bestOutput()
-	if out != "" {
-		return out, true, nil
-	}
-
-	if st.resultErr != "" {
-		return "", true, &ProviderDebugError{
-			Cause: fmt.Errorf("provider result error: %s", st.resultErr),
-			Info:  debugInfo(),
-		}
-	}
-
-	if st.assistantErr != "" {
-		return "", true, &ProviderDebugError{
-			Cause: fmt.Errorf("provider assistant error: %s", st.assistantErr),
-			Info:  debugInfo(),
-		}
-	}
-
-	return "", true, &ProviderDebugError{
-		Cause: fmt.Errorf("empty provider response"),
-		Info:  debugInfo(),
-	}
-}
-
-func (s *claudeSession) Interrupt(ctx context.Context) error {
+func (s *codexSession) Interrupt(ctx context.Context) error {
 	if s.isClosed() {
 		return nil
 	}
@@ -332,7 +282,7 @@ func (s *claudeSession) Interrupt(ctx context.Context) error {
 	return s.client.Interrupt(ctx)
 }
 
-func (s *claudeSession) Close() error {
+func (s *codexSession) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -348,14 +298,14 @@ func (s *claudeSession) Close() error {
 	return s.client.Close()
 }
 
-func (s *claudeSession) isClosed() bool {
+func (s *codexSession) isClosed() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	return s.closed
 }
 
-func (s *claudeSession) pushStderr(line string) {
+func (s *codexSession) pushStderr(line string) {
 	trimmed := strings.TrimSpace(line)
 	if trimmed == "" {
 		return
@@ -374,14 +324,14 @@ func (s *claudeSession) pushStderr(line string) {
 	}
 }
 
-func (s *claudeSession) stderrCount() int {
+func (s *codexSession) stderrCount() int {
 	s.stderrMu.Lock()
 	defer s.stderrMu.Unlock()
 
 	return len(s.stderrLines)
 }
 
-func (s *claudeSession) stderrTail(n int) []string {
+func (s *codexSession) stderrTail(n int) []string {
 	s.stderrMu.Lock()
 	defer s.stderrMu.Unlock()
 

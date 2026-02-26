@@ -322,12 +322,12 @@ func (a *apiHandler) getStackStatusData() stackStatusResponse {
 	// from another stack), report "stopped" so we don't confuse the frontend.
 	status := stackStatusStopped
 
-	switch {
-	case currentStatus == stackStatusStarting:
+	switch currentStatus {
+	case stackStatusStarting:
 		status = stackStatusStarting
-	case currentStatus == stackStatusStopping:
+	case stackStatusStopping:
 		status = stackStatusStopping
-	case currentStatus == stackStatusRunning:
+	case stackStatusRunning:
 		status = stackStatusRunning
 	}
 
