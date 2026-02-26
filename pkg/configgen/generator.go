@@ -16,6 +16,7 @@ import (
 	"dario.cat/mergo"
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
+	"github.com/ethpandaops/xcli/pkg/seeddata"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
@@ -379,7 +380,9 @@ func (g *Generator) getLocallyEnabledTables(overridesPath string) ([]string, err
 }
 
 // discoverAllModels scans the xatu-cbt repo for external and transformation
-// model files, returning a sorted list of all model names.
+// model files, returning a sorted list of all model override keys.
+// External models use their database-prefixed key (e.g. "observoor.cpu_utilization")
+// to match the format used in .cbt-overrides.yaml.
 func discoverAllModels(xatuCBTPath string) ([]string, error) {
 	models := make([]string, 0, 64)
 
@@ -398,7 +401,10 @@ func discoverAllModels(xatuCBTPath string) ([]string, error) {
 
 		name := entry.Name()
 		if strings.HasSuffix(name, ".sql") {
-			models = append(models, strings.TrimSuffix(name, ".sql"))
+			modelName := strings.TrimSuffix(name, ".sql")
+
+			// Use the override key that matches the CBT binary's model ID.
+			models = append(models, seeddata.GetExternalModelOverrideKey(modelName, xatuCBTPath))
 		}
 	}
 

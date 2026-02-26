@@ -123,6 +123,7 @@ function appendLine(prev: string, text: string): string {
 interface DashboardProps {
   onNavigateConfig?: () => void;
   onNavigateOverrides?: () => void;
+  onNavigateRedis?: () => void;
   stack: string;
   availableStacks: string[];
   onSwitchStack: (stack: string) => void;
@@ -134,6 +135,7 @@ interface DashboardProps {
 export default function Dashboard({
   onNavigateConfig,
   onNavigateOverrides,
+  onNavigateRedis,
   stack,
   availableStacks,
   onSwitchStack,
@@ -698,6 +700,28 @@ export default function Dashboard({
           disableActions={!!otherRunningStack && stackStatus !== 'running'}
         />
       ))}
+      {capabilities.hasRedis && onNavigateRedis && (
+        <>
+          <div className="mt-2 text-xs/4 font-semibold tracking-wider text-text-muted uppercase">Tools</div>
+          <button
+            onClick={onNavigateRedis}
+            className="group flex w-full items-center gap-2.5 rounded-xs px-3 py-2.5 text-left transition-colors hover:bg-hover/3"
+            title="Open Redis Explorer"
+          >
+            <span className="size-1.5 shrink-0 rounded-full bg-accent" />
+            <span className="min-w-0 flex-1 truncate text-sm/5 font-medium text-text-secondary">Redis Explorer</span>
+            <svg
+              className="size-3.5 shrink-0 text-text-disabled transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-accent-light"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7 17 17 7m0 0H9m8 0v8" />
+            </svg>
+          </button>
+        </>
+      )}
     </div>
   );
 
