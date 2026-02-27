@@ -1,16 +1,13 @@
 package seeddata
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/ethpandaops/xcli/pkg/ai"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
@@ -30,80 +27,53 @@ type Assertion struct {
 	Expected   map[string]any   `yaml:"expected,omitempty"`   // For exact value assertions
 }
 
-// ClaudeAssertionClient handles assertion generation using Claude CLI.
+// ClaudeAssertionClient handles assertion generation using an AI engine.
 type ClaudeAssertionClient struct {
-	log        logrus.FieldLogger
-	claudePath string
-	timeout    time.Duration
+	log     logrus.FieldLogger
+	engine  ai.Engine
+	timeout time.Duration
 }
 
-// NewClaudeAssertionClient creates a new Claude client for assertion generation.
-func NewClaudeAssertionClient(log logrus.FieldLogger) (*ClaudeAssertionClient, error) {
-	claudePath, err := findClaudeBinaryPath()
-	if err != nil {
-		return nil, fmt.Errorf("claude CLI not found: %w", err)
-	}
-
+// NewClaudeAssertionClient creates a new assertion client using an ai.Engine.
+func NewClaudeAssertionClient(log logrus.FieldLogger, engine ai.Engine) *ClaudeAssertionClient {
 	return &ClaudeAssertionClient{
-		log:        log.WithField("component", "claude-assertions"),
-		claudePath: claudePath,
-		timeout:    3 * time.Minute, // Assertion generation can take time
-	}, nil
+		log:     log.WithField("component", "claude-assertions"),
+		engine:  engine,
+		timeout: 3 * time.Minute, // Assertion generation can take time
+	}
 }
 
-// IsAvailable checks if Claude Code CLI is installed and available.
+// IsAvailable checks if the AI engine is accessible.
 func (c *ClaudeAssertionClient) IsAvailable() bool {
-	if c.claudePath == "" {
-		return false
-	}
-
-	info, err := os.Stat(c.claudePath)
-	if err != nil {
-		return false
-	}
-
-	return !info.IsDir() && info.Mode()&0111 != 0
+	return c.engine != nil && c.engine.IsAvailable()
 }
 
-// GenerateAssertions uses Claude to analyze transformation SQL and suggest assertions.
+// GenerateAssertions uses the AI engine to analyze transformation SQL and suggest assertions.
 func (c *ClaudeAssertionClient) GenerateAssertions(ctx context.Context, transformationSQL string, externalModels []string, modelName string) ([]Assertion, error) {
 	if !c.IsAvailable() {
-		return nil, fmt.Errorf("claude CLI is not available")
+		return nil, fmt.Errorf("AI engine is not available")
 	}
 
 	prompt := c.buildAssertionPrompt(transformationSQL, externalModels, modelName)
 
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-
-	//nolint:gosec // claudePath is validated in findClaudeBinaryPath
-	cmd := exec.CommandContext(ctx, c.claudePath, "--print")
-	cmd.Stdin = strings.NewReader(prompt)
-
-	var stdout, stderr bytes.Buffer
-
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
 	c.log.WithFields(logrus.Fields{
 		"timeout": c.timeout,
 		"model":   modelName,
-	}).Debug("invoking Claude CLI for assertion generation")
+	}).Debug("invoking AI engine for assertion generation")
 
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("claude assertion generation timed out after %s", c.timeout)
-		}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
 
-		return nil, fmt.Errorf("claude CLI failed: %w (stderr: %s)", err, stderr.String())
+	response, err := c.engine.Ask(ctx, prompt)
+	if err != nil {
+		return nil, fmt.Errorf("AI engine failed: %w", err)
 	}
 
-	response := stdout.String()
 	if response == "" {
-		return nil, fmt.Errorf("claude returned empty response")
+		return nil, fmt.Errorf("AI engine returned empty response")
 	}
 
-	c.log.WithField("response_length", len(response)).Debug("received Claude response")
+	c.log.WithField("response_length", len(response)).Debug("received AI response")
 
 	return c.parseAssertionResponse(response, modelName)
 }
@@ -272,41 +242,4 @@ func extractYAMLFromResponse(response string) string {
 
 	// Last resort: return trimmed response hoping it's valid YAML
 	return strings.TrimSpace(response)
-}
-
-// findClaudeBinaryPath locates the claude CLI binary.
-func findClaudeBinaryPath() (string, error) {
-	// First, try `which claude`
-	whichCmd := exec.Command("which", "claude")
-
-	output, err := whichCmd.Output()
-	if err == nil {
-		path := strings.TrimSpace(string(output))
-		if path != "" {
-			return path, nil
-		}
-	}
-
-	// Get home directory for path construction
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = os.Getenv("HOME")
-	}
-
-	// Search in common locations
-	searchPaths := []string{
-		filepath.Join(home, ".volta", "bin", "claude"),
-		"/usr/local/bin/claude",
-		filepath.Join(home, "go", "bin", "claude"),
-		filepath.Join(home, ".local", "bin", "claude"),
-		"/opt/homebrew/bin/claude",
-	}
-
-	for _, path := range searchPaths {
-		if info, err := os.Stat(path); err == nil && !info.IsDir() { //nolint:gosec // paths are hardcoded search locations, not user input
-			return path, nil
-		}
-	}
-
-	return "", fmt.Errorf("claude binary not found in PATH or common locations")
 }

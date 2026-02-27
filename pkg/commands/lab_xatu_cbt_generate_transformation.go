@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ethpandaops/xcli/pkg/ai"
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/ethpandaops/xcli/pkg/seeddata"
@@ -311,100 +312,20 @@ func runGenerateTransformationTest(
 		if err != nil {
 			return fmt.Errorf("fallback range discovery failed: %w", err)
 		}
-	} else if discoveryClient, discoveryErr := seeddata.NewClaudeDiscoveryClient(log, gen); discoveryErr != nil {
-		ui.Warning(fmt.Sprintf("Claude CLI not available: %v", discoveryErr))
-		ui.Info("Falling back to heuristic range detection")
-
-		// Fallback to heuristic detection
-		var rangeInfos map[string]*seeddata.RangeColumnInfo
-
-		rangeInfos, err = seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
-		if err != nil {
-			return fmt.Errorf("failed to detect range columns: %w", err)
-		}
-
-		discoveryResult, err = seeddata.FallbackRangeDiscovery(ctx, gen, externalModels, network, rangeInfos, duration, labCfg.Repos.XatuCBT)
-		if err != nil {
-			return fmt.Errorf("fallback range discovery failed: %w", err)
-		}
 	} else {
-		// Gather schema information
-		schemaSpinner := ui.NewSpinner("Gathering schema information")
+		engine, engineErr := ai.NewEngine(ai.DefaultProvider, log)
 
-		schemaInfo, schemaErr := discoveryClient.GatherSchemaInfo(ctx, externalModels, network, labCfg.Repos.XatuCBT)
-		if schemaErr != nil {
-			schemaSpinner.Fail("Failed to gather schema info")
-
-			return fmt.Errorf("failed to gather schema info: %w", schemaErr)
-		}
-
-		schemaSpinner.Success(fmt.Sprintf("Schema info gathered for %d models", len(schemaInfo)))
-
-		// Display detected range info
-		for _, schema := range schemaInfo {
-			if schema.RangeInfo != nil {
-				status := "detected"
-				if !schema.RangeInfo.Detected {
-					status = "default"
-				}
-
-				rangeStr := ""
-				if schema.RangeInfo.MinValue != "" && schema.RangeInfo.MaxValue != "" {
-					rangeStr = fmt.Sprintf(" [%s → %s]", schema.RangeInfo.MinValue, schema.RangeInfo.MaxValue)
-				}
-
-				ui.Info(fmt.Sprintf("  • %s: %s (%s)%s", schema.Model, schema.RangeInfo.Column, status, rangeStr))
-			}
-		}
-
-		// Read transformation SQL
-		transformationSQL, sqlErr := seeddata.ReadTransformationSQL(model, labCfg.Repos.XatuCBT)
-		if sqlErr != nil {
-			return fmt.Errorf("failed to read transformation SQL: %w", sqlErr)
-		}
-
-		// Read intermediate dependency SQL (for WHERE clause analysis)
-		intermediateSQL, intErr := seeddata.ReadIntermediateSQL(tree, labCfg.Repos.XatuCBT)
-		if intErr != nil {
-			ui.Warning(fmt.Sprintf("Could not read intermediate SQL: %v", intErr))
-			// Continue without intermediate SQL - not critical
-		}
-
-		// Convert to IntermediateSQL slice
-		var intermediateModels []seeddata.IntermediateSQL
-		for modelName, sql := range intermediateSQL {
-			intermediateModels = append(intermediateModels, seeddata.IntermediateSQL{
-				Model: modelName,
-				SQL:   sql,
-			})
-		}
-
-		if len(intermediateModels) > 0 {
-			ui.Info(fmt.Sprintf("Including %d intermediate model(s) for WHERE clause analysis", len(intermediateModels)))
-		}
-
-		// Invoke Claude for analysis
-		ui.Blank()
-
-		analysisSpinner := ui.NewSpinner("Analyzing correlation strategy with Claude")
-
-		discoveryResult, err = discoveryClient.AnalyzeRanges(ctx, seeddata.DiscoveryInput{
-			TransformationModel: model,
-			TransformationSQL:   transformationSQL,
-			IntermediateModels:  intermediateModels,
-			Network:             network,
-			Duration:            duration,
-			ExternalModels:      schemaInfo,
-		})
-		if err != nil {
-			analysisSpinner.Fail("AI analysis failed")
-			ui.Warning(fmt.Sprintf("Claude analysis failed: %v", err))
+		discoveryClient := seeddata.NewClaudeDiscoveryClient(log, gen, engine)
+		if engineErr != nil || !discoveryClient.IsAvailable() {
+			ui.Warning("AI engine not available")
 			ui.Info("Falling back to heuristic range detection")
 
 			// Fallback to heuristic detection
-			rangeInfos, rangeErr := seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
-			if rangeErr != nil {
-				return fmt.Errorf("failed to detect range columns: %w", rangeErr)
+			var rangeInfos map[string]*seeddata.RangeColumnInfo
+
+			rangeInfos, err = seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
+			if err != nil {
+				return fmt.Errorf("failed to detect range columns: %w", err)
 			}
 
 			discoveryResult, err = seeddata.FallbackRangeDiscovery(ctx, gen, externalModels, network, rangeInfos, duration, labCfg.Repos.XatuCBT)
@@ -412,7 +333,92 @@ func runGenerateTransformationTest(
 				return fmt.Errorf("fallback range discovery failed: %w", err)
 			}
 		} else {
-			analysisSpinner.Success(fmt.Sprintf("Strategy generated (confidence: %.0f%%)", discoveryResult.OverallConfidence*100))
+			// Gather schema information
+			schemaSpinner := ui.NewSpinner("Gathering schema information")
+
+			schemaInfo, schemaErr := discoveryClient.GatherSchemaInfo(ctx, externalModels, network, labCfg.Repos.XatuCBT)
+			if schemaErr != nil {
+				schemaSpinner.Fail("Failed to gather schema info")
+
+				return fmt.Errorf("failed to gather schema info: %w", schemaErr)
+			}
+
+			schemaSpinner.Success(fmt.Sprintf("Schema info gathered for %d models", len(schemaInfo)))
+
+			// Display detected range info
+			for _, schema := range schemaInfo {
+				if schema.RangeInfo != nil {
+					status := "detected"
+					if !schema.RangeInfo.Detected {
+						status = "default"
+					}
+
+					rangeStr := ""
+					if schema.RangeInfo.MinValue != "" && schema.RangeInfo.MaxValue != "" {
+						rangeStr = fmt.Sprintf(" [%s → %s]", schema.RangeInfo.MinValue, schema.RangeInfo.MaxValue)
+					}
+
+					ui.Info(fmt.Sprintf("  • %s: %s (%s)%s", schema.Model, schema.RangeInfo.Column, status, rangeStr))
+				}
+			}
+
+			// Read transformation SQL
+			transformationSQL, sqlErr := seeddata.ReadTransformationSQL(model, labCfg.Repos.XatuCBT)
+			if sqlErr != nil {
+				return fmt.Errorf("failed to read transformation SQL: %w", sqlErr)
+			}
+
+			// Read intermediate dependency SQL (for WHERE clause analysis)
+			intermediateSQL, intErr := seeddata.ReadIntermediateSQL(tree, labCfg.Repos.XatuCBT)
+			if intErr != nil {
+				ui.Warning(fmt.Sprintf("Could not read intermediate SQL: %v", intErr))
+				// Continue without intermediate SQL - not critical
+			}
+
+			// Convert to IntermediateSQL slice
+			var intermediateModels []seeddata.IntermediateSQL
+			for modelName, sql := range intermediateSQL {
+				intermediateModels = append(intermediateModels, seeddata.IntermediateSQL{
+					Model: modelName,
+					SQL:   sql,
+				})
+			}
+
+			if len(intermediateModels) > 0 {
+				ui.Info(fmt.Sprintf("Including %d intermediate model(s) for WHERE clause analysis", len(intermediateModels)))
+			}
+
+			// Invoke Claude for analysis
+			ui.Blank()
+
+			analysisSpinner := ui.NewSpinner("Analyzing correlation strategy with Claude")
+
+			discoveryResult, err = discoveryClient.AnalyzeRanges(ctx, seeddata.DiscoveryInput{
+				TransformationModel: model,
+				TransformationSQL:   transformationSQL,
+				IntermediateModels:  intermediateModels,
+				Network:             network,
+				Duration:            duration,
+				ExternalModels:      schemaInfo,
+			})
+			if err != nil {
+				analysisSpinner.Fail("AI analysis failed")
+				ui.Warning(fmt.Sprintf("Claude analysis failed: %v", err))
+				ui.Info("Falling back to heuristic range detection")
+
+				// Fallback to heuristic detection
+				rangeInfos, rangeErr := seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
+				if rangeErr != nil {
+					return fmt.Errorf("failed to detect range columns: %w", rangeErr)
+				}
+
+				discoveryResult, err = seeddata.FallbackRangeDiscovery(ctx, gen, externalModels, network, rangeInfos, duration, labCfg.Repos.XatuCBT)
+				if err != nil {
+					return fmt.Errorf("fallback range discovery failed: %w", err)
+				}
+			} else {
+				analysisSpinner.Success(fmt.Sprintf("Strategy generated (confidence: %.0f%%)", discoveryResult.OverallConfidence*100))
+			}
 		}
 	}
 
@@ -995,11 +1001,18 @@ func promptForTransformationModel(xatuCBTPath string) (string, error) {
 func generateAIAssertions(ctx context.Context, log logrus.FieldLogger, model string, externalModels []string, xatuCBTPath string) ([]seeddata.Assertion, error) {
 	aiSpinner := ui.NewSpinner("Analyzing transformation SQL with Claude")
 
-	client, err := seeddata.NewClaudeAssertionClient(log)
-	if err != nil {
-		aiSpinner.Fail("Claude CLI not available")
+	engine, engineErr := ai.NewEngine(ai.DefaultProvider, log)
+	if engineErr != nil {
+		aiSpinner.Fail("AI engine not available")
 
-		return nil, fmt.Errorf("claude CLI not available: %w", err)
+		return nil, fmt.Errorf("AI engine not available: %w", engineErr)
+	}
+
+	client := seeddata.NewClaudeAssertionClient(log, engine)
+	if !client.IsAvailable() {
+		aiSpinner.Fail("AI engine not available")
+
+		return nil, fmt.Errorf("AI engine is not available")
 	}
 
 	// Read transformation SQL
@@ -1189,54 +1202,13 @@ func runSingleModelGeneration(
 		if err != nil {
 			return fmt.Errorf("fallback range discovery failed: %w", err)
 		}
-	} else if discoveryClient, discoveryErr := seeddata.NewClaudeDiscoveryClient(log, gen); discoveryErr != nil {
-		// Claude not available, use heuristics
-		logInfo("Claude unavailable, using heuristic range detection")
-
-		rangeInfos, rangeErr := seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
-		if rangeErr != nil {
-			return fmt.Errorf("failed to detect range columns: %w", rangeErr)
-		}
-
-		discoveryResult, err = seeddata.FallbackRangeDiscovery(ctx, gen, externalModels, network, rangeInfos, duration, labCfg.Repos.XatuCBT)
-		if err != nil {
-			return fmt.Errorf("fallback range discovery failed: %w", err)
-		}
 	} else {
-		// Use Claude for analysis
-		logInfo("Analyzing with Claude AI")
+		engine, engineErr := ai.NewEngine(ai.DefaultProvider, log)
 
-		schemaInfo, schemaErr := discoveryClient.GatherSchemaInfo(ctx, externalModels, network, labCfg.Repos.XatuCBT)
-		if schemaErr != nil {
-			return fmt.Errorf("failed to gather schema info: %w", schemaErr)
-		}
-
-		transformationSQL, sqlErr := seeddata.ReadTransformationSQL(model, labCfg.Repos.XatuCBT)
-		if sqlErr != nil {
-			return fmt.Errorf("failed to read transformation SQL: %w", sqlErr)
-		}
-
-		intermediateSQL, _ := seeddata.ReadIntermediateSQL(tree, labCfg.Repos.XatuCBT)
-
-		var intermediateModels []seeddata.IntermediateSQL
-		for modelName, sql := range intermediateSQL {
-			intermediateModels = append(intermediateModels, seeddata.IntermediateSQL{
-				Model: modelName,
-				SQL:   sql,
-			})
-		}
-
-		discoveryResult, err = discoveryClient.AnalyzeRanges(ctx, seeddata.DiscoveryInput{
-			TransformationModel: model,
-			TransformationSQL:   transformationSQL,
-			IntermediateModels:  intermediateModels,
-			Network:             network,
-			Duration:            duration,
-			ExternalModels:      schemaInfo,
-		})
-		if err != nil {
-			// Fallback to heuristics
-			logInfo("Claude analysis failed, falling back to heuristics")
+		discoveryClient := seeddata.NewClaudeDiscoveryClient(log, gen, engine)
+		if engineErr != nil || !discoveryClient.IsAvailable() {
+			// AI not available, use heuristics
+			logInfo("AI engine unavailable, using heuristic range detection")
 
 			rangeInfos, rangeErr := seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
 			if rangeErr != nil {
@@ -1248,7 +1220,53 @@ func runSingleModelGeneration(
 				return fmt.Errorf("fallback range discovery failed: %w", err)
 			}
 		} else {
-			logInfo(fmt.Sprintf("Claude strategy generated (confidence: %.0f%%)", discoveryResult.OverallConfidence*100))
+			// Use AI for analysis
+			logInfo("Analyzing with Claude AI")
+
+			schemaInfo, schemaErr := discoveryClient.GatherSchemaInfo(ctx, externalModels, network, labCfg.Repos.XatuCBT)
+			if schemaErr != nil {
+				return fmt.Errorf("failed to gather schema info: %w", schemaErr)
+			}
+
+			transformationSQL, sqlErr := seeddata.ReadTransformationSQL(model, labCfg.Repos.XatuCBT)
+			if sqlErr != nil {
+				return fmt.Errorf("failed to read transformation SQL: %w", sqlErr)
+			}
+
+			intermediateSQL, _ := seeddata.ReadIntermediateSQL(tree, labCfg.Repos.XatuCBT)
+
+			var intermediateModels []seeddata.IntermediateSQL
+			for modelName, sql := range intermediateSQL {
+				intermediateModels = append(intermediateModels, seeddata.IntermediateSQL{
+					Model: modelName,
+					SQL:   sql,
+				})
+			}
+
+			discoveryResult, err = discoveryClient.AnalyzeRanges(ctx, seeddata.DiscoveryInput{
+				TransformationModel: model,
+				TransformationSQL:   transformationSQL,
+				IntermediateModels:  intermediateModels,
+				Network:             network,
+				Duration:            duration,
+				ExternalModels:      schemaInfo,
+			})
+			if err != nil {
+				// Fallback to heuristics
+				logInfo("Claude analysis failed, falling back to heuristics")
+
+				rangeInfos, rangeErr := seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
+				if rangeErr != nil {
+					return fmt.Errorf("failed to detect range columns: %w", rangeErr)
+				}
+
+				discoveryResult, err = seeddata.FallbackRangeDiscovery(ctx, gen, externalModels, network, rangeInfos, duration, labCfg.Repos.XatuCBT)
+				if err != nil {
+					return fmt.Errorf("fallback range discovery failed: %w", err)
+				}
+			} else {
+				logInfo(fmt.Sprintf("Claude strategy generated (confidence: %.0f%%)", discoveryResult.OverallConfidence*100))
+			}
 		}
 	}
 
