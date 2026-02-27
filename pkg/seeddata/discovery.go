@@ -683,19 +683,50 @@ func FallbackRangeDiscovery(
 			colType = ClassifyRangeColumn(rangeCol, nil)
 		}
 
-		modelRange, queryErr := gen.QueryModelRange(ctx, model, network, rangeCol)
-		if queryErr != nil {
-			gen.log.WithError(queryErr).WithField("model", model).Warn("range query failed")
+		// Use raw queries for numeric columns (block, slot, epoch) to avoid parseTimeValue failures
+		var minRaw, maxRaw string
 
-			strategies = append(strategies, TableRangeStrategy{
-				Model:       model,
-				RangeColumn: rangeCol,
-				ColumnType:  colType,
-				Confidence:  0.3,
-				Reasoning:   fmt.Sprintf("Range query failed: %v", queryErr),
-			})
+		var modelRangeTime *ModelRange
 
-			continue
+		switch colType {
+		case RangeColumnTypeBlock, RangeColumnTypeSlot, RangeColumnTypeEpoch:
+			rawRange, queryErr := gen.QueryModelRangeRaw(ctx, model, network, rangeCol)
+			if queryErr != nil {
+				gen.log.WithError(queryErr).WithField("model", model).Warn("range query failed")
+
+				strategies = append(strategies, TableRangeStrategy{
+					Model:       model,
+					RangeColumn: rangeCol,
+					ColumnType:  colType,
+					Confidence:  0.3,
+					Reasoning:   fmt.Sprintf("Range query failed: %v", queryErr),
+				})
+
+				continue
+			}
+
+			minRaw = rawRange.MinRaw
+			maxRaw = rawRange.MaxRaw
+		default:
+			var queryErr error
+
+			modelRangeTime, queryErr = gen.QueryModelRange(ctx, model, network, rangeCol)
+			if queryErr != nil {
+				gen.log.WithError(queryErr).WithField("model", model).Warn("range query failed")
+
+				strategies = append(strategies, TableRangeStrategy{
+					Model:       model,
+					RangeColumn: rangeCol,
+					ColumnType:  colType,
+					Confidence:  0.3,
+					Reasoning:   fmt.Sprintf("Range query failed: %v", queryErr),
+				})
+
+				continue
+			}
+
+			minRaw = modelRangeTime.MinRaw
+			maxRaw = modelRangeTime.MaxRaw
 		}
 
 		// Track ranges based on column type
@@ -703,13 +734,13 @@ func FallbackRangeDiscovery(
 			// Parse raw values as block numbers
 			var minBlock, maxBlock int64
 
-			if _, scanErr := fmt.Sscanf(modelRange.MinRaw, "%d", &minBlock); scanErr != nil {
+			if _, scanErr := fmt.Sscanf(minRaw, "%d", &minBlock); scanErr != nil {
 				gen.log.WithError(scanErr).WithField("model", model).Warn("failed to parse min block number")
 
 				continue
 			}
 
-			if _, scanErr := fmt.Sscanf(modelRange.MaxRaw, "%d", &maxBlock); scanErr != nil {
+			if _, scanErr := fmt.Sscanf(maxRaw, "%d", &maxBlock); scanErr != nil {
 				gen.log.WithError(scanErr).WithField("model", model).Warn("failed to parse max block number")
 
 				continue
@@ -733,12 +764,12 @@ func FallbackRangeDiscovery(
 			}
 		} else {
 			// Time-based range
-			if latestTimeMin.IsZero() || modelRange.Min.After(latestTimeMin) {
-				latestTimeMin = modelRange.Min
+			if latestTimeMin.IsZero() || modelRangeTime.Min.After(latestTimeMin) {
+				latestTimeMin = modelRangeTime.Min
 			}
 
-			if earliestTimeMax.IsZero() || modelRange.Max.Before(earliestTimeMax) {
-				earliestTimeMax = modelRange.Max
+			if earliestTimeMax.IsZero() || modelRangeTime.Max.Before(earliestTimeMax) {
+				earliestTimeMax = modelRangeTime.Max
 			}
 
 			hasTimeRanges = true
@@ -1171,57 +1202,72 @@ func (c *ClaudeDiscoveryClient) validateDiscoveryResult(result *DiscoveryResult)
 
 // normalizeDiscoveryYAMLFields converts common field name variations to expected camelCase
 // and fixes common YAML formatting issues in Claude's output.
+// Uses case-insensitive key matching to handle any casing Claude might produce.
 func normalizeDiscoveryYAMLFields(yamlContent string) string {
-	// Map of various field name formats to expected camelCase
-	// Includes snake_case, PascalCase, typos, and other variations Claude might output
-	replacements := map[string]string{
-		// snake_case variations
-		"primary_range_type:":   "primaryRangeType:",
-		"primary_range_column:": "primaryRangeColumn:",
-		// Common typos (missing capital letters)
-		"primaryrangeType:":   "primaryRangeType:",
-		"primaryrangeColumn:": "primaryRangeColumn:",
-		"primaryRangetype:":   "primaryRangeType:",
-		"primaryRangecolumn:": "primaryRangeColumn:",
-		"from_value:":         "fromValue:",
-		"to_value:":           "toValue:",
-		"range_column:":       "rangeColumn:",
-		"column_type:":        "columnType:",
-		"filter_sql:":         "filterSql:",
-		"correlation_filter:": "correlationFilter:",
-		"requires_bridge:":    "requiresBridge:",
-		"bridge_table:":       "bridgeTable:",
-		"bridge_join_sql:":    "bridgeJoinSql:",
-		"overall_confidence:": "overallConfidence:",
-		// PascalCase variations
-		"PrimaryRangeType:":   "primaryRangeType:",
-		"PrimaryRangeColumn:": "primaryRangeColumn:",
-		"FromValue:":          "fromValue:",
-		"ToValue:":            "toValue:",
-		"RangeColumn:":        "rangeColumn:",
-		"ColumnType:":         "columnType:",
-		"FilterSql:":          "filterSql:",
-		"FilterSQL:":          "filterSql:",
-		"CorrelationFilter:":  "correlationFilter:",
-		"RequiresBridge:":     "requiresBridge:",
-		"BridgeTable:":        "bridgeTable:",
-		"BridgeJoinSql:":      "bridgeJoinSql:",
-		"BridgeJoinSQL:":      "bridgeJoinSql:",
-		"OverallConfidence:":  "overallConfidence:",
-		// Common typos/variations
-		"filterSql:": "filterSql:",
-		"filter:":    "filterSql:", // Claude might shorten this
+	// Map of lowercased key (without colon) to canonical camelCase key with colon.
+	// Case-insensitive matching ensures we catch any casing variation Claude outputs.
+	canonicalKeys := map[string]string{
+		"primaryrangetype":   "primaryRangeType:",
+		"primaryrangecolumn": "primaryRangeColumn:",
+		"fromvalue":          "fromValue:",
+		"tovalue":            "toValue:",
+		"rangecolumn":        "rangeColumn:",
+		"columntype":         "columnType:",
+		"filtersql":          "filterSql:",
+		"correlationfilter":  "correlationFilter:",
+		"requiresbridge":     "requiresBridge:",
+		"bridgetable":        "bridgeTable:",
+		"bridgejoinsql":      "bridgeJoinSql:",
+		"overallconfidence":  "overallConfidence:",
 	}
 
-	result := yamlContent
-	for variant, camel := range replacements {
-		result = strings.ReplaceAll(result, variant, camel)
+	// Also handle snake_case by stripping underscores before lookup
+	snakeCaseKeys := map[string]string{
+		"primary_range_type":   "primaryRangeType:",
+		"primary_range_column": "primaryRangeColumn:",
+		"from_value":           "fromValue:",
+		"to_value":             "toValue:",
+		"range_column":         "rangeColumn:",
+		"column_type":          "columnType:",
+		"filter_sql":           "filterSql:",
+		"correlation_filter":   "correlationFilter:",
+		"requires_bridge":      "requiresBridge:",
+		"bridge_table":         "bridgeTable:",
+		"bridge_join_sql":      "bridgeJoinSql:",
+		"overall_confidence":   "overallConfidence:",
 	}
+
+	lines := strings.Split(yamlContent, "\n")
+	result := make([]string, 0, len(lines))
+	keyColonRe := regexp.MustCompile(`^(\s*)([\w_]+)(\s*:.*)$`)
+
+	for _, line := range lines {
+		matches := keyColonRe.FindStringSubmatch(line)
+		if matches != nil {
+			indent := matches[1]
+			key := matches[2]
+			rest := matches[3] // includes ": value"
+
+			keyLower := strings.ToLower(key)
+
+			// Try direct case-insensitive match (handles camelCase, PascalCase, etc.)
+			if canonical, ok := canonicalKeys[keyLower]; ok {
+				line = indent + canonical + rest[1:] // rest[1:] removes the leading ":"
+			} else if canonical, ok := snakeCaseKeys[keyLower]; ok {
+				// Try snake_case match
+				line = indent + canonical + rest[1:]
+			}
+		}
+
+		result = append(result, line)
+	}
+
+	normalized := strings.Join(result, "\n")
 
 	// Fix unquoted datetime values (e.g., "fromValue: 2025-01-01 00:00:00" -> "fromValue: \"2025-01-01 00:00:00\"")
-	result = fixUnquotedDatetimes(result)
+	normalized = fixUnquotedDatetimes(normalized)
 
-	return result
+	return normalized
 }
 
 // fixUnquotedDatetimes finds unquoted datetime values and adds quotes.
