@@ -2,19 +2,18 @@
 package seeddata
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/ethpandaops/xcli/pkg/ai"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
@@ -128,25 +127,20 @@ type ValidationResult struct {
 
 // ClaudeDiscoveryClient handles AI-assisted range discovery.
 type ClaudeDiscoveryClient struct {
-	log        logrus.FieldLogger
-	claudePath string
-	timeout    time.Duration
-	gen        *Generator
+	log     logrus.FieldLogger
+	engine  ai.Engine
+	timeout time.Duration
+	gen     *Generator
 }
 
-// NewClaudeDiscoveryClient creates a new discovery client.
-func NewClaudeDiscoveryClient(log logrus.FieldLogger, gen *Generator) (*ClaudeDiscoveryClient, error) {
-	claudePath, err := findClaudeBinaryPath()
-	if err != nil {
-		return nil, fmt.Errorf("claude CLI not found: %w", err)
-	}
-
+// NewClaudeDiscoveryClient creates a new discovery client using an ai.Engine.
+func NewClaudeDiscoveryClient(log logrus.FieldLogger, gen *Generator, engine ai.Engine) *ClaudeDiscoveryClient {
 	return &ClaudeDiscoveryClient{
-		log:        log.WithField("component", "claude-discovery"),
-		claudePath: claudePath,
-		timeout:    5 * time.Minute, // Discovery can take longer than assertions
-		gen:        gen,
-	}, nil
+		log:     log.WithField("component", "claude-discovery"),
+		engine:  engine,
+		timeout: 5 * time.Minute, // Discovery can take longer than assertions
+		gen:     gen,
+	}
 }
 
 // GetStrategy returns the strategy for a specific model.
@@ -164,18 +158,9 @@ func (d *DiscoveryResult) GetStrategy(model string) *TableRangeStrategy {
 	return nil
 }
 
-// IsAvailable checks if Claude CLI is accessible.
+// IsAvailable checks if the AI engine is accessible.
 func (c *ClaudeDiscoveryClient) IsAvailable() bool {
-	if c.claudePath == "" {
-		return false
-	}
-
-	info, err := os.Stat(c.claudePath)
-	if err != nil {
-		return false
-	}
-
-	return !info.IsDir() && info.Mode()&0111 != 0
+	return c.engine != nil && c.engine.IsAvailable()
 }
 
 // GatherSchemaInfo collects schema information for all external models.
@@ -228,15 +213,26 @@ func (c *ClaudeDiscoveryClient) GatherSchemaInfo(
 		// Classify the range column type
 		colType := ClassifyRangeColumn(rangeCol, columns)
 
-		// Query the range for this model
+		// Query the range for this model - use raw queries for numeric columns
 		var minVal, maxVal string
 
-		modelRange, rangeErr := c.gen.QueryModelRange(ctx, model, network, rangeCol)
-		if rangeErr != nil {
-			c.log.WithError(rangeErr).WithField("model", model).Warn("failed to query model range")
-		} else {
-			minVal = modelRange.MinRaw
-			maxVal = modelRange.MaxRaw
+		switch colType {
+		case RangeColumnTypeBlock, RangeColumnTypeSlot, RangeColumnTypeEpoch:
+			rawRange, rangeErr := c.gen.QueryModelRangeRaw(ctx, model, network, rangeCol)
+			if rangeErr != nil {
+				c.log.WithError(rangeErr).WithField("model", model).Warn("failed to query model range")
+			} else {
+				minVal = rawRange.MinRaw
+				maxVal = rawRange.MaxRaw
+			}
+		default:
+			modelRange, rangeErr := c.gen.QueryModelRange(ctx, model, network, rangeCol)
+			if rangeErr != nil {
+				c.log.WithError(rangeErr).WithField("model", model).Warn("failed to query model range")
+			} else {
+				minVal = modelRange.MinRaw
+				maxVal = modelRange.MaxRaw
+			}
 		}
 
 		// Get sample data (limited to 3 rows for prompt size)
@@ -261,48 +257,35 @@ func (c *ClaudeDiscoveryClient) GatherSchemaInfo(
 	return schemas, nil
 }
 
-// AnalyzeRanges invokes Claude to analyze range strategies.
+// AnalyzeRanges invokes the AI engine to analyze range strategies.
 func (c *ClaudeDiscoveryClient) AnalyzeRanges(
 	ctx context.Context,
 	input DiscoveryInput,
 ) (*DiscoveryResult, error) {
 	if !c.IsAvailable() {
-		return nil, fmt.Errorf("claude CLI is not available")
+		return nil, fmt.Errorf("AI engine is not available")
 	}
 
 	prompt := c.buildDiscoveryPrompt(input)
 
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-
-	//nolint:gosec // claudePath is validated in findClaudeBinaryPath
-	cmd := exec.CommandContext(ctx, c.claudePath, "--print")
-	cmd.Stdin = strings.NewReader(prompt)
-
-	var stdout, stderr bytes.Buffer
-
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
 	c.log.WithFields(logrus.Fields{
 		"timeout": c.timeout,
 		"model":   input.TransformationModel,
-	}).Debug("invoking Claude CLI for range discovery")
+	}).Debug("invoking AI engine for range discovery")
 
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("claude discovery timed out after %s", c.timeout)
-		}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
 
-		return nil, fmt.Errorf("claude CLI failed: %w (stderr: %s)", err, stderr.String())
+	response, err := c.engine.Ask(ctx, prompt)
+	if err != nil {
+		return nil, fmt.Errorf("AI engine failed: %w", err)
 	}
 
-	response := stdout.String()
 	if response == "" {
-		return nil, fmt.Errorf("claude returned empty response")
+		return nil, fmt.Errorf("AI engine returned empty response")
 	}
 
-	c.log.WithField("response_length", len(response)).Debug("received Claude response")
+	c.log.WithField("response_length", len(response)).Debug("received AI response")
 
 	return c.parseDiscoveryResponse(response)
 }
@@ -1077,7 +1060,7 @@ func (c *ClaudeDiscoveryClient) buildDiscoveryPrompt(input DiscoveryInput) strin
 	sb.WriteString("IMPORTANT:\n")
 	sb.WriteString("- Use actual values from the available ranges shown above\n")
 	sb.WriteString("- Pick a recent time window (last hour or so) within the intersection of all available ranges\n")
-	sb.WriteString("- For block_number tables, estimate block numbers that correspond to the chosen time window\n")
+	sb.WriteString("- For block_number/slot/epoch tables, use the actual 'Available Range' values provided above - pick values near the END of the available range (most recent data). NEVER estimate or guess block numbers.\n")
 	sb.WriteString("- Include ALL external models in the strategies list\n")
 	sb.WriteString("- **ANALYZE ALL WHERE CLAUSES** in transformation and intermediate SQL - missing filters will cause empty test output!\n")
 	sb.WriteString("- Include `filterSql` for each model (empty string if no additional filters needed)\n\n")

@@ -1,16 +1,13 @@
 package seeddata
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/ethpandaops/xcli/pkg/ai"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
@@ -30,80 +27,53 @@ type Assertion struct {
 	Expected   map[string]any   `yaml:"expected,omitempty"`   // For exact value assertions
 }
 
-// ClaudeAssertionClient handles assertion generation using Claude CLI.
+// ClaudeAssertionClient handles assertion generation using an AI engine.
 type ClaudeAssertionClient struct {
-	log        logrus.FieldLogger
-	claudePath string
-	timeout    time.Duration
+	log     logrus.FieldLogger
+	engine  ai.Engine
+	timeout time.Duration
 }
 
-// NewClaudeAssertionClient creates a new Claude client for assertion generation.
-func NewClaudeAssertionClient(log logrus.FieldLogger) (*ClaudeAssertionClient, error) {
-	claudePath, err := findClaudeBinaryPath()
-	if err != nil {
-		return nil, fmt.Errorf("claude CLI not found: %w", err)
-	}
-
+// NewClaudeAssertionClient creates a new assertion client using an ai.Engine.
+func NewClaudeAssertionClient(log logrus.FieldLogger, engine ai.Engine) *ClaudeAssertionClient {
 	return &ClaudeAssertionClient{
-		log:        log.WithField("component", "claude-assertions"),
-		claudePath: claudePath,
-		timeout:    3 * time.Minute, // Assertion generation can take time
-	}, nil
+		log:     log.WithField("component", "claude-assertions"),
+		engine:  engine,
+		timeout: 3 * time.Minute, // Assertion generation can take time
+	}
 }
 
-// IsAvailable checks if Claude Code CLI is installed and available.
+// IsAvailable checks if the AI engine is accessible.
 func (c *ClaudeAssertionClient) IsAvailable() bool {
-	if c.claudePath == "" {
-		return false
-	}
-
-	info, err := os.Stat(c.claudePath)
-	if err != nil {
-		return false
-	}
-
-	return !info.IsDir() && info.Mode()&0111 != 0
+	return c.engine != nil && c.engine.IsAvailable()
 }
 
-// GenerateAssertions uses Claude to analyze transformation SQL and suggest assertions.
+// GenerateAssertions uses the AI engine to analyze transformation SQL and suggest assertions.
 func (c *ClaudeAssertionClient) GenerateAssertions(ctx context.Context, transformationSQL string, externalModels []string, modelName string) ([]Assertion, error) {
 	if !c.IsAvailable() {
-		return nil, fmt.Errorf("claude CLI is not available")
+		return nil, fmt.Errorf("AI engine is not available")
 	}
 
 	prompt := c.buildAssertionPrompt(transformationSQL, externalModels, modelName)
 
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-
-	//nolint:gosec // claudePath is validated in findClaudeBinaryPath
-	cmd := exec.CommandContext(ctx, c.claudePath, "--print")
-	cmd.Stdin = strings.NewReader(prompt)
-
-	var stdout, stderr bytes.Buffer
-
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
 	c.log.WithFields(logrus.Fields{
 		"timeout": c.timeout,
 		"model":   modelName,
-	}).Debug("invoking Claude CLI for assertion generation")
+	}).Debug("invoking AI engine for assertion generation")
 
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("claude assertion generation timed out after %s", c.timeout)
-		}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
 
-		return nil, fmt.Errorf("claude CLI failed: %w (stderr: %s)", err, stderr.String())
+	response, err := c.engine.Ask(ctx, prompt)
+	if err != nil {
+		return nil, fmt.Errorf("AI engine failed: %w", err)
 	}
 
-	response := stdout.String()
 	if response == "" {
-		return nil, fmt.Errorf("claude returned empty response")
+		return nil, fmt.Errorf("AI engine returned empty response")
 	}
 
-	c.log.WithField("response_length", len(response)).Debug("received Claude response")
+	c.log.WithField("response_length", len(response)).Debug("received AI response")
 
 	return c.parseAssertionResponse(response, modelName)
 }
@@ -145,15 +115,32 @@ func (c *ClaudeAssertionClient) buildAssertionPrompt(transformationSQL string, e
 
 	sb.WriteString("Valid assertion types: greater_than, less_than, greater_than_or_equal, less_than_or_equal, equals\n\n")
 
+	sb.WriteString("## ClickHouse SQL Rules (CRITICAL)\n")
+	sb.WriteString("1. NEVER use aggregate aliases in WHERE clauses - ClickHouse does not allow `WHERE count > 0` when `count` is a `COUNT(*) AS count` alias. Use HAVING for aggregate filters, or restructure the query.\n")
+	sb.WriteString("2. NEVER use SELECT aliases that shadow actual column names in the table. If the table has a column named `count`, `gas`, `value`, etc., your SELECT alias MUST use a different name (e.g., `row_count`, `total_gas`, `invalid_count`).\n")
+	sb.WriteString("3. For 'no bad rows' checks, use this pattern: `SELECT COUNT(*) AS bad_rows FROM table FINAL WHERE column_name <= 0` then assert `bad_rows equals 0`.\n")
+	sb.WriteString("4. Always use `FINAL` after the table name.\n")
+	sb.WriteString("5. Only reference columns that actually exist in the transformation SQL output. Read the SELECT clause carefully.\n\n")
+
 	sb.WriteString("Example output format:\n")
 	sb.WriteString("- name: Row count should be greater than zero\n")
 	sb.WriteString("  sql: |\n")
-	sb.WriteString("    SELECT COUNT(*) AS count FROM ")
+	sb.WriteString("    SELECT COUNT(*) AS row_count FROM ")
 	sb.WriteString(modelName)
 	sb.WriteString(" FINAL\n")
 	sb.WriteString("  assertions:\n")
 	sb.WriteString("    - type: greater_than\n")
-	sb.WriteString("      column: count\n")
+	sb.WriteString("      column: row_count\n")
+	sb.WriteString("      value: 0\n")
+	sb.WriteString("- name: No negative gas values\n")
+	sb.WriteString("  sql: |\n")
+	sb.WriteString("    SELECT COUNT(*) AS bad_rows FROM ")
+	sb.WriteString(modelName)
+	sb.WriteString(" FINAL\n")
+	sb.WriteString("    WHERE gas < 0\n")
+	sb.WriteString("  assertions:\n")
+	sb.WriteString("    - type: equals\n")
+	sb.WriteString("      column: bad_rows\n")
 	sb.WriteString("      value: 0\n\n")
 
 	sb.WriteString("## Transformation Model: ")
@@ -272,41 +259,4 @@ func extractYAMLFromResponse(response string) string {
 
 	// Last resort: return trimmed response hoping it's valid YAML
 	return strings.TrimSpace(response)
-}
-
-// findClaudeBinaryPath locates the claude CLI binary.
-func findClaudeBinaryPath() (string, error) {
-	// First, try `which claude`
-	whichCmd := exec.Command("which", "claude")
-
-	output, err := whichCmd.Output()
-	if err == nil {
-		path := strings.TrimSpace(string(output))
-		if path != "" {
-			return path, nil
-		}
-	}
-
-	// Get home directory for path construction
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = os.Getenv("HOME")
-	}
-
-	// Search in common locations
-	searchPaths := []string{
-		filepath.Join(home, ".volta", "bin", "claude"),
-		"/usr/local/bin/claude",
-		filepath.Join(home, "go", "bin", "claude"),
-		filepath.Join(home, ".local", "bin", "claude"),
-		"/opt/homebrew/bin/claude",
-	}
-
-	for _, path := range searchPaths {
-		if info, err := os.Stat(path); err == nil && !info.IsDir() { //nolint:gosec // paths are hardcoded search locations, not user input
-			return path, nil
-		}
-	}
-
-	return "", fmt.Errorf("claude binary not found in PATH or common locations")
 }

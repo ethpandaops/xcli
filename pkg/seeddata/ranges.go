@@ -82,6 +82,66 @@ func (g *Generator) QueryModelRange(ctx context.Context, model, network, rangeCo
 	}, nil
 }
 
+// ModelRangeRaw represents the available data range as raw string values.
+// Used for non-time columns (block numbers, slots, epochs) where parsing
+// as time.Time would fail.
+type ModelRangeRaw struct {
+	Model       string
+	Network     string
+	RangeColumn string
+	MinRaw      string
+	MaxRaw      string
+}
+
+// QueryModelRangeRaw queries external ClickHouse for a model's available data range,
+// returning raw string values without attempting to parse as time.
+// This handles block numbers, slots, epochs, and any other numeric column types.
+func (g *Generator) QueryModelRangeRaw(ctx context.Context, model, network, rangeColumn string) (*ModelRangeRaw, error) {
+	tableRef := g.resolveTableRef(model)
+
+	// Query for minimum value (oldest data)
+	minQuery := fmt.Sprintf(`
+		SELECT %s as val
+		FROM %s
+		WHERE meta_network_name = '%s'
+		ORDER BY %s ASC
+		LIMIT 1
+		FORMAT JSON
+	`, rangeColumn, tableRef, network, rangeColumn)
+
+	g.log.WithField("query", minQuery).Debug("querying model min range (raw)")
+
+	minRaw, err := g.executeSingleValueQueryRaw(ctx, minQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query min range for %s: %w", model, err)
+	}
+
+	// Query for maximum value (newest data)
+	maxQuery := fmt.Sprintf(`
+		SELECT %s as val
+		FROM %s
+		WHERE meta_network_name = '%s'
+		ORDER BY %s DESC
+		LIMIT 1
+		FORMAT JSON
+	`, rangeColumn, tableRef, network, rangeColumn)
+
+	g.log.WithField("query", maxQuery).Debug("querying model max range (raw)")
+
+	maxRaw, err := g.executeSingleValueQueryRaw(ctx, maxQuery)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query max range for %s: %w", model, err)
+	}
+
+	return &ModelRangeRaw{
+		Model:       model,
+		Network:     network,
+		RangeColumn: rangeColumn,
+		MinRaw:      minRaw,
+		MaxRaw:      maxRaw,
+	}, nil
+}
+
 // QueryModelRanges queries ranges for multiple models.
 // If overrideColumn is non-empty, it will be used for all models instead of detected columns.
 func (g *Generator) QueryModelRanges(ctx context.Context, models []string, network string, rangeInfos map[string]*RangeColumnInfo, overrideColumn string) ([]*ModelRange, error) {
@@ -216,6 +276,62 @@ func (g *Generator) executeSingleValueQuery(ctx context.Context, query string) (
 		Time: t,
 		Raw:  raw,
 	}, nil
+}
+
+// executeSingleValueQueryRaw executes a query that returns a single value as a raw string.
+// Unlike executeSingleValueQuery, this does not attempt to parse the value as time.
+func (g *Generator) executeSingleValueQueryRaw(ctx context.Context, query string) (string, error) {
+	chURL, err := g.buildClickHouseHTTPURL()
+	if err != nil {
+		return "", fmt.Errorf("failed to build ClickHouse URL: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, chURL, strings.NewReader(query))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "text/plain")
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	resp, err := client.Do(req) //nolint:gosec // URL is from trusted config
+	if err != nil {
+		return "", fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+
+		return "", fmt.Errorf("ClickHouse returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var jsonResp clickHouseJSONResponse
+
+	if unmarshalErr := json.Unmarshal(body, &jsonResp); unmarshalErr != nil {
+		return "", fmt.Errorf("failed to parse JSON response: %w", unmarshalErr)
+	}
+
+	if len(jsonResp.Data) == 0 {
+		return "", fmt.Errorf("no data returned from query")
+	}
+
+	row := jsonResp.Data[0]
+
+	val, ok := row["val"]
+	if !ok {
+		return "", fmt.Errorf("val not found in response")
+	}
+
+	return fmt.Sprintf("%v", val), nil
 }
 
 // parseTimeValue parses a time value from ClickHouse JSON response.
