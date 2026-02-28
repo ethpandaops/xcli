@@ -1171,57 +1171,57 @@ func (c *ClaudeDiscoveryClient) validateDiscoveryResult(result *DiscoveryResult)
 
 // normalizeDiscoveryYAMLFields converts common field name variations to expected camelCase
 // and fixes common YAML formatting issues in Claude's output.
+// Uses case-insensitive matching so any casing variant Claude produces is handled.
 func normalizeDiscoveryYAMLFields(yamlContent string) string {
-	// Map of various field name formats to expected camelCase
-	// Includes snake_case, PascalCase, typos, and other variations Claude might output
-	replacements := map[string]string{
-		// snake_case variations
-		"primary_range_type:":   "primaryRangeType:",
-		"primary_range_column:": "primaryRangeColumn:",
-		// Common typos (missing capital letters)
-		"primaryrangeType:":   "primaryRangeType:",
-		"primaryrangeColumn:": "primaryRangeColumn:",
-		"primaryRangetype:":   "primaryRangeType:",
-		"primaryRangecolumn:": "primaryRangeColumn:",
-		"from_value:":         "fromValue:",
-		"to_value:":           "toValue:",
-		"range_column:":       "rangeColumn:",
-		"column_type:":        "columnType:",
-		"filter_sql:":         "filterSql:",
-		"correlation_filter:": "correlationFilter:",
-		"requires_bridge:":    "requiresBridge:",
-		"bridge_table:":       "bridgeTable:",
-		"bridge_join_sql:":    "bridgeJoinSql:",
-		"overall_confidence:": "overallConfidence:",
-		// PascalCase variations
-		"PrimaryRangeType:":   "primaryRangeType:",
-		"PrimaryRangeColumn:": "primaryRangeColumn:",
-		"FromValue:":          "fromValue:",
-		"ToValue:":            "toValue:",
-		"RangeColumn:":        "rangeColumn:",
-		"ColumnType:":         "columnType:",
-		"FilterSql:":          "filterSql:",
-		"FilterSQL:":          "filterSql:",
-		"CorrelationFilter:":  "correlationFilter:",
-		"RequiresBridge:":     "requiresBridge:",
-		"BridgeTable:":        "bridgeTable:",
-		"BridgeJoinSql:":      "bridgeJoinSql:",
-		"BridgeJoinSQL:":      "bridgeJoinSql:",
-		"OverallConfidence:":  "overallConfidence:",
-		// Common typos/variations
-		"filterSql:": "filterSql:",
-		"filter:":    "filterSql:", // Claude might shorten this
+	// Map of lowercase canonical name -> expected camelCase YAML key.
+	// Matching is done case-insensitively against the YAML key portion of each line.
+	canonicalFields := map[string]string{
+		"primaryrangetype":   "primaryRangeType",
+		"primaryrangecolumn": "primaryRangeColumn",
+		"fromvalue":          "fromValue",
+		"tovalue":            "toValue",
+		"rangecolumn":        "rangeColumn",
+		"columntype":         "columnType",
+		"filtersql":          "filterSql",
+		"correlationfilter":  "correlationFilter",
+		"requiresbridge":     "requiresBridge",
+		"bridgetable":        "bridgeTable",
+		"bridgejoinsql":      "bridgeJoinSql",
+		"overallconfidence":  "overallConfidence",
 	}
 
-	result := yamlContent
-	for variant, camel := range replacements {
-		result = strings.ReplaceAll(result, variant, camel)
+	// Also handle snake_case by stripping underscores before lookup
+	// e.g. "primary_range_column" -> "primaryrangecolumn" -> found in map
+
+	// Regex to match a YAML key at the start of a line (with optional leading whitespace)
+	keyPattern := regexp.MustCompile(`^(\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:.*)$`)
+
+	lines := strings.Split(yamlContent, "\n")
+	result := make([]string, 0, len(lines))
+
+	for _, line := range lines {
+		matches := keyPattern.FindStringSubmatch(line)
+		if matches != nil {
+			indent := matches[1]
+			key := matches[2]
+			rest := matches[3]
+
+			// Normalize: strip underscores and lowercase for lookup
+			normalized := strings.ToLower(strings.ReplaceAll(key, "_", ""))
+			if camel, ok := canonicalFields[normalized]; ok {
+				line = indent + camel + rest
+			}
+		}
+
+		result = append(result, line)
 	}
+
+	normalized := strings.Join(result, "\n")
 
 	// Fix unquoted datetime values (e.g., "fromValue: 2025-01-01 00:00:00" -> "fromValue: \"2025-01-01 00:00:00\"")
-	result = fixUnquotedDatetimes(result)
+	normalized = fixUnquotedDatetimes(normalized)
 
-	return result
+	return normalized
 }
 
 // fixUnquotedDatetimes finds unquoted datetime values and adds quotes.

@@ -22,7 +22,6 @@ type generateTransformationTestOptions struct {
 	model           string
 	models          []string
 	network         string
-	spec            string
 	rangeColumn     string
 	from            string
 	to              string
@@ -50,7 +49,6 @@ func NewLabXatuCBTGenerateTransformationTestCommand(log logrus.FieldLogger, conf
 		model           string
 		models          []string
 		network         string
-		spec            string
 		rangeColumn     string
 		from            string
 		to              string
@@ -88,7 +86,6 @@ Scripted mode:
   xcli lab xatu-cbt generate-transformation-test \
     --model fct_data_column_availability_by_slot \
     --network sepolia \
-    --spec fusaka \
     --range-column slot_start_date_time \
     --from "2025-10-27 00:26:00" \
     --to "2025-10-27 00:30:00" \
@@ -105,7 +102,6 @@ S3 Upload Configuration (defaults to Cloudflare R2):
 				model:           model,
 				models:          models,
 				network:         network,
-				spec:            spec,
 				rangeColumn:     rangeColumn,
 				from:            from,
 				to:              to,
@@ -127,7 +123,6 @@ S3 Upload Configuration (defaults to Cloudflare R2):
 	cmd.Flags().StringVar(&model, "model", "", "Transformation model name (single model)")
 	cmd.Flags().StringSliceVar(&models, "models", nil, "Comma-separated list of models to process (batch mode)")
 	cmd.Flags().StringVar(&network, "network", "", "Network name (mainnet, sepolia, etc.)")
-	cmd.Flags().StringVar(&spec, "spec", "", "Fork spec (pectra, fusaka, etc.)")
 	cmd.Flags().StringVar(&rangeColumn, "range-column", "", "Override detected range column")
 	cmd.Flags().StringVar(&from, "from", "", "Range start value")
 	cmd.Flags().StringVar(&to, "to", "", "Range end value")
@@ -154,7 +149,6 @@ func runGenerateTransformationTest(
 	// Extract options for easier access
 	model := opts.model
 	network := opts.network
-	spec := opts.spec
 	duration := opts.duration
 	upload := opts.upload
 	aiAssertions := opts.aiAssertions
@@ -187,10 +181,6 @@ func runGenerateTransformationTest(
 	if yes {
 		if network == "" {
 			return fmt.Errorf("--network is required in non-interactive mode (--yes)")
-		}
-
-		if spec == "" {
-			return fmt.Errorf("--spec is required in non-interactive mode (--yes)")
 		}
 
 		if duration == "" {
@@ -258,14 +248,6 @@ func runGenerateTransformationTest(
 		}
 	}
 
-	// Prompt for spec
-	if spec == "" {
-		spec, promptErr = promptForSpec()
-		if promptErr != nil {
-			return promptErr
-		}
-	}
-
 	// AI-assisted range discovery
 	ui.Blank()
 	ui.Header("Analyzing range strategies")
@@ -273,12 +255,16 @@ func runGenerateTransformationTest(
 	// Prompt for duration if not specified
 	if duration == "" {
 		durationOpts := []ui.SelectOption{
-			{Label: "5m", Description: "recommended", Value: "5m"},
+			{Label: "10m", Description: "recommended", Value: "10m"},
 			{Label: "30s", Description: "minimal test", Value: "30s"},
 			{Label: "1m", Description: "quick test", Value: "1m"},
-			{Label: "10m", Description: "", Value: "10m"},
+			{Label: "5m", Description: "", Value: "5m"},
 			{Label: "30m", Description: "", Value: "30m"},
 			{Label: "1h", Description: "large dataset", Value: "1h"},
+			{Label: "6h", Description: "", Value: "6h"},
+			{Label: "12h", Description: "", Value: "12h"},
+			{Label: "24h", Description: "", Value: "24h"},
+			{Label: "48h", Description: "", Value: "48h"},
 		}
 
 		selectedDuration, durationErr := ui.Select("Time range duration", durationOpts)
@@ -778,11 +764,11 @@ func runGenerateTransformationTest(
 
 		// Check if we should skip existing
 		if upload && skipExisting && uploader != nil {
-			exists, existsErr := uploader.ObjectExists(ctx, network, spec, filename[:len(filename)-8]) // Remove .parquet
+			exists, existsErr := uploader.ObjectExists(ctx, network, filename[:len(filename)-8]) // Remove .parquet
 			if existsErr == nil && exists {
 				ui.Info(fmt.Sprintf("  ⏭ Skipping %s (already exists)", extModel))
 
-				urls[extModel] = uploader.GetPublicURL(network, spec, filename[:len(filename)-8])
+				urls[extModel] = uploader.GetPublicURL(network, filename[:len(filename)-8])
 
 				continue
 			}
@@ -820,7 +806,6 @@ func runGenerateTransformationTest(
 		result, genErr := gen.Generate(ctx, seeddata.GenerateOptions{
 			Model:             extModel,
 			Network:           network,
-			Spec:              spec,
 			RangeColumn:       strategy.RangeColumn,
 			From:              strategy.FromValue,
 			To:                strategy.ToValue,
@@ -863,7 +848,6 @@ func runGenerateTransformationTest(
 			uploadResult, uploadErr := uploader.Upload(ctx, seeddata.UploadOptions{
 				LocalPath: outputPath,
 				Network:   network,
-				Spec:      spec,
 				Model:     extModel,
 				Filename:  filename[:len(filename)-8], // Remove .parquet extension
 			})
@@ -884,8 +868,8 @@ func runGenerateTransformationTest(
 			}
 		} else {
 			// Use placeholder URL
-			urls[extModel] = fmt.Sprintf("https://%s/%s/%s/%s/%s",
-				seeddata.DefaultS3PublicDomain, seeddata.DefaultS3Prefix, network, spec, filename)
+			urls[extModel] = fmt.Sprintf("https://%s/%s/tests/%s/%s",
+				seeddata.DefaultS3PublicDomain, seeddata.DefaultS3Prefix, network, filename)
 		}
 	}
 
@@ -929,7 +913,6 @@ func runGenerateTransformationTest(
 	yamlContent, err := seeddata.GenerateTransformationTestYAML(seeddata.TransformationTemplateData{
 		Model:          model,
 		Network:        network,
-		Spec:           spec,
 		ExternalModels: externalModels,
 		URLs:           urls,
 		Assertions:     assertions,
@@ -951,7 +934,7 @@ func runGenerateTransformationTest(
 	}
 
 	if writeYAML {
-		yamlPath := filepath.Join(labCfg.Repos.XatuCBT, "tests", network, spec, "models", model+".yaml")
+		yamlPath := filepath.Join(labCfg.Repos.XatuCBT, "tests", network, "models", model+".yaml")
 
 		if yamlWriteErr := writeTestYAML(yamlPath, yamlContent); yamlWriteErr != nil {
 			return yamlWriteErr
@@ -962,8 +945,8 @@ func runGenerateTransformationTest(
 	ui.Blank()
 	ui.Header("Test Command")
 
-	testCmd := fmt.Sprintf("./bin/xatu-cbt test models %s --spec %s --network %s --verbose --force-rebuild",
-		model, spec, network)
+	testCmd := fmt.Sprintf("./bin/xatu-cbt test models %s --network %s --verbose --force-rebuild",
+		model, network)
 	fmt.Println(testCmd)
 
 	// Display test YAML
@@ -1056,10 +1039,6 @@ func runBatchGenerateTransformationTest(
 	// Validate required options for batch mode
 	if opts.network == "" {
 		return fmt.Errorf("--network is required in batch mode")
-	}
-
-	if opts.spec == "" {
-		return fmt.Errorf("--spec is required in batch mode")
 	}
 
 	// Set defaults for batch mode
@@ -1156,7 +1135,6 @@ func runSingleModelGeneration(
 ) error {
 	model := opts.model
 	network := opts.network
-	spec := opts.spec
 	duration := opts.duration
 	upload := opts.upload
 	aiAssertions := opts.aiAssertions
@@ -1346,11 +1324,11 @@ func runSingleModelGeneration(
 
 		// Check if we should skip existing
 		if upload && skipExisting && uploader != nil {
-			exists, existsErr := uploader.ObjectExists(ctx, network, spec, filename[:len(filename)-8])
+			exists, existsErr := uploader.ObjectExists(ctx, network, filename[:len(filename)-8])
 			if existsErr == nil && exists {
 				logInfo(fmt.Sprintf("Skipping %s (already exists)", extModel))
 
-				urls[extModel] = uploader.GetPublicURL(network, spec, filename[:len(filename)-8])
+				urls[extModel] = uploader.GetPublicURL(network, filename[:len(filename)-8])
 
 				continue
 			}
@@ -1361,7 +1339,6 @@ func runSingleModelGeneration(
 		result, genErr := gen.Generate(ctx, seeddata.GenerateOptions{
 			Model:             extModel,
 			Network:           network,
-			Spec:              spec,
 			RangeColumn:       strategy.RangeColumn,
 			From:              strategy.FromValue,
 			To:                strategy.ToValue,
@@ -1383,7 +1360,6 @@ func runSingleModelGeneration(
 			uploadResult, uploadErr := uploader.Upload(ctx, seeddata.UploadOptions{
 				LocalPath: outputPath,
 				Network:   network,
-				Spec:      spec,
 				Model:     extModel,
 				Filename:  filename[:len(filename)-8],
 			})
@@ -1396,8 +1372,8 @@ func runSingleModelGeneration(
 			// Clean up local file
 			_ = os.Remove(outputPath)
 		} else {
-			urls[extModel] = fmt.Sprintf("https://%s/%s/%s/%s/%s",
-				seeddata.DefaultS3PublicDomain, seeddata.DefaultS3Prefix, network, spec, filename)
+			urls[extModel] = fmt.Sprintf("https://%s/%s/tests/%s/%s",
+				seeddata.DefaultS3PublicDomain, seeddata.DefaultS3Prefix, network, filename)
 		}
 
 		_ = result // Silence unused warning
@@ -1419,7 +1395,6 @@ func runSingleModelGeneration(
 	yamlContent, err := seeddata.GenerateTransformationTestYAML(seeddata.TransformationTemplateData{
 		Model:          model,
 		Network:        network,
-		Spec:           spec,
 		ExternalModels: externalModels,
 		URLs:           urls,
 		Assertions:     assertions,
@@ -1429,7 +1404,7 @@ func runSingleModelGeneration(
 	}
 
 	// Write YAML
-	yamlPath := filepath.Join(labCfg.Repos.XatuCBT, "tests", network, spec, "models", model+".yaml")
+	yamlPath := filepath.Join(labCfg.Repos.XatuCBT, "tests", network, "models", model+".yaml")
 
 	logInfo(fmt.Sprintf("Writing test YAML to %s", yamlPath))
 

@@ -12,7 +12,6 @@ import (
 // TestYAMLTemplate is the template for generating xatu-cbt test YAML files.
 const TestYAMLTemplate = `model: {{ .Model }}
 network: {{ .Network }}
-spec: {{ .Spec }}
 external_data:
     {{ .Model }}:
         url: {{ .URL }}
@@ -30,7 +29,6 @@ assertions:
 type TemplateData struct {
 	Model    string // Model/table name
 	Network  string // Network name (e.g., "mainnet", "sepolia")
-	Spec     string // Fork spec (e.g., "pectra", "fusaka")
 	URL      string // URL to the parquet file
 	RowCount int64  // Number of rows in the parquet file
 }
@@ -45,7 +43,6 @@ type ExternalDataEntry struct {
 type TransformationTestYAML struct {
 	Model        string                       `yaml:"model"`
 	Network      string                       `yaml:"network"`
-	Spec         string                       `yaml:"spec"`
 	ExternalData map[string]ExternalDataEntry `yaml:"external_data"` //nolint:tagliatelle // xatu-cbt uses snake_case
 	Assertions   []Assertion                  `yaml:"assertions"`
 }
@@ -54,7 +51,6 @@ type TransformationTestYAML struct {
 type TransformationTemplateData struct {
 	Model          string            // Transformation model name
 	Network        string            // Network name
-	Spec           string            // Fork spec
 	ExternalModels []string          // List of external model names
 	URLs           map[string]string // model name -> parquet URL
 	Assertions     []Assertion       // Generated assertions
@@ -81,7 +77,6 @@ func GenerateTransformationTestYAML(data TransformationTemplateData) (string, er
 	testYAML := TransformationTestYAML{
 		Model:        data.Model,
 		Network:      data.Network,
-		Spec:         data.Spec,
 		ExternalData: make(map[string]ExternalDataEntry, len(data.ExternalModels)),
 		Assertions:   data.Assertions,
 	}
