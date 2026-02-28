@@ -12,7 +12,6 @@ type BatchGenerateOptions struct {
 	TransformationModel string   // The transformation model name (used for parquet naming)
 	ExternalModels      []string // List of external model names to generate
 	Network             string   // Network name (e.g., "mainnet", "sepolia")
-	Spec                string   // Fork spec (e.g., "pectra", "fusaka")
 	RangeColumn         string   // Column to filter on (e.g., "slot_start_date_time")
 	From                string   // Range start value
 	To                  string   // Range end value
@@ -61,7 +60,6 @@ func (g *Generator) BatchGenerate(ctx context.Context, opts BatchGenerateOptions
 		genOpts := GenerateOptions{
 			Model:       model,
 			Network:     opts.Network,
-			Spec:        opts.Spec,
 			RangeColumn: opts.RangeColumn,
 			From:        opts.From,
 			To:          opts.To,

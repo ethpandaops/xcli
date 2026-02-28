@@ -60,11 +60,48 @@ type intervalConfig struct {
 	Type IntervalType `yaml:"type"`
 }
 
+// flexibleDeps is a custom type that handles both flat string lists and nested
+// string lists in YAML dependencies. Some models use nested arrays to express
+// "at least one of these" semantics (e.g. [a, b, c]). This type flattens them
+// all into a single []string for dependency resolution.
+type flexibleDeps []string
+
+// UnmarshalYAML implements yaml.Unmarshaler to handle both []string and [][]string.
+func (f *flexibleDeps) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.SequenceNode {
+		return fmt.Errorf("expected sequence, got %v", value.Kind)
+	}
+
+	result := make([]string, 0, len(value.Content))
+
+	for _, item := range value.Content {
+		switch item.Kind {
+		case yaml.ScalarNode:
+			result = append(result, item.Value)
+		case yaml.SequenceNode:
+			// Nested array: flatten all string elements into the result.
+			for _, nested := range item.Content {
+				if nested.Kind != yaml.ScalarNode {
+					return fmt.Errorf("expected string in nested sequence, got %v", nested.Kind)
+				}
+
+				result = append(result, nested.Value)
+			}
+		default:
+			return fmt.Errorf("unexpected node kind %v in dependencies", item.Kind)
+		}
+	}
+
+	*f = result
+
+	return nil
+}
+
 // sqlFrontmatter represents the YAML frontmatter in SQL files.
 type sqlFrontmatter struct {
 	Database     string         `yaml:"database"`
 	Table        string         `yaml:"table"`
-	Dependencies []string       `yaml:"dependencies"`
+	Dependencies flexibleDeps   `yaml:"dependencies"`
 	Interval     intervalConfig `yaml:"interval"`
 }
 

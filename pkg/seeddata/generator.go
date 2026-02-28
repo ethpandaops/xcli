@@ -4,6 +4,7 @@ package seeddata
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,7 +32,6 @@ type Generator struct {
 type GenerateOptions struct {
 	Model             string   // Table name (e.g., "beacon_api_eth_v1_events_block")
 	Network           string   // Network name (e.g., "mainnet", "sepolia")
-	Spec              string   // Fork spec (e.g., "pectra", "fusaka")
 	RangeColumn       string   // Column to filter on (e.g., "slot", "epoch")
 	From              string   // Range start value
 	To                string   // Range end value
@@ -128,8 +128,15 @@ func (g *Generator) Generate(ctx context.Context, opts GenerateOptions) (*Genera
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 
+	// Get the actual row count from ClickHouse using the same filters
+	rowCount, countErr := g.queryGeneratedRowCount(ctx, opts)
+	if countErr != nil {
+		g.log.WithError(countErr).Warn("failed to query row count, leaving as zero")
+	}
+
 	return &GenerateResult{
 		OutputPath:       opts.OutputPath,
+		RowCount:         rowCount,
 		FileSize:         fileSize,
 		SanitizedColumns: sanitizedColumns,
 		Query:            query,
@@ -255,6 +262,140 @@ func (g *Generator) buildQuery(opts GenerateOptions) string {
 	sb.WriteString("\nFORMAT Parquet")
 
 	return sb.String()
+}
+
+// queryGeneratedRowCount runs a COUNT(*) query with the same filters used for generation
+// to get the actual number of rows in the generated parquet file.
+func (g *Generator) queryGeneratedRowCount(ctx context.Context, opts GenerateOptions) (int64, error) {
+	var sb strings.Builder
+
+	tableRef := g.resolveTableRef(opts.Model)
+
+	// Build a SELECT 1 query with the same filters, then wrap with COUNT.
+	// Using SELECT 1 (not SELECT COUNT(*)) so we can wrap with LIMIT in a subquery.
+	sb.WriteString("SELECT 1 FROM ")
+	sb.WriteString(tableRef)
+	sb.WriteString("\nWHERE meta_network_name = '")
+	sb.WriteString(opts.Network)
+	sb.WriteString("'")
+
+	if opts.RangeColumn != "" && opts.From != "" && opts.To != "" {
+		colLower := strings.ToLower(opts.RangeColumn)
+		isTimeColumn := strings.Contains(colLower, "date") || strings.Contains(colLower, "time")
+
+		sb.WriteString("\n  AND ")
+		sb.WriteString(opts.RangeColumn)
+		sb.WriteString(" >= ")
+
+		if isTimeColumn {
+			fmt.Fprintf(&sb, "toDateTime('%s')", opts.From)
+		} else {
+			sb.WriteString(opts.From)
+		}
+
+		sb.WriteString("\n  AND ")
+		sb.WriteString(opts.RangeColumn)
+		sb.WriteString(" <= ")
+
+		if isTimeColumn {
+			fmt.Fprintf(&sb, "toDateTime('%s')", opts.To)
+		} else {
+			sb.WriteString(opts.To)
+		}
+	}
+
+	for _, filter := range opts.Filters {
+		sb.WriteString("\n  AND ")
+		sb.WriteString(filter.Column)
+		sb.WriteString(" ")
+		sb.WriteString(filter.Operator)
+		sb.WriteString(" ")
+		sb.WriteString(formatSQLValue(filter.Value))
+	}
+
+	if opts.FilterSQL != "" {
+		sb.WriteString("\n  AND ")
+		sb.WriteString(opts.FilterSQL)
+	}
+
+	if opts.CorrelationFilter != "" {
+		sb.WriteString("\n  AND ")
+		sb.WriteString(opts.CorrelationFilter)
+	}
+
+	if opts.Limit > 0 {
+		fmt.Fprintf(&sb, "\nLIMIT %d", opts.Limit)
+	}
+
+	// Wrap the inner query with COUNT
+	inner := sb.String()
+
+	sb.Reset()
+
+	fmt.Fprintf(&sb, "SELECT COUNT(*) AS cnt FROM (%s)\nFORMAT JSON", inner)
+
+	query := sb.String()
+
+	chURL, err := g.buildClickHouseHTTPURL()
+	if err != nil {
+		return 0, fmt.Errorf("failed to build ClickHouse URL: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, chURL, strings.NewReader(query))
+	if err != nil {
+		return 0, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "text/plain")
+
+	client := &http.Client{
+		Timeout: 2 * time.Minute,
+	}
+
+	resp, err := client.Do(req) //nolint:gosec // URL is from trusted config
+	if err != nil {
+		return 0, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+
+		return 0, fmt.Errorf("ClickHouse returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var jsonResp struct {
+		Data []map[string]any `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &jsonResp); err != nil {
+		return 0, fmt.Errorf("failed to parse JSON response: %w", err)
+	}
+
+	if len(jsonResp.Data) == 0 {
+		return 0, fmt.Errorf("no data in count response")
+	}
+
+	cntVal, ok := jsonResp.Data[0]["cnt"]
+	if !ok {
+		return 0, fmt.Errorf("no 'cnt' field in response")
+	}
+
+	// ClickHouse JSON returns numbers as strings
+	cntStr := fmt.Sprintf("%v", cntVal)
+
+	var count int64
+
+	if _, err := fmt.Sscanf(cntStr, "%d", &count); err != nil {
+		return 0, fmt.Errorf("failed to parse count value %q: %w", cntStr, err)
+	}
+
+	return count, nil
 }
 
 // executeQueryToFile executes a query and streams the result to a file.
