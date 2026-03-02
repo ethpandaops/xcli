@@ -49,6 +49,7 @@ function bootPhasesFor(isLab: boolean) {
 function stopPhasesFor(isLab: boolean) {
   return isLab ? STOP_PHASES : XATU_STOP_PHASES;
 }
+const STORAGE_KEY_PROVIDER = 'xcli:ai-provider';
 const leftCollapsedStorageKey = 'xcli:sidebar-left-collapsed';
 const rightCollapsedStorageKey = 'xcli:sidebar-right-collapsed';
 const dashboardLegacyLayoutStorageKey = 'xcli:dashboard:panel-layout';
@@ -167,7 +168,15 @@ export default function Dashboard({
   const leftDefaultDesktopPx = leftCollapsed ? sidebarCollapsedPx : leftExpandedPxRef.current;
   const rightDefaultDesktopPx = rightCollapsed ? sidebarCollapsedPx : rightExpandedPxRef.current;
   const [providers, setProviders] = useState<AIProviderInfo[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState<string>('claude');
+  const [selectedProvider, setSelectedProvider] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_PROVIDER);
+      if (saved) return saved;
+    } catch {
+      // ignore storage failures
+    }
+    return 'claude';
+  });
   const [diagnoseService, setDiagnoseService] = useState<string | null>(null);
   const [diagnoseSessionId, setDiagnoseSessionId] = useState<string | null>(null);
   const [diagnoseRequestId, setDiagnoseRequestId] = useState<string | null>(null);
@@ -547,9 +556,29 @@ export default function Dashboard({
     fetchJSON<AIProviderInfo[]>('/ai/providers')
       .then(data => {
         setProviders(data);
-        const preferred = data.find(p => p.default && p.available) ?? data.find(p => p.available) ?? data[0];
-        if (preferred) {
-          setSelectedProvider(preferred.id);
+
+        let savedProvider: string | null = null;
+        try {
+          savedProvider = localStorage.getItem(STORAGE_KEY_PROVIDER);
+        } catch {
+          // ignore storage failures
+        }
+
+        const isAvailable = savedProvider && data.some((p: AIProviderInfo) => p.id === savedProvider && p.available);
+
+        if (isAvailable && savedProvider) {
+          setSelectedProvider(savedProvider);
+        } else {
+          const defaultProvider =
+            data.find((p: AIProviderInfo) => p.default && p.available) || data.find((p: AIProviderInfo) => p.available);
+          if (defaultProvider) {
+            setSelectedProvider(defaultProvider.id);
+            try {
+              localStorage.setItem(STORAGE_KEY_PROVIDER, defaultProvider.id);
+            } catch {
+              // ignore storage failures
+            }
+          }
         }
       })
       .catch(() => {
@@ -558,8 +587,8 @@ export default function Dashboard({
   }, [fetchJSON]);
 
   const handleDiagnose = useCallback(
-    (serviceName: string) => {
-      const provider = selectedProvider || 'claude';
+    (serviceName: string, providerOverride?: string) => {
+      const provider = providerOverride || selectedProvider || 'claude';
       const requestId = createRequestId();
 
       setDiagnoseService(serviceName);
@@ -655,6 +684,49 @@ export default function Dashboard({
     setCompletedTurns([]);
     setCurrentTurnPrompt(undefined);
   }, [deleteDiagnoseSession, diagnoseService, diagnoseSessionId]);
+
+  const handleProviderChange = useCallback(
+    (newProvider: string) => {
+      try {
+        localStorage.setItem(STORAGE_KEY_PROVIDER, newProvider);
+      } catch {
+        // ignore storage failures
+      }
+      setSelectedProvider(newProvider);
+
+      // Restart active session with new provider
+      if (diagnoseService && diagnoseSessionId) {
+        const serviceId = diagnoseService;
+        deleteDiagnoseSession(serviceId, diagnoseSessionId)
+          .then(() => {
+            setDiagnoseSessionId(null);
+            setDiagnoseRequestId(null);
+            setCompletedTurns([]);
+            setDiagnosis(null);
+            setDiagnosisError(null);
+            setDiagnosing(false);
+            setThinkingText('');
+            setAnswerText('');
+            setActivityText('');
+            setCurrentTurnPrompt(undefined);
+            handleDiagnose(serviceId, newProvider);
+          })
+          .catch(() => {
+            setDiagnoseSessionId(null);
+            setDiagnoseRequestId(null);
+            setCompletedTurns([]);
+            setDiagnosis(null);
+            setDiagnosisError(null);
+            setDiagnosing(false);
+            setThinkingText('');
+            setAnswerText('');
+            setActivityText('');
+            setCurrentTurnPrompt(undefined);
+          });
+      }
+    },
+    [deleteDiagnoseSession, diagnoseService, diagnoseSessionId, handleDiagnose]
+  );
 
   const handleLeftPanelResize = useCallback(
     (panelSize: PanelSize) => {
@@ -961,7 +1033,7 @@ export default function Dashboard({
           serviceName={diagnoseService ?? ''}
           providers={providers}
           selectedProvider={selectedProvider}
-          onProviderChange={setSelectedProvider}
+          onProviderChange={handleProviderChange}
           sessionId={diagnoseSessionId}
           thinkingText={thinkingText}
           activityText={activityText}

@@ -8,6 +8,8 @@ type ProviderID string
 const (
 	// ProviderClaude uses the Claude Code SDK-backed provider.
 	ProviderClaude ProviderID = "claude"
+	// ProviderCodex uses the Codex CLI SDK-backed provider.
+	ProviderCodex ProviderID = "codex"
 )
 
 // Capabilities describe what features a provider supports.
