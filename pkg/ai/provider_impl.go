@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os/exec"
 	"strings"
 	"sync"
@@ -47,9 +48,7 @@ func (e *ProviderDebugError) DebugInfo() map[string]any {
 	}
 
 	out := make(map[string]any, len(e.Info))
-	for k, v := range e.Info {
-		out[k] = v
-	}
+	maps.Copy(out, e.Info)
 
 	return out
 }

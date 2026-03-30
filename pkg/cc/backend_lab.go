@@ -460,7 +460,7 @@ func (b *labBackend) GetConfigFile(name string) (*configFileContent, error) {
 	configsDir := filepath.Join(b.orch.StateDir(), "configs")
 	safePath := filepath.Join(configsDir, cleanName)
 
-	content, err := os.ReadFile(safePath)
+	content, err := os.ReadFile(safePath) //nolint:gosec // G703: path is sanitized via sanitizeConfigFileName
 	if err != nil {
 		return nil, fmt.Errorf("config file not found: %w", err)
 	}
@@ -474,7 +474,7 @@ func (b *labBackend) GetConfigFile(name string) (*configFileContent, error) {
 		b.orch.StateDir(), "custom-configs", cleanName,
 	)
 
-	overrideContent, overrideErr := os.ReadFile(customPath)
+	overrideContent, overrideErr := os.ReadFile(customPath) //nolint:gosec // G703: path is sanitized via sanitizeConfigFileName
 	if overrideErr == nil {
 		resp.HasOverride = true
 		resp.OverrideContent = string(overrideContent)
@@ -496,7 +496,7 @@ func (b *labBackend) PutConfigFileOverride(name, content string) error {
 	}
 
 	customDir := filepath.Join(b.orch.StateDir(), "custom-configs")
-	if err := os.MkdirAll(customDir, 0755); err != nil {
+	if err := os.MkdirAll(customDir, 0755); err != nil { //nolint:gosec // G703: path is constructed from trusted StateDir + constant
 		return fmt.Errorf("failed to create custom-configs directory: %w", err)
 	}
 
@@ -525,7 +525,7 @@ func (b *labBackend) DeleteConfigFileOverride(name string) error {
 		b.orch.StateDir(), "custom-configs", cleanName,
 	)
 
-	if err := os.Remove(safePath); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(safePath); err != nil && !os.IsNotExist(err) { //nolint:gosec // G703: path is sanitized via sanitizeConfigFileName
 		return fmt.Errorf("failed to remove override: %w", err)
 	}
 

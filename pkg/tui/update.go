@@ -525,10 +525,7 @@ func (m Model) getClickedLogIndex(clickY int) (int, bool) {
 // getLogsPanelContentStart returns the Y position where log content begins.
 func (m Model) getLogsPanelContentStart() int {
 	// Calculate services panel height
-	servicesHeight := len(m.services) + 4
-	if servicesHeight > servicesPanelMaxHeight {
-		servicesHeight = servicesPanelMaxHeight
-	}
+	servicesHeight := min(len(m.services)+4, servicesPanelMaxHeight)
 
 	// Layout: Title (~2) + Services panel + borders (2) + Logs border (1) + Header (1) + Separator (1)
 	start := 2 + servicesHeight + 2 + 1 + 1 + 1
@@ -543,10 +540,7 @@ func (m Model) getLogsPanelContentStart() int {
 
 // getLogPanelHeight returns the calculated height for the log panel.
 func (m Model) getLogPanelHeight() int {
-	height := m.height - logPanelReservedHeight
-	if height < logPanelMinHeight {
-		height = logPanelMinHeight
-	}
+	height := max(m.height-logPanelReservedHeight, logPanelMinHeight)
 
 	return height
 }

@@ -294,7 +294,7 @@ func (a *apiHandler) handleGetServiceLogs(
 
 	logPath := filepath.Clean(a.backend.LogFilePath(name))
 
-	f, err := os.Open(logPath) //nolint:gosec // path is constructed by LogFilePath from internal config
+	f, err := os.Open(logPath)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{
 			"error": "log file not found",

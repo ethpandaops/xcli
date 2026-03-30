@@ -1030,11 +1030,7 @@ func runBatchGenerateTransformationTest(
 	opts generateTransformationTestOptions,
 ) error {
 	models := opts.models
-	parallel := opts.parallel
-
-	if parallel < 1 {
-		parallel = 1
-	}
+	parallel := max(opts.parallel, 1)
 
 	// Validate required options for batch mode
 	if opts.network == "" {
