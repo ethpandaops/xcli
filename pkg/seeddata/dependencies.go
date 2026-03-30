@@ -366,8 +366,8 @@ func ListTransformationModels(xatuCBTPath string) ([]string, error) {
 
 		// Support .sql, .yml, and .yaml extensions
 		for _, ext := range []string{".sql", ".yml", ".yaml"} {
-			if strings.HasSuffix(name, ext) {
-				models = append(models, strings.TrimSuffix(name, ext))
+			if before, ok := strings.CutSuffix(name, ext); ok {
+				models = append(models, before)
 
 				break
 			}

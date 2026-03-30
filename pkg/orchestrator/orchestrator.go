@@ -1020,7 +1020,7 @@ func (o *Orchestrator) WaitForCBTAPIReady(ctx context.Context) error {
 	maxRetries := 30
 	retryDelay := 1 * time.Second
 
-	for i := 0; i < maxRetries; i++ {
+	for i := range maxRetries {
 		// Try to fetch the health endpoint
 		client := &http.Client{Timeout: 2 * time.Second}
 

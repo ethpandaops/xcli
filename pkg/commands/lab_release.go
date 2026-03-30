@@ -593,11 +593,12 @@ func displayReleaseSummary(report *release.ReleaseReport) {
 	ui.Blank()
 
 	// Build table data
-	tableData := pterm.TableData{
-		{"", "Project", "Version", "Duration", "Status"},
-	}
+	entries := report.Entries()
 
-	for _, entry := range report.Entries() {
+	tableData := make(pterm.TableData, 0, 1+len(entries))
+	tableData = append(tableData, pterm.TableData{{"", "Project", "Version", "Duration", "Status"}}...)
+
+	for _, entry := range entries {
 		var symbol, status, version string
 
 		// Determine the version to display

@@ -121,10 +121,9 @@ func (m Model) renderServicesPanel() string {
 
 	content := strings.Join(rows, "\n")
 	// Reduced height for top panels (was m.height/2-4, now much smaller)
-	panelHeight := len(m.services) + 4 // Header + separator + services + padding
-	if panelHeight > servicesPanelMaxHeight {
-		panelHeight = servicesPanelMaxHeight
-	}
+	panelHeight := min(
+		// Header + separator + services + padding
+		len(m.services)+4, servicesPanelMaxHeight)
 
 	// Services panel takes 2/3 of width
 	panelWidth := (m.width * 2 / 3) - 2
@@ -137,10 +136,7 @@ func (m Model) renderRightPanel() string {
 	panelWidth := (m.width / 3) - 2
 
 	// Calculate height to match services panel
-	panelHeight := len(m.services) + 4
-	if panelHeight > servicesPanelMaxHeight {
-		panelHeight = servicesPanelMaxHeight
-	}
+	panelHeight := min(len(m.services)+4, servicesPanelMaxHeight)
 
 	var rows []string
 
@@ -257,10 +253,7 @@ func (m Model) renderLogsPanel() string {
 			// Manual scroll mode - use logScroll offset
 			start = m.logScroll
 
-			end = start + logPanelHeight - 2
-			if end > len(logs) {
-				end = len(logs)
-			}
+			end = min(start+logPanelHeight-2, len(logs))
 		}
 
 		// Build header with status indicators
@@ -314,11 +307,12 @@ func (m Model) renderLogsPanel() string {
 				visualLen := len(stripansi.Strip(formatted))
 				if visualLen > maxWidth {
 					// Truncate and add ellipsis
-					truncated := ""
+					var truncated strings.Builder
+
 					currentLen := 0
 
 					for _, r := range formatted {
-						truncated += string(r)
+						truncated.WriteString(string(r))
 						// Only count non-ANSI characters
 						if r != '\x1b' {
 							currentLen++
@@ -329,7 +323,7 @@ func (m Model) renderLogsPanel() string {
 						}
 					}
 
-					formatted = truncated + "..."
+					formatted = truncated.String() + "..."
 				}
 
 				rows = append(rows, formatted)
@@ -642,8 +636,8 @@ func wrapText(text string, width int) []string {
 		currentLine string
 	)
 
-	words := strings.Fields(text)
-	for _, word := range words {
+	words := strings.FieldsSeq(text)
+	for word := range words {
 		if len(currentLine)+len(word)+1 > width {
 			if currentLine != "" {
 				lines = append(lines, currentLine)

@@ -206,7 +206,7 @@ func (a *apiHandler) handlePostDiagnoseStart(w http.ResponseWriter, r *http.Requ
 	})
 
 	prompt := buildDiagnosePrompt(name, status, health, logLines)
-	go a.runDiagnoseTurn(s, requestID, prompt)
+	go a.runDiagnoseTurn(s, requestID, prompt) //nolint:gosec // G118: intentionally detached from request context; goroutine outlives the HTTP handler
 }
 
 func (a *apiHandler) handlePostDiagnoseMessage(w http.ResponseWriter, r *http.Request) {
@@ -611,7 +611,7 @@ func promptMarkdownField(value string) string {
 
 // readLastLines reads the last n lines from a file.
 func readLastLines(path string, n int) []string {
-	f, err := os.Open(path) //nolint:gosec // path is constructed by LogFilePath from internal config
+	f, err := os.Open(path)
 	if err != nil {
 		return nil
 	}

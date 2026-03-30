@@ -204,7 +204,7 @@ func extractCommands(text string) []string {
 
 	for _, match := range codeMatches {
 		if len(match) > 1 {
-			for _, line := range strings.Split(match[1], "\n") {
+			for line := range strings.SplitSeq(match[1], "\n") {
 				line = strings.TrimSpace(line)
 
 				line = strings.TrimPrefix(line, "$ ")

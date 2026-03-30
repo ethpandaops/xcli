@@ -74,7 +74,7 @@ func (g *Generator) DescribeTable(ctx context.Context, model string) ([]ColumnIn
 		Timeout: 30 * time.Second,
 	}
 
-	resp, err := client.Do(req) //nolint:gosec // URL is from trusted config
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}

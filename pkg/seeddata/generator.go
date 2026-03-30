@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -160,9 +161,9 @@ func (g *Generator) ListExternalModels() ([]string, error) {
 		}
 
 		name := entry.Name()
-		if strings.HasSuffix(name, ".sql") {
+		if before, ok := strings.CutSuffix(name, ".sql"); ok {
 			// Remove .sql extension to get model name
-			models = append(models, strings.TrimSuffix(name, ".sql"))
+			models = append(models, before)
 		}
 	}
 
@@ -176,10 +177,8 @@ func (g *Generator) ValidateModel(model string) error {
 		return fmt.Errorf("failed to list models: %w", err)
 	}
 
-	for _, m := range models {
-		if m == model {
-			return nil
-		}
+	if slices.Contains(models, model) {
+		return nil
 	}
 
 	return fmt.Errorf("model '%s' not found in xatu-cbt external models", model)
@@ -352,7 +351,7 @@ func (g *Generator) queryGeneratedRowCount(ctx context.Context, opts GenerateOpt
 		Timeout: 2 * time.Minute,
 	}
 
-	resp, err := client.Do(req) //nolint:gosec // URL is from trusted config
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -422,7 +421,7 @@ func (g *Generator) executeQueryToFile(ctx context.Context, query, outputPath st
 	}
 
 	// Execute request
-	resp, err := client.Do(req) //nolint:gosec // URL is constructed from trusted config, not user input
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute request: %w", err)
 	}

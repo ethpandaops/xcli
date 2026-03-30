@@ -400,8 +400,8 @@ func discoverAllModels(xatuCBTPath string) ([]string, error) {
 		}
 
 		name := entry.Name()
-		if strings.HasSuffix(name, ".sql") {
-			modelName := strings.TrimSuffix(name, ".sql")
+		if before, ok := strings.CutSuffix(name, ".sql"); ok {
+			modelName := before
 
 			// Use the override key that matches the CBT binary's model ID.
 			models = append(models, seeddata.GetExternalModelOverrideKey(modelName, xatuCBTPath))
@@ -426,8 +426,8 @@ func discoverAllModels(xatuCBTPath string) ([]string, error) {
 		name := entry.Name()
 
 		for _, ext := range []string{".sql", ".yml", ".yaml"} {
-			if strings.HasSuffix(name, ext) {
-				models = append(models, strings.TrimSuffix(name, ext))
+			if before, ok := strings.CutSuffix(name, ext); ok {
+				models = append(models, before)
 
 				break
 			}

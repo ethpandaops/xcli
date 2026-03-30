@@ -99,8 +99,8 @@ func DiscoverModels(xatuCBTPath string) (external []string, transformation []str
 		}
 
 		name := entry.Name()
-		if strings.HasSuffix(name, ".sql") {
-			external = append(external, strings.TrimSuffix(name, ".sql"))
+		if before, ok := strings.CutSuffix(name, ".sql"); ok {
+			external = append(external, before)
 		}
 	}
 
@@ -125,8 +125,8 @@ func DiscoverModels(xatuCBTPath string) (external []string, transformation []str
 
 		// Support .sql, .yml, and .yaml extensions.
 		for _, ext := range []string{".sql", ".yml", ".yaml"} {
-			if strings.HasSuffix(name, ext) {
-				transformation = append(transformation, strings.TrimSuffix(name, ext))
+			if before, ok := strings.CutSuffix(name, ext); ok {
+				transformation = append(transformation, before)
 
 				break
 			}

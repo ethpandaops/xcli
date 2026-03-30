@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -429,7 +430,7 @@ func (g *Generator) QueryRowCount(
 		Timeout: 2 * time.Minute, // Row count queries on large tables can take time
 	}
 
-	resp, err := client.Do(req) //nolint:gosec // URL is from trusted config
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -520,7 +521,7 @@ func (g *Generator) QueryTableSample(
 		Timeout: 30 * time.Second,
 	}
 
-	resp, err := client.Do(req) //nolint:gosec // URL is from trusted config
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -802,17 +803,14 @@ func FallbackRangeDiscovery(
 			rangeDuration = 5 * time.Minute
 		}
 
-		blocksPerDuration := int64(rangeDuration.Seconds() / 12) // ~12 second block time
-		if blocksPerDuration < 100 {
-			blocksPerDuration = 100 // Minimum 100 blocks
-		}
+		blocksPerDuration := max(
+			// ~12 second block time
+			int64(rangeDuration.Seconds()/12),
+			// Minimum 100 blocks
+			100)
 
 		effectiveMax := earliestBlockMax - 10 // Account for reorgs
-		effectiveMin := effectiveMax - blocksPerDuration
-
-		if effectiveMin < latestBlockMin {
-			effectiveMin = latestBlockMin
-		}
+		effectiveMin := max(effectiveMax-blocksPerDuration, latestBlockMin)
 
 		blockFromValue = fmt.Sprintf("%d", effectiveMin)
 		blockToValue = fmt.Sprintf("%d", effectiveMax)
@@ -1288,13 +1286,7 @@ func findTimeColumnInSchema(columns []ColumnInfo) string {
 
 // contains checks if a string slice contains a value.
 func contains(slice []string, value string) bool {
-	for _, v := range slice {
-		if v == value {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(slice, value)
 }
 
 // categorizeModelsByType groups models into time, block, entity, and unknown categories.

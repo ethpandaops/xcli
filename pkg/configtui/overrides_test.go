@@ -10,10 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func boolPtr(b bool) *bool {
-	return &b
-}
-
 func TestIsModelDisabled(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -50,7 +46,7 @@ func TestIsModelDisabled(t *testing.T) {
 			overrides: &CBTOverrides{
 				Models: ModelsConfig{
 					Overrides: map[string]ModelOverride{
-						"fct_block": {Enabled: boolPtr(false)},
+						"fct_block": {Enabled: new(false)},
 					},
 				},
 			},
@@ -62,7 +58,7 @@ func TestIsModelDisabled(t *testing.T) {
 			overrides: &CBTOverrides{
 				Models: ModelsConfig{
 					Overrides: map[string]ModelOverride{
-						"fct_block": {Enabled: boolPtr(true)},
+						"fct_block": {Enabled: new(true)},
 					},
 				},
 			},
@@ -85,7 +81,7 @@ func TestIsModelDisabled(t *testing.T) {
 			name: "allowlist mode: unlisted model is disabled",
 			overrides: &CBTOverrides{
 				Models: ModelsConfig{
-					DefaultEnabled: boolPtr(false),
+					DefaultEnabled: new(false),
 					Overrides:      map[string]ModelOverride{},
 				},
 			},
@@ -96,7 +92,7 @@ func TestIsModelDisabled(t *testing.T) {
 			name: "allowlist mode: listed model is enabled",
 			overrides: &CBTOverrides{
 				Models: ModelsConfig{
-					DefaultEnabled: boolPtr(false),
+					DefaultEnabled: new(false),
 					Overrides: map[string]ModelOverride{
 						"fct_block": {},
 					},
@@ -109,9 +105,9 @@ func TestIsModelDisabled(t *testing.T) {
 			name: "allowlist mode: listed model with enabled:false is disabled",
 			overrides: &CBTOverrides{
 				Models: ModelsConfig{
-					DefaultEnabled: boolPtr(false),
+					DefaultEnabled: new(false),
 					Overrides: map[string]ModelOverride{
-						"fct_block": {Enabled: boolPtr(false)},
+						"fct_block": {Enabled: new(false)},
 					},
 				},
 			},
@@ -122,7 +118,7 @@ func TestIsModelDisabled(t *testing.T) {
 			name: "allowlist mode: nil overrides map still disables unlisted",
 			overrides: &CBTOverrides{
 				Models: ModelsConfig{
-					DefaultEnabled: boolPtr(false),
+					DefaultEnabled: new(false),
 				},
 			},
 			modelName: "fct_block",
@@ -132,7 +128,7 @@ func TestIsModelDisabled(t *testing.T) {
 			name: "defaultEnabled true: same as no flag (denylist mode)",
 			overrides: &CBTOverrides{
 				Models: ModelsConfig{
-					DefaultEnabled: boolPtr(true),
+					DefaultEnabled: new(true),
 					Overrides:      map[string]ModelOverride{},
 				},
 			},
@@ -260,7 +256,7 @@ func TestSaveOverridesFromEntries(t *testing.T) {
 			"", false,
 			"", false,
 			existing,
-			boolPtr(false), // allowlist mode
+			new(false), // allowlist mode
 		)
 		require.NoError(t, err)
 
@@ -289,7 +285,7 @@ func TestSaveOverridesFromEntries(t *testing.T) {
 			nil,
 			"", false, "", false,
 			nil,
-			boolPtr(false),
+			new(false),
 		)
 		require.NoError(t, err)
 
@@ -329,7 +325,7 @@ func TestSaveOverridesFromEntries(t *testing.T) {
 			nil, nil,
 			"", false, "", false,
 			nil,
-			boolPtr(false),
+			new(false),
 		)
 		require.NoError(t, err)
 
@@ -348,7 +344,7 @@ func TestSaveOverridesFromEntries_PreservesConfig(t *testing.T) {
 		Models: ModelsConfig{
 			Overrides: map[string]ModelOverride{
 				"fct_block": {
-					Enabled: boolPtr(false),
+					Enabled: new(false),
 					Config:  map[string]any{"limits": map[string]any{"min": 42}},
 				},
 			},

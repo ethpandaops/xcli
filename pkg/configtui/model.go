@@ -1,6 +1,7 @@
 package configtui
 
 import (
+	"slices"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -322,10 +323,8 @@ func (m *Model) IsModelNeededByEnabled(modelName string) bool {
 
 		// Check if this enabled model depends on the given model.
 		deps := m.dependencies[tm.Name]
-		for _, dep := range deps {
-			if dep == modelName {
-				return true
-			}
+		if slices.Contains(deps, modelName) {
+			return true
 		}
 	}
 
@@ -336,10 +335,8 @@ func (m *Model) IsModelNeededByEnabled(modelName string) bool {
 		}
 
 		deps := m.dependencies[em.Name]
-		for _, dep := range deps {
-			if dep == modelName {
-				return true
-			}
+		if slices.Contains(deps, modelName) {
+			return true
 		}
 	}
 

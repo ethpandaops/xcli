@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ethpandaops/xcli/pkg/builder"
@@ -511,12 +512,14 @@ func (s *labStack) Check(ctx context.Context) error {
 		}
 
 		if !repoCheckPassed {
-			failMsg := "Missing repositories - Run: xcli lab init"
+			var failMsg strings.Builder
+			failMsg.WriteString("Missing repositories - Run: xcli lab init")
+
 			for _, repo := range missingRepos {
-				failMsg += fmt.Sprintf("\n    %s", repo)
+				fmt.Fprintf(&failMsg, "\n    %s", repo)
 			}
 
-			spinner.Fail(failMsg)
+			spinner.Fail(failMsg.String())
 
 			allPassed = false
 		} else {
@@ -545,12 +548,14 @@ func (s *labStack) Check(ctx context.Context) error {
 		}
 
 		if !prereqPassed {
-			failMsg := "Missing prerequisites - Run: xcli lab init"
+			var failMsg strings.Builder
+			failMsg.WriteString("Missing prerequisites - Run: xcli lab init")
+
 			for _, issue := range prereqIssues {
-				failMsg += fmt.Sprintf("\n    %s", issue)
+				fmt.Fprintf(&failMsg, "\n    %s", issue)
 			}
 
-			spinner.Fail(failMsg)
+			spinner.Fail(failMsg.String())
 
 			allPassed = false
 		} else {
