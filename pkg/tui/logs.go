@@ -246,8 +246,8 @@ func ParseLine(service, raw string) LogLine {
 
 	// Extract level from anywhere in line as fallback
 	upperStripped := strings.ToUpper(stripped)
-	if strings.Contains(upperStripped, "ERROR") || strings.Contains(upperStripped, "ERRO") {
-		line.Level = "ERROR"
+	if strings.Contains(upperStripped, LogLevelError) || strings.Contains(upperStripped, "ERRO") {
+		line.Level = LogLevelError
 	} else if strings.Contains(upperStripped, "WARN") {
 		line.Level = "WARN"
 	} else if strings.Contains(upperStripped, "DEBUG") {
@@ -296,7 +296,7 @@ func (ls *LogStreamer) streamPipe(ctx context.Context, serviceName string, pipe 
 		errLine := LogLine{
 			Service:   serviceName,
 			Timestamp: time.Now(),
-			Level:     "ERROR",
+			Level:     LogLevelError,
 			Message:   "Log scanner error: " + err.Error(),
 			Raw:       err.Error(),
 		}

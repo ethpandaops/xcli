@@ -193,17 +193,17 @@ func (sc *stackContext) startLogStreaming(ctx context.Context) {
 		src := sc.backend.LogSource(svc.Name)
 
 		switch src.Type {
-		case "docker":
+		case cmdDocker:
 			if err := sc.logs.StartDocker(svc.Name, src.Container); err != nil {
 				sc.log.WithError(err).WithField(
-					"service", svc.Name,
+					keyService, svc.Name,
 				).Warn("Failed to start Docker log streaming")
 			}
 		case "file":
 			if src.Path != "" {
 				if err := sc.logs.Start(svc.Name, src.Path); err != nil {
 					sc.log.WithError(err).WithField(
-						"service", svc.Name,
+						keyService, svc.Name,
 					).Warn("Failed to start log streaming")
 				}
 			}

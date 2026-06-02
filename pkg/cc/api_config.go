@@ -77,7 +77,7 @@ func (a *apiHandler) handleGetLabConfig(w http.ResponseWriter, _ *http.Request) 
 	resp, err := a.backend.GetEditableConfig()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
+			keyError: err.Error(),
 		})
 
 		return
@@ -91,7 +91,7 @@ func (a *apiHandler) handlePutLabConfig(w http.ResponseWriter, r *http.Request) 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": fmt.Sprintf("failed to read body: %v", err),
+			keyError: fmt.Sprintf("failed to read body: %v", err),
 		})
 
 		return
@@ -103,7 +103,7 @@ func (a *apiHandler) handlePutLabConfig(w http.ResponseWriter, r *http.Request) 
 		a.mu.Unlock()
 
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": err.Error(),
+			keyError: err.Error(),
 		})
 
 		return
@@ -111,7 +111,7 @@ func (a *apiHandler) handlePutLabConfig(w http.ResponseWriter, r *http.Request) 
 
 	a.mu.Unlock()
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{keyStatus: keyOK})
 }
 
 // handleGetConfigFiles lists generated config files via the backend.
@@ -122,7 +122,7 @@ func (a *apiHandler) handleGetConfigFiles(
 	files, err := a.backend.GetConfigFiles()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
+			keyError: err.Error(),
 		})
 
 		return
@@ -141,7 +141,7 @@ func (a *apiHandler) handleGetConfigFile(
 	resp, err := a.backend.GetConfigFile(name)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{
-			"error": err.Error(),
+			keyError: err.Error(),
 		})
 
 		return
@@ -163,7 +163,7 @@ func (a *apiHandler) handlePutConfigFileOverride(
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": fmt.Sprintf("invalid request body: %v", err),
+			keyError: fmt.Sprintf("invalid request body: %v", err),
 		})
 
 		return
@@ -171,13 +171,13 @@ func (a *apiHandler) handlePutConfigFileOverride(
 
 	if err := a.backend.PutConfigFileOverride(name, req.Content); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
+			keyError: err.Error(),
 		})
 
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{keyStatus: keyOK})
 }
 
 // handleDeleteConfigFileOverride removes a custom override for a config file.
@@ -189,13 +189,13 @@ func (a *apiHandler) handleDeleteConfigFileOverride(
 
 	if err := a.backend.DeleteConfigFileOverride(name); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
+			keyError: err.Error(),
 		})
 
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{keyStatus: keyOK})
 }
 
 // handleGetOverrides returns the CBT overrides state via the backend.
@@ -209,7 +209,7 @@ func (a *apiHandler) handleGetOverrides(
 	resp, err := a.backend.GetOverrides()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
+			keyError: err.Error(),
 		})
 
 		return
@@ -226,7 +226,7 @@ func (a *apiHandler) handlePutOverrides(
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": fmt.Sprintf("failed to read body: %v", err),
+			keyError: fmt.Sprintf("failed to read body: %v", err),
 		})
 
 		return
@@ -238,7 +238,7 @@ func (a *apiHandler) handlePutOverrides(
 		a.mu.Unlock()
 
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
+			keyError: err.Error(),
 		})
 
 		return
@@ -246,7 +246,7 @@ func (a *apiHandler) handlePutOverrides(
 
 	a.mu.Unlock()
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{keyStatus: keyOK})
 }
 
 // handlePostRegenerate triggers config regeneration via the backend.
@@ -256,7 +256,7 @@ func (a *apiHandler) handlePostRegenerate(
 ) {
 	if err := a.backend.Regenerate(r.Context()); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": fmt.Sprintf(
+			keyError: fmt.Sprintf(
 				"failed to regenerate configs: %v", err,
 			),
 		})
@@ -265,11 +265,11 @@ func (a *apiHandler) handlePostRegenerate(
 	}
 
 	a.sseHub.Broadcast("config_regenerated", map[string]string{
-		"status": "ok",
+		keyStatus: keyOK,
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{
-		"status": "ok",
+		keyStatus: keyOK,
 	})
 }
 

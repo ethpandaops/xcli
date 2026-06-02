@@ -21,6 +21,25 @@ import (
 
 const gitCacheTTL = 2 * time.Minute
 
+const (
+	keyError     = "error"
+	keyService   = "service"
+	keyStatus    = "status"
+	keyText      = "text"
+	keyProvider  = "provider"
+	keySessionID = "sessionId"
+	keyRequestID = "requestId"
+	keyOK        = "ok"
+	keyPhase     = "phase"
+	keyMessage   = "message"
+	keyBase64    = "base64"
+	cmdDocker    = "docker"
+
+	errMsgDiagnoseSessionNotFound = "diagnose session not found"
+	errMsgSessionServiceMismatch  = "session/service mismatch"
+	errMsgServiceNameRequired     = "service name required"
+)
+
 // gitCache holds the last successful git status response to avoid
 // repeated expensive git operations on every poll.
 type gitCache struct {
@@ -230,7 +249,7 @@ func (a *apiHandler) handlePostServiceAction(
 	name := r.PathValue("name")
 	if name == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "service name required",
+			keyError: errMsgServiceNameRequired,
 		})
 
 		return
@@ -252,7 +271,7 @@ func (a *apiHandler) handlePostServiceAction(
 		err = a.backend.RebuildService(ctx, name)
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "unknown action: " + action,
+			keyError: "unknown action: " + action,
 		})
 
 		return
@@ -260,19 +279,19 @@ func (a *apiHandler) handlePostServiceAction(
 
 	if err != nil {
 		a.log.WithError(err).WithFields(logrus.Fields{
-			"service": name,
-			"action":  action,
+			keyService: name,
+			"action":   action,
 		}).Error("Service action failed")
 
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": err.Error(),
+			keyError: err.Error(),
 		})
 
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{
-		"status": "ok",
+		keyStatus: keyOK,
 	})
 }
 
@@ -286,7 +305,7 @@ func (a *apiHandler) handleGetServiceLogs(
 	name := r.PathValue("name")
 	if name == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "service name required",
+			keyError: errMsgServiceNameRequired,
 		})
 
 		return
@@ -297,7 +316,7 @@ func (a *apiHandler) handleGetServiceLogs(
 	f, err := os.Open(logPath)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{
-			"error": "log file not found",
+			keyError: "log file not found",
 		})
 
 		return

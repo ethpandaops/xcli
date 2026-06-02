@@ -216,7 +216,7 @@ func (s *Server) stackHandler(
 
 		if !ok {
 			writeJSON(w, http.StatusNotFound, map[string]string{
-				"error": "unknown stack: " + name,
+				keyError: "unknown stack: " + name,
 			})
 
 			return

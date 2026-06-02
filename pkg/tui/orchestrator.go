@@ -74,7 +74,7 @@ func (w *OrchestratorWrapper) GetServices() []ServiceInfo {
 				Status: statusStopped,
 				URL:    w.orch.GetServiceURL(name),
 				Ports:  w.orch.GetServicePorts(name),
-				Health: "unknown",
+				Health: healthUnknown,
 			}
 
 			if status, ok := obsStatus[name]; ok {
@@ -94,7 +94,7 @@ func (w *OrchestratorWrapper) GetServices() []ServiceInfo {
 			Status: statusStopped,
 			URL:    w.orch.GetServiceURL(name),
 			Ports:  w.orch.GetServicePorts(name),
-			Health: "unknown",
+			Health: healthUnknown,
 		}
 
 		// Find running process
@@ -144,7 +144,7 @@ func (w *OrchestratorWrapper) GetInfrastructure() []InfraInfo {
 			status = "running"
 		}
 
-		infraType := "unknown"
+		infraType := healthUnknown
 		if contains(name, "ClickHouse") {
 			infraType = "clickhouse"
 		} else if contains(name, "Redis") {

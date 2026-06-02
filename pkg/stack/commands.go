@@ -6,17 +6,35 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Command name constants shared across the stack package. Each stack's
+// ConfigureCommand switch keys on these same values, so they must stay in sync
+// with the corresponding command's Use string.
+const (
+	cmdInit    = "init"
+	cmdCheck   = "check"
+	cmdUp      = "up"
+	cmdDown    = "down"
+	cmdClean   = "clean"
+	cmdBuild   = "build"
+	cmdRebuild = "rebuild"
+	cmdStatus  = "status"
+	cmdLogs    = "logs"
+	cmdStart   = "start"
+	cmdStop    = "stop"
+	cmdRestart = "restart"
+)
+
 // NewInitCommand creates the init subcommand for a stack.
 func NewInitCommand(s Stack) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "init",
+		Use:   cmdInit,
 		Short: fmt.Sprintf("Initialize the %s environment", s.Name()),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return s.Init(cmd.Context())
 		},
 	}
 
-	s.ConfigureCommand("init", cmd)
+	s.ConfigureCommand(cmdInit, cmd)
 
 	return cmd
 }
@@ -24,14 +42,14 @@ func NewInitCommand(s Stack) *cobra.Command {
 // NewCheckCommand creates the check subcommand for a stack.
 func NewCheckCommand(s Stack) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "check",
+		Use:   cmdCheck,
 		Short: fmt.Sprintf("Verify %s environment is ready", s.Name()),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return s.Check(cmd.Context())
 		},
 	}
 
-	s.ConfigureCommand("check", cmd)
+	s.ConfigureCommand(cmdCheck, cmd)
 
 	return cmd
 }
@@ -39,14 +57,14 @@ func NewCheckCommand(s Stack) *cobra.Command {
 // NewUpCommand creates the up subcommand for a stack.
 func NewUpCommand(s Stack) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "up",
+		Use:   cmdUp,
 		Short: fmt.Sprintf("Start the %s stack", s.Name()),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return s.Up(cmd.Context())
 		},
 	}
 
-	s.ConfigureCommand("up", cmd)
+	s.ConfigureCommand(cmdUp, cmd)
 
 	return cmd
 }
@@ -54,14 +72,14 @@ func NewUpCommand(s Stack) *cobra.Command {
 // NewDownCommand creates the down subcommand for a stack.
 func NewDownCommand(s Stack) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "down",
+		Use:   cmdDown,
 		Short: fmt.Sprintf("Stop the %s stack", s.Name()),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return s.Down(cmd.Context())
 		},
 	}
 
-	s.ConfigureCommand("down", cmd)
+	s.ConfigureCommand(cmdDown, cmd)
 
 	return cmd
 }
@@ -69,14 +87,14 @@ func NewDownCommand(s Stack) *cobra.Command {
 // NewCleanCommand creates the clean subcommand for a stack.
 func NewCleanCommand(s Stack) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "clean",
+		Use:   cmdClean,
 		Short: fmt.Sprintf("Remove all %s containers and artifacts", s.Name()),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return s.Clean(cmd.Context())
 		},
 	}
 
-	s.ConfigureCommand("clean", cmd)
+	s.ConfigureCommand(cmdClean, cmd)
 
 	return cmd
 }
@@ -84,14 +102,14 @@ func NewCleanCommand(s Stack) *cobra.Command {
 // NewBuildCommand creates the build subcommand for a stack.
 func NewBuildCommand(s Stack) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "build",
+		Use:   cmdBuild,
 		Short: fmt.Sprintf("Build %s projects", s.Name()),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return s.Build(cmd.Context(), args)
 		},
 	}
 
-	s.ConfigureCommand("build", cmd)
+	s.ConfigureCommand(cmdBuild, cmd)
 
 	return cmd
 }
@@ -108,7 +126,7 @@ func NewRebuildCommand(s Stack) *cobra.Command {
 		},
 	}
 
-	s.ConfigureCommand("rebuild", cmd)
+	s.ConfigureCommand(cmdRebuild, cmd)
 
 	return cmd
 }
@@ -116,14 +134,14 @@ func NewRebuildCommand(s Stack) *cobra.Command {
 // NewStatusCommand creates the status subcommand for a stack.
 func NewStatusCommand(s Stack) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "status",
+		Use:   cmdStatus,
 		Short: fmt.Sprintf("Show %s stack status", s.Name()),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return s.PrintStatus(cmd.Context())
 		},
 	}
 
-	s.ConfigureCommand("status", cmd)
+	s.ConfigureCommand(cmdStatus, cmd)
 
 	return cmd
 }
@@ -147,7 +165,7 @@ func NewLogsCommand(s Stack) *cobra.Command {
 	}
 
 	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "Follow log output")
-	s.ConfigureCommand("logs", cmd)
+	s.ConfigureCommand(cmdLogs, cmd)
 
 	return cmd
 }
@@ -164,7 +182,7 @@ func NewStartCommand(s Stack) *cobra.Command {
 		},
 	}
 
-	s.ConfigureCommand("start", cmd)
+	s.ConfigureCommand(cmdStart, cmd)
 
 	return cmd
 }
@@ -181,7 +199,7 @@ func NewStopCommand(s Stack) *cobra.Command {
 		},
 	}
 
-	s.ConfigureCommand("stop", cmd)
+	s.ConfigureCommand(cmdStop, cmd)
 
 	return cmd
 }
@@ -198,7 +216,7 @@ func NewRestartCommand(s Stack) *cobra.Command {
 		},
 	}
 
-	s.ConfigureCommand("restart", cmd)
+	s.ConfigureCommand(cmdRestart, cmd)
 
 	return cmd
 }

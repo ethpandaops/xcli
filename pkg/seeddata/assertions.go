@@ -57,8 +57,8 @@ func (c *ClaudeAssertionClient) GenerateAssertions(ctx context.Context, transfor
 	prompt := c.buildAssertionPrompt(transformationSQL, externalModels, modelName)
 
 	c.log.WithFields(logrus.Fields{
-		"timeout": c.timeout,
-		"model":   modelName,
+		"timeout":     c.timeout,
+		fieldKeyModel: modelName,
 	}).Debug("invoking AI engine for assertion generation")
 
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)

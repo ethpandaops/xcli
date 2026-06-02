@@ -36,10 +36,10 @@ func (d *Discovery) DiscoverRepos(ctx context.Context) (*config.LabReposConfig, 
 
 	repos := &config.LabReposConfig{
 		CBT:        filepath.Join(d.basePath, "cbt"),
-		XatuCBT:    filepath.Join(d.basePath, "xatu-cbt"),
+		XatuCBT:    filepath.Join(d.basePath, constants.RepoXatuCBT),
 		CBTAPI:     filepath.Join(d.basePath, "cbt-api"),
 		LabBackend: filepath.Join(d.basePath, "lab-backend"),
-		Lab:        filepath.Join(d.basePath, "lab"),
+		Lab:        filepath.Join(d.basePath, constants.RepoLab),
 	}
 
 	// Map of repo names to their paths, GitHub repo names, and optional branches
@@ -48,11 +48,11 @@ func (d *Discovery) DiscoverRepos(ctx context.Context) (*config.LabReposConfig, 
 		repoName string
 		branch   string // Optional: branch to checkout after cloning
 	}{
-		"cbt":         {&repos.CBT, constants.RepoCBT, ""},
-		"xatu-cbt":    {&repos.XatuCBT, constants.RepoXatuCBT, ""},
-		"cbt-api":     {&repos.CBTAPI, constants.RepoCBTAPI, ""},
-		"lab-backend": {&repos.LabBackend, constants.RepoLabBackend, ""},
-		"lab":         {&repos.Lab, constants.RepoLab, "release/frontend"},
+		"cbt":                 {&repos.CBT, constants.RepoCBT, ""},
+		constants.RepoXatuCBT: {&repos.XatuCBT, constants.RepoXatuCBT, ""},
+		"cbt-api":             {&repos.CBTAPI, constants.RepoCBTAPI, ""},
+		"lab-backend":         {&repos.LabBackend, constants.RepoLabBackend, ""},
+		constants.RepoLab:     {&repos.Lab, constants.RepoLab, "release/frontend"},
 	}
 
 	// Check each repository
@@ -140,12 +140,12 @@ func (d *Discovery) validateRepo(name, path string) error {
 
 	// Check for expected files based on repo type
 	switch name {
-	case "cbt", "xatu-cbt", "cbt-api", "lab-backend":
+	case "cbt", constants.RepoXatuCBT, "cbt-api", "lab-backend":
 		// Go repositories - check for go.mod
 		if !d.fileExists(filepath.Join(absPath, "go.mod")) {
 			return fmt.Errorf("go.mod not found (not a Go project)")
 		}
-	case "lab":
+	case constants.RepoLab:
 		// Frontend repository - check for package.json
 		if !d.fileExists(filepath.Join(absPath, "package.json")) {
 			return fmt.Errorf("package.json not found (not a Node.js project)")
@@ -154,12 +154,12 @@ func (d *Discovery) validateRepo(name, path string) error {
 
 	// Additional validation for specific repos
 	switch name {
-	case "xatu-cbt":
+	case constants.RepoXatuCBT:
 		// Check for models directory
 		if !d.dirExists(filepath.Join(absPath, "models")) {
 			return fmt.Errorf("models directory not found")
 		}
-	case "lab":
+	case constants.RepoLab:
 		// Check for src directory
 		if !d.dirExists(filepath.Join(absPath, "src")) {
 			return fmt.Errorf("src directory not found")

@@ -11,6 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Test fixture constants.
+const (
+	testSourceFile = "source.txt"
+	testDestFile   = "dest.txt"
+	testCopyDesc   = "Copy source to dest"
+	testRepoName   = "test-repo"
+)
+
 func TestExecuteFileCopy(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -23,14 +31,14 @@ func TestExecuteFileCopy(t *testing.T) {
 			setupFunc: func(t *testing.T, repoPath string) {
 				t.Helper()
 				// Create source file
-				err := os.WriteFile(filepath.Join(repoPath, "source.txt"), []byte("test content"), 0600)
+				err := os.WriteFile(filepath.Join(repoPath, testSourceFile), []byte("test content"), 0600)
 				require.NoError(t, err)
 			},
 			prereq: Prerequisite{
 				Type:            TypeFileCopy,
-				Description:     "Copy source to dest",
-				SourcePath:      "source.txt",
-				DestinationPath: "dest.txt",
+				Description:     testCopyDesc,
+				SourcePath:      testSourceFile,
+				DestinationPath: testDestFile,
 			},
 			expectError: false,
 		},
@@ -43,7 +51,7 @@ func TestExecuteFileCopy(t *testing.T) {
 				Type:            TypeFileCopy,
 				Description:     "Copy missing file",
 				SourcePath:      "missing.txt",
-				DestinationPath: "dest.txt",
+				DestinationPath: testDestFile,
 			},
 			expectError: true,
 		},
@@ -92,10 +100,10 @@ func TestExecuteFileCopySkipIfExists(t *testing.T) {
 	sourceContent := "source content"
 	destContent := "existing dest content"
 
-	err := os.WriteFile(filepath.Join(repoPath, "source.txt"), []byte(sourceContent), 0600)
+	err := os.WriteFile(filepath.Join(repoPath, testSourceFile), []byte(sourceContent), 0600)
 	require.NoError(t, err)
 
-	destPath := filepath.Join(repoPath, "dest.txt")
+	destPath := filepath.Join(repoPath, testDestFile)
 	err = os.WriteFile(destPath, []byte(destContent), 0600)
 	require.NoError(t, err)
 
@@ -105,15 +113,15 @@ func TestExecuteFileCopySkipIfExists(t *testing.T) {
 	testChecker := &checker{
 		log: log.WithField("component", "prerequisites"),
 		defs: map[string]Repo{
-			"test-repo": {
-				RepoName: "test-repo",
+			testRepoName: {
+				RepoName: testRepoName,
 				Prerequisites: []Prerequisite{
 					{
 						Type:            TypeFileCopy,
-						Description:     "Copy source to dest",
-						SourcePath:      "source.txt",
-						DestinationPath: "dest.txt",
-						SkipIfExists:    "dest.txt",
+						Description:     testCopyDesc,
+						SourcePath:      testSourceFile,
+						DestinationPath: testDestFile,
+						SkipIfExists:    testDestFile,
 					},
 				},
 			},
@@ -121,7 +129,7 @@ func TestExecuteFileCopySkipIfExists(t *testing.T) {
 	}
 
 	// Execute
-	err = testChecker.Run(context.Background(), repoPath, "test-repo")
+	err = testChecker.Run(context.Background(), repoPath, testRepoName)
 	require.NoError(t, err)
 
 	// Verify destination was NOT overwritten (skip condition worked)
@@ -298,7 +306,7 @@ func TestCheckAndRun(t *testing.T) {
 	repoPath := t.TempDir()
 
 	// Create source file
-	err := os.WriteFile(filepath.Join(repoPath, "source.txt"), []byte("test content"), 0600)
+	err := os.WriteFile(filepath.Join(repoPath, testSourceFile), []byte("test content"), 0600)
 	require.NoError(t, err)
 
 	// Create custom checker for testing
@@ -307,15 +315,15 @@ func TestCheckAndRun(t *testing.T) {
 	testChecker := &checker{
 		log: log.WithField("component", "prerequisites"),
 		defs: map[string]Repo{
-			"test-repo": {
-				RepoName: "test-repo",
+			testRepoName: {
+				RepoName: testRepoName,
 				Prerequisites: []Prerequisite{
 					{
 						Type:            TypeFileCopy,
-						Description:     "Copy source to dest",
-						SourcePath:      "source.txt",
-						DestinationPath: "dest.txt",
-						SkipIfExists:    "dest.txt",
+						Description:     testCopyDesc,
+						SourcePath:      testSourceFile,
+						DestinationPath: testDestFile,
+						SkipIfExists:    testDestFile,
 					},
 				},
 			},
@@ -323,17 +331,17 @@ func TestCheckAndRun(t *testing.T) {
 	}
 
 	// First run - should execute prerequisite
-	err = testChecker.CheckAndRun(context.Background(), repoPath, "test-repo")
+	err = testChecker.CheckAndRun(context.Background(), repoPath, testRepoName)
 	require.NoError(t, err)
 
 	// Verify file was copied
-	destPath := filepath.Join(repoPath, "dest.txt")
+	destPath := filepath.Join(repoPath, testDestFile)
 	content, err := os.ReadFile(destPath)
 	require.NoError(t, err)
 	assert.Equal(t, "test content", string(content))
 
 	// Second run - should skip (idempotent)
-	err = testChecker.CheckAndRun(context.Background(), repoPath, "test-repo")
+	err = testChecker.CheckAndRun(context.Background(), repoPath, testRepoName)
 	require.NoError(t, err)
 
 	// Verify file still exists with same content
@@ -354,17 +362,17 @@ func TestCheck(t *testing.T) {
 			setupFunc: func(t *testing.T, repoPath string) {
 				t.Helper()
 
-				err := os.WriteFile(filepath.Join(repoPath, "dest.txt"), []byte("content"), 0600)
+				err := os.WriteFile(filepath.Join(repoPath, testDestFile), []byte("content"), 0600)
 				require.NoError(t, err)
 			},
 			prereqs: Repo{
-				RepoName: "test-repo",
+				RepoName: testRepoName,
 				Prerequisites: []Prerequisite{
 					{
 						Type:            TypeFileCopy,
 						Description:     "Copy file",
-						SourcePath:      "source.txt",
-						DestinationPath: "dest.txt",
+						SourcePath:      testSourceFile,
+						DestinationPath: testDestFile,
 					},
 				},
 			},
@@ -376,12 +384,12 @@ func TestCheck(t *testing.T) {
 				t.Helper()
 			},
 			prereqs: Repo{
-				RepoName: "test-repo",
+				RepoName: testRepoName,
 				Prerequisites: []Prerequisite{
 					{
 						Type:            TypeFileCopy,
 						Description:     "Copy file",
-						SourcePath:      "source.txt",
+						SourcePath:      testSourceFile,
 						DestinationPath: "missing.txt",
 					},
 				},
@@ -404,12 +412,12 @@ func TestCheck(t *testing.T) {
 			testChecker := &checker{
 				log: log.WithField("component", "prerequisites"),
 				defs: map[string]Repo{
-					"test-repo": tt.prereqs,
+					testRepoName: tt.prereqs,
 				},
 			}
 
 			// Execute check
-			err := testChecker.Check(context.Background(), repoPath, "test-repo")
+			err := testChecker.Check(context.Background(), repoPath, testRepoName)
 
 			// Assert
 			if tt.expectError {

@@ -179,7 +179,7 @@ func (b *labBackend) RebuildService(ctx context.Context, name string) error {
 // LogSource returns how to stream logs for a given service.
 func (b *labBackend) LogSource(name string) LogSourceInfo {
 	if container, ok := dockerContainerNames[name]; ok {
-		return LogSourceInfo{Type: "docker", Container: container}
+		return LogSourceInfo{Type: cmdDocker, Container: container}
 	}
 
 	return LogSourceInfo{Type: "file", Path: b.orch.LogFilePath(name)}

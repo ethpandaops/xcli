@@ -389,7 +389,7 @@ func (m Model) formatLogLineWithHighlight(line LogLine) string {
 	var levelIndicator string
 
 	switch line.Level {
-	case "ERROR", "ERRO":
+	case LogLevelError, "ERRO":
 		levelIndicator = StyleError.Render("E")
 	case "WARN", "WARNING":
 		levelIndicator = lipgloss.NewStyle().Foreground(ColorYellow).Render("W")
