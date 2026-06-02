@@ -44,7 +44,7 @@ func (e *redisConflictError) Error() string {
 
 // redisEncodedValue safely represents possibly-binary values.
 type redisEncodedValue struct {
-	Mode   string `json:"mode"` // "text" | "base64"
+	Mode   string `json:"mode"` // keyText | keyBase64
 	Text   string `json:"text,omitempty"`
 	Base64 string `json:"base64,omitempty"`
 }
@@ -499,7 +499,7 @@ func validateWriteRequest(req redisWriteRequest, isCreate bool) error {
 		return fmt.Errorf("unsupported key type: %s", req.Type)
 	}
 
-	if req.TTLMode == "set" && req.TTLSeconds <= 0 {
+	if req.TTLMode == redisTypeSet && req.TTLSeconds <= 0 {
 		return errors.New("ttlSeconds must be greater than 0 when ttlMode is set")
 	}
 
@@ -798,22 +798,22 @@ func readSetMembers(
 func encodeValue(value string) redisEncodedValue {
 	if utf8.ValidString(value) {
 		return redisEncodedValue{
-			Mode: "text",
+			Mode: keyText,
 			Text: value,
 		}
 	}
 
 	return redisEncodedValue{
-		Mode:   "base64",
+		Mode:   keyBase64,
 		Base64: base64.StdEncoding.EncodeToString([]byte(value)),
 	}
 }
 
 func decodeValue(value redisEncodedValue) (string, error) {
 	switch value.Mode {
-	case "", "text":
+	case "", keyText:
 		return value.Text, nil
-	case "base64":
+	case keyBase64:
 		data, err := base64.StdEncoding.DecodeString(value.Base64)
 		if err != nil {
 			return "", fmt.Errorf("invalid base64 value: %w", err)
@@ -911,7 +911,7 @@ func buildVersionToken(detail redisKeyDetailResponse) string {
 }
 
 func encodedSortValue(value redisEncodedValue) string {
-	if value.Mode == "base64" {
+	if value.Mode == keyBase64 {
 		return "b64:" + value.Base64
 	}
 

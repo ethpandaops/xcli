@@ -5,6 +5,18 @@ import (
 	"strings"
 )
 
+// Confidence levels for diagnosis results.
+const (
+	confidenceHigh   = "high"
+	confidenceMedium = "medium"
+	confidenceLow    = "low"
+)
+
+// Common substrings used in error pattern matching.
+const (
+	substrNotFound = "not found"
+)
+
 // ErrorPattern defines a known error pattern and its corresponding hint.
 type ErrorPattern struct {
 	// Name is a unique identifier for this pattern.
@@ -211,11 +223,11 @@ func (m *PatternMatcher) calculateMatchScore(pattern *ErrorPattern, lowerOutput,
 
 	// Bonus for confidence level
 	switch pattern.Confidence {
-	case "high":
+	case confidenceHigh:
 		score += 5
-	case "medium":
+	case confidenceMedium:
 		score += 3
-	case "low":
+	case confidenceLow:
 		score += 1
 	}
 
@@ -257,7 +269,7 @@ func (m *PatternMatcher) registerProtoPatterns() {
   3. Circular dependencies between proto files
 
 Run: make proto -C <repo> with verbose output to see which file has the error`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "proto-type-mismatch",
@@ -270,7 +282,7 @@ Run: make proto -C <repo> with verbose output to see which file has the error`,
   3. Enum values used where messages are expected
 
 Ensure all proto files are regenerated together: xcli lab rebuild xatu-cbt`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "proto-import-not-found",
@@ -283,7 +295,7 @@ Ensure all proto files are regenerated together: xcli lab rebuild xatu-cbt`,
   3. Ensure google/protobuf imports are available
 
 You may need to run: make proto-deps or install protobuf dependencies`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "proto-syntax-error",
@@ -296,11 +308,11 @@ You may need to run: make proto-deps or install protobuf dependencies`,
   3. Invalid field numbers or reserved keywords
 
 Run protoc with --error_format=text for clearer error messages`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:     "protoc-not-found",
-			Contains: []string{"protoc", "not found"},
+			Contains: []string{"protoc", substrNotFound},
 			Phase:    PhaseProtoGen,
 			Hint:     "The protoc compiler is not installed or not in PATH.",
 			Suggestion: `Install protoc:
@@ -308,7 +320,7 @@ Run protoc with --error_format=text for clearer error messages`,
   Linux: apt install protobuf-compiler
 
 Then verify: protoc --version`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 	)
 }
@@ -328,7 +340,7 @@ func (m *PatternMatcher) registerGoBuildPatterns() {
   4. Stale generated code that needs regeneration
 
 Run: go build -v to see detailed compilation info`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "go-missing-package",
@@ -341,7 +353,7 @@ Run: go build -v to see detailed compilation info`,
   3. go mod download - download all dependencies
 
 If using a local replace directive, verify the path exists`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "go-import-cycle",
@@ -354,7 +366,7 @@ If using a local replace directive, verify the path exists`,
   3. Restructuring code to have clear dependency direction
 
 Use: go list -deps ./... | sort | uniq -d to find cycles`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:     "go-too-many-errors",
@@ -367,7 +379,7 @@ Use: go list -deps ./... | sort | uniq -d to find cycles`,
   3. Many subsequent errors will likely disappear
 
 Often caused by missing import or undefined type that's used everywhere`,
-			Confidence: "medium",
+			Confidence: confidenceMedium,
 		},
 		ErrorPattern{
 			Name:    "go-type-mismatch",
@@ -380,7 +392,7 @@ Often caused by missing import or undefined type that's used everywhere`,
   3. Interface implementation mismatch
 
 If this involves generated code, regenerate protos: xcli lab rebuild xatu-cbt`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "go-not-enough-arguments",
@@ -393,7 +405,7 @@ If this involves generated code, regenerate protos: xcli lab rebuild xatu-cbt`,
   3. If using generated code, regenerate it first
 
 Run: go doc <package>.<Function> to see current signature`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "go-too-many-arguments",
@@ -404,7 +416,7 @@ Run: go doc <package>.<Function> to see current signature`,
   1. The function may have been updated with fewer parameters
   2. Remove extra arguments from call sites
   3. If using generated code, regenerate it first`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "go-no-new-variables",
@@ -420,7 +432,7 @@ Run: go doc <package>.<Function> to see current signature`,
   // Correct:
   x := 1
   x = 2`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "go-declared-not-used",
@@ -431,7 +443,7 @@ Run: go doc <package>.<Function> to see current signature`,
   1. Use the variable where intended
   2. Remove the declaration
   3. Use _ to explicitly ignore: _ = unusedVar`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "go-imported-not-used",
@@ -444,7 +456,7 @@ Run: go doc <package>.<Function> to see current signature`,
   3. Use blank import if needed for side effects: import _ "package"
 
 Run: goimports -w . to auto-fix imports`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "go-mod-tidy-needed",
@@ -455,7 +467,7 @@ Run: goimports -w . to auto-fix imports`,
   go mod tidy
 
 This will update both go.mod and go.sum to match your imports`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 	)
 }
@@ -474,7 +486,7 @@ func (m *PatternMatcher) registerPnpmPatterns() {
   3. Check import path is correct
 
 For generated types: xcli lab rebuild lab-frontend`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "ts-type-error-2304",
@@ -487,7 +499,7 @@ For generated types: xcli lab rebuild lab-frontend`,
   3. Generated types need regeneration
 
 For API types: xcli lab rebuild lab-frontend`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "ts-type-error-2305",
@@ -500,7 +512,7 @@ For API types: xcli lab rebuild lab-frontend`,
   3. Default vs named export mismatch
 
 If importing from generated code, regenerate: xcli lab rebuild lab-frontend`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "pnpm-enoent",
@@ -513,7 +525,7 @@ If importing from generated code, regenerate: xcli lab rebuild lab-frontend`,
   3. Check if a build step needs to run first
 
 For missing generated files: xcli lab rebuild lab-frontend`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "pnpm-specific-error",
@@ -526,7 +538,7 @@ For missing generated files: xcli lab rebuild lab-frontend`,
   3. Check pnpm version: pnpm --version
 
 See pnpm documentation for the specific error code`,
-			Confidence: "medium",
+			Confidence: confidenceMedium,
 		},
 		ErrorPattern{
 			Name:     "pnpm-peer-deps",
@@ -537,7 +549,7 @@ See pnpm documentation for the specific error code`,
   1. pnpm install - should auto-install peers
   2. Manually install: pnpm add <peer-package>
   3. Check package.json for version compatibility`,
-			Confidence: "medium",
+			Confidence: confidenceMedium,
 		},
 		ErrorPattern{
 			Name:    "ts-strict-null-checks",
@@ -548,7 +560,7 @@ See pnpm documentation for the specific error code`,
   1. Use optional chaining: obj?.property
   2. Add null check: if (obj !== null)
   3. Use non-null assertion if certain: obj!.property`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "vite-build-error",
@@ -561,7 +573,7 @@ See pnpm documentation for the specific error code`,
   3. Verify all imports are correct
 
 For HMR issues, try: rm -rf .vite && pnpm dev`,
-			Confidence: "medium",
+			Confidence: confidenceMedium,
 		},
 	)
 }
@@ -579,7 +591,7 @@ func (m *PatternMatcher) registerMakePatterns() {
   3. You're in the correct directory
 
 List available targets: make help (if available)`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "make-recipe-failed",
@@ -591,7 +603,7 @@ List available targets: make help (if available)`,
   3. Check prerequisites are met
 
 Run with verbose: make <target> V=1`,
-			Confidence: "medium",
+			Confidence: confidenceMedium,
 		},
 		ErrorPattern{
 			Name:     "make-missing-separator",
@@ -602,7 +614,7 @@ Run with verbose: make <target> V=1`,
   2. Don't mix tabs and spaces
 
 Check with: cat -A Makefile | grep "^ " (should show ^I for tabs)`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "make-circular-dependency",
@@ -612,7 +624,7 @@ Check with: cat -A Makefile | grep "^ " (should show ^I for tabs)`,
   1. Target A depends on B, and B depends on A
   2. Restructure dependencies to be acyclic
   3. Use .PHONY for non-file targets`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 	)
 }
@@ -632,7 +644,7 @@ Or wait for it to be ready:
   docker logs xcli-clickhouse --follow
 
 Check status: xcli lab status`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:     "redis-not-ready",
@@ -644,7 +656,7 @@ Check status: xcli lab status`,
 
 Check status: xcli lab status
 View logs: docker logs xcli-redis`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "port-already-in-use",
@@ -659,7 +671,7 @@ Or change the port in your config:
   xcli lab config
 
 Then restart: xcli lab restart`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "cbt-api-not-ready",
@@ -673,21 +685,21 @@ Or check logs:
   xcli lab logs cbt-api-<network>
 
 Start services if not running: xcli lab up`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:     "config-not-found",
-			Contains: []string{"config", "not found", ".xcli"},
+			Contains: []string{"config", substrNotFound, ".xcli"},
 			Hint:     "xcli configuration file not found. The lab may not be initialized.",
 			Suggestion: `Initialize xcli:
   xcli init
 
 Or check you're in the correct directory with .xcli.yaml`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:     "repo-not-found",
-			Contains: []string{"repository", "not found"},
+			Contains: []string{"repository", substrNotFound},
 			Hint:     "A required repository is not found at the configured path.",
 			Suggestion: `Check repository paths in config:
   xcli lab config
@@ -696,7 +708,7 @@ Clone missing repos:
   xcli init
 
 Or run prerequisites: xcli lab check`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "permission-denied",
@@ -708,7 +720,7 @@ Or run prerequisites: xcli lab check`,
   3. Docker permissions: ensure user is in docker group
 
 For Docker: sudo usermod -aG docker $USER && newgrp docker`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "network-timeout",
@@ -722,7 +734,7 @@ Increase timeout or check:
   1. Service is running: docker ps
   2. Network connectivity: ping localhost
   3. Resource usage: docker stats`,
-			Confidence: "medium",
+			Confidence: confidenceMedium,
 		},
 		ErrorPattern{
 			Name:    "database-connection-error",
@@ -736,7 +748,7 @@ Ensure ClickHouse is running:
   docker logs xcli-clickhouse
 
 Start services: xcli lab up`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 	)
 }
@@ -753,7 +765,7 @@ func (m *PatternMatcher) registerDockerPatterns() {
   Linux: sudo systemctl start docker
 
 Verify: docker info`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "docker-image-not-found",
@@ -765,7 +777,7 @@ Verify: docker info`,
   3. Pull manually: docker pull <image>
 
 For local images: docker build -t <name> .`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "docker-container-conflict",
@@ -777,7 +789,7 @@ For local images: docker build -t <name> .`,
 Or use a different name.
 
 Clean up all xcli containers: xcli lab down`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "docker-no-space",
@@ -789,7 +801,7 @@ Clean up all xcli containers: xcli lab down`,
 Check space: docker system df
 
 Increase Docker disk space in Docker Desktop settings`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 		ErrorPattern{
 			Name:    "docker-network-error",
@@ -802,7 +814,7 @@ Create if needed:
   docker network create xcli
 
 Clean up: xcli lab down && xcli lab up`,
-			Confidence: "high",
+			Confidence: confidenceHigh,
 		},
 	)
 }
@@ -810,9 +822,9 @@ Clean up: xcli lab down && xcli lab up`,
 // sortDiagnosesByConfidence sorts diagnoses with high confidence first.
 func sortDiagnosesByConfidence(diagnoses []*Diagnosis) {
 	confidenceOrder := map[string]int{
-		"high":   3,
-		"medium": 2,
-		"low":    1,
+		confidenceHigh:   3,
+		confidenceMedium: 2,
+		confidenceLow:    1,
 	}
 
 	// Simple bubble sort for small slices

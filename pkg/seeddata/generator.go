@@ -114,13 +114,13 @@ func (g *Generator) Generate(ctx context.Context, opts GenerateOptions) (*Genera
 	query := g.buildQuery(opts)
 
 	g.log.WithFields(logrus.Fields{
-		"model":        opts.Model,
-		"network":      opts.Network,
-		"output":       opts.OutputPath,
-		"range_column": opts.RangeColumn,
-		"from":         opts.From,
-		"to":           opts.To,
-		"query":        query,
+		fieldKeyModel:   opts.Model,
+		fieldKeyNetwork: opts.Network,
+		"output":        opts.OutputPath,
+		"range_column":  opts.RangeColumn,
+		"from":          opts.From,
+		"to":            opts.To,
+		"query":         query,
 	}).Info("generating seed data")
 
 	// Execute query and stream to file

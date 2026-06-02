@@ -23,6 +23,11 @@ const (
 	// shutdownPollInterval is how often to check if a process has stopped.
 	shutdownPollInterval = 100 * time.Millisecond
 	pidFileVersion       = 1
+
+	// logFieldName is the structured log field key for a process name.
+	logFieldName = "name"
+	// logFieldPID is the structured log field key for a process PID.
+	logFieldPID = "pid"
 )
 
 // Compile-time interface check.
@@ -130,8 +135,8 @@ func (m *manager) Start(ctx context.Context, name string, cmd *exec.Cmd, healthC
 
 	// Run health check after starting
 	m.log.WithFields(logrus.Fields{
-		"name":         name,
-		"pid":          process.PID,
+		logFieldName:   name,
+		logFieldPID:    process.PID,
 		"health_check": healthCheck.Name(),
 	}).Debug("running health check")
 
@@ -146,7 +151,7 @@ func (m *manager) Start(ctx context.Context, name string, cmd *exec.Cmd, healthC
 		return fmt.Errorf("health check failed: %w", err)
 	}
 
-	m.log.WithField("name", name).Info("process started and healthy")
+	m.log.WithField(logFieldName, name).Info("process started and healthy")
 
 	// Monitor process in background
 	go m.monitor(name, process, logFd)
@@ -166,8 +171,8 @@ func (m *manager) Stop(ctx context.Context, name string) error {
 	}
 
 	m.log.WithFields(logrus.Fields{
-		"name": name,
-		"pid":  p.PID,
+		logFieldName: name,
+		logFieldPID:  p.PID,
 	}).Info("stopping process")
 
 	// Get process handle (works for both started and loaded processes)
@@ -196,7 +201,7 @@ func (m *manager) Stop(ctx context.Context, name string) error {
 		select {
 		case <-ctx.Done():
 			// Context cancelled - force kill immediately
-			m.log.WithField("name", name).Warn("Context cancelled, sending SIGKILL")
+			m.log.WithField(logFieldName, name).Warn("Context cancelled, sending SIGKILL")
 
 			_ = syscall.Kill(-p.PID, syscall.SIGKILL)
 
@@ -210,7 +215,7 @@ func (m *manager) Stop(ctx context.Context, name string) error {
 			return ctx.Err()
 		case <-timeout:
 			// Graceful shutdown timeout - force kill
-			m.log.WithField("name", name).Warn("Process did not stop gracefully, sending SIGKILL")
+			m.log.WithField(logFieldName, name).Warn("Process did not stop gracefully, sending SIGKILL")
 
 			_ = syscall.Kill(-p.PID, syscall.SIGKILL)
 
@@ -250,7 +255,7 @@ func (m *manager) StopAll(ctx context.Context) error {
 				name := entry.Name()[:len(entry.Name())-4]
 				// Only load if not already in memory
 				if _, exists := m.processes[name]; !exists {
-					m.log.WithField("name", name).Debug(
+					m.log.WithField(logFieldName, name).Debug(
 						"found orphaned PID file, attempting to load",
 					)
 					m.loadPID(name)
@@ -275,8 +280,8 @@ func (m *manager) StopAll(ctx context.Context) error {
 	for _, name := range names {
 		if err := m.Stop(ctx, name); err != nil {
 			m.log.WithFields(logrus.Fields{
-				"name":  name,
-				"error": err,
+				logFieldName: name,
+				"error":      err,
 			}).Warn("failed to stop process")
 			errs = append(errs, fmt.Errorf("stop %s: %w", name, err))
 		}
@@ -469,14 +474,14 @@ func (m *manager) monitor(name string, p *Process, logFd *os.File) {
 
 	if err != nil {
 		m.log.WithFields(logrus.Fields{
-			"name": name,
-			"pid":  p.PID,
-			"err":  err,
+			logFieldName: name,
+			logFieldPID:  p.PID,
+			"err":        err,
 		}).Warn("Process exited with error")
 	} else {
 		m.log.WithFields(logrus.Fields{
-			"name": name,
-			"pid":  p.PID,
+			logFieldName: name,
+			logFieldPID:  p.PID,
 		}).Info("Process exited")
 	}
 }
@@ -552,7 +557,7 @@ func (m *manager) loadPIDsLocked() {
 				delete(m.processes, name)
 				m.removePID(name)
 
-				m.log.WithField("name", name).Debug("removed stale PID-loaded process")
+				m.log.WithField(logFieldName, name).Debug("removed stale PID-loaded process")
 			}
 
 			continue
@@ -570,8 +575,8 @@ func (m *manager) loadPID(name string) {
 	content, err := os.ReadFile(pidFile)
 	if err != nil {
 		m.log.WithFields(logrus.Fields{
-			"name":    name,
-			"pidFile": pidFile,
+			logFieldName: name,
+			"pidFile":    pidFile,
 		}).Debug("failed to read PID file")
 
 		return
@@ -580,7 +585,7 @@ func (m *manager) loadPID(name string) {
 	var data PIDFileData
 	if unmarshalErr := json.Unmarshal(content, &data); unmarshalErr != nil {
 		m.log.WithFields(logrus.Fields{
-			"name": name,
+			logFieldName: name,
 		}).Warn("failed to parse PID file, removing stale file")
 		m.removePID(name)
 
@@ -616,7 +621,7 @@ func (m *manager) loadPID(name string) {
 	}
 
 	m.log.WithFields(logrus.Fields{
-		"name": name,
-		"pid":  data.PID,
+		logFieldName: name,
+		logFieldPID:  data.PID,
 	}).Debug("loaded process from PID file")
 }

@@ -46,11 +46,11 @@ func (m *Manager) SetVerbose(verbose bool) {
 // CheckBinariesExist checks if all required binaries exist.
 func (m *Manager) CheckBinariesExist() map[string]bool {
 	return map[string]bool{
-		"xatu-cbt":    m.binaryExists(filepath.Join(m.cfg.Repos.XatuCBT, "bin", "xatu-cbt")),
-		"cbt":         m.binaryExists(filepath.Join(m.cfg.Repos.CBT, "bin", "cbt")),
-		"cbt-api":     m.binaryExists(filepath.Join(m.cfg.Repos.CBTAPI, "bin", "server")),
-		"lab-backend": m.binaryExists(filepath.Join(m.cfg.Repos.LabBackend, "bin", "lab-backend")),
-		"lab-deps":    m.dirExists(filepath.Join(m.cfg.Repos.Lab, "node_modules")),
+		constants.RepoXatuCBT: m.binaryExists(filepath.Join(m.cfg.Repos.XatuCBT, "bin", constants.RepoXatuCBT)),
+		constants.RepoCBT:     m.binaryExists(filepath.Join(m.cfg.Repos.CBT, "bin", constants.RepoCBT)),
+		constants.RepoCBTAPI:  m.binaryExists(filepath.Join(m.cfg.Repos.CBTAPI, "bin", "server")),
+		"lab-backend":         m.binaryExists(filepath.Join(m.cfg.Repos.LabBackend, "bin", "lab-backend")),
+		"lab-deps":            m.dirExists(filepath.Join(m.cfg.Repos.Lab, "node_modules")),
 	}
 }
 
@@ -69,9 +69,9 @@ func (m *Manager) BuildAll(ctx context.Context, force bool) error {
 
 	// Build CBT in parallel
 	g.Go(func() error {
-		spinner := m.startBuildSpinner("cbt")
+		spinner := m.startBuildSpinner(constants.RepoCBT)
 		err := m.BuildCBT(ctx, force)
-		m.finishBuildSpinner(spinner, "cbt", err, progressBar)
+		m.finishBuildSpinner(spinner, constants.RepoCBT, err, progressBar)
 
 		return err
 	})
@@ -119,30 +119,30 @@ func (m *Manager) BuildXatuCBT(ctx context.Context, force bool) error {
 
 // BuildXatuCBTWithResult builds xatu-cbt binary and returns BuildResult.
 func (m *Manager) BuildXatuCBTWithResult(ctx context.Context, force bool) *diagnostic.BuildResult {
-	binary := filepath.Join(m.cfg.Repos.XatuCBT, "bin", "xatu-cbt")
+	binary := filepath.Join(m.cfg.Repos.XatuCBT, "bin", constants.RepoXatuCBT)
 
 	if !force && m.binaryExists(binary) {
-		m.log.WithField("repo", "xatu-cbt").Info("binary exists, skipping build")
+		m.log.WithField("repo", constants.RepoXatuCBT).Info("binary exists, skipping build")
 
 		now := time.Now()
 
 		return &diagnostic.BuildResult{
 			Phase:     diagnostic.PhaseBuild,
-			Service:   "xatu-cbt",
+			Service:   constants.RepoXatuCBT,
 			Success:   true,
 			StartTime: now,
 			EndTime:   now,
 		}
 	}
 
-	m.log.WithField("repo", "xatu-cbt").Info("building project")
+	m.log.WithField("repo", constants.RepoXatuCBT).Info("building project")
 
-	return m.runMakeWithResult(ctx, m.cfg.Repos.XatuCBT, "build", diagnostic.PhaseBuild, "xatu-cbt")
+	return m.runMakeWithResult(ctx, m.cfg.Repos.XatuCBT, "build", diagnostic.PhaseBuild, constants.RepoXatuCBT)
 }
 
 // XatuCBTBinaryExists checks if the xatu-cbt binary exists.
 func (m *Manager) XatuCBTBinaryExists() bool {
-	binary := filepath.Join(m.cfg.Repos.XatuCBT, "bin", "xatu-cbt")
+	binary := filepath.Join(m.cfg.Repos.XatuCBT, "bin", constants.RepoXatuCBT)
 
 	return m.binaryExists(binary)
 }
@@ -156,23 +156,23 @@ func (m *Manager) BuildCBT(ctx context.Context, force bool) error {
 
 // BuildCBTWithResult builds the cbt binary and returns BuildResult.
 func (m *Manager) BuildCBTWithResult(ctx context.Context, force bool) *diagnostic.BuildResult {
-	binary := filepath.Join(m.cfg.Repos.CBT, "bin", "cbt")
+	binary := filepath.Join(m.cfg.Repos.CBT, "bin", constants.RepoCBT)
 
 	if !force && m.binaryExists(binary) {
-		m.log.WithField("repo", "cbt").Info("binary exists, skipping build")
+		m.log.WithField("repo", constants.RepoCBT).Info("binary exists, skipping build")
 
 		now := time.Now()
 
 		return &diagnostic.BuildResult{
 			Phase:     diagnostic.PhaseBuild,
-			Service:   "cbt",
+			Service:   constants.RepoCBT,
 			Success:   true,
 			StartTime: now,
 			EndTime:   now,
 		}
 	}
 
-	m.log.WithField("repo", "cbt").Info("building project")
+	m.log.WithField("repo", constants.RepoCBT).Info("building project")
 
 	// Build CBT frontend first (required for embedding in binary)
 	if err := m.buildCBTFrontend(ctx, force); err != nil {
@@ -180,7 +180,7 @@ func (m *Manager) BuildCBTWithResult(ctx context.Context, force bool) *diagnosti
 
 		return &diagnostic.BuildResult{
 			Phase:     diagnostic.PhaseBuild,
-			Service:   "cbt",
+			Service:   constants.RepoCBT,
 			Success:   false,
 			Error:     fmt.Errorf("failed to build CBT frontend: %w", err),
 			ErrorMsg:  fmt.Sprintf("failed to build CBT frontend: %v", err),
@@ -196,7 +196,7 @@ func (m *Manager) BuildCBTWithResult(ctx context.Context, force bool) *diagnosti
 
 		return &diagnostic.BuildResult{
 			Phase:     diagnostic.PhaseBuild,
-			Service:   "cbt",
+			Service:   constants.RepoCBT,
 			Success:   false,
 			Error:     fmt.Errorf("failed to create bin directory: %w", err),
 			ErrorMsg:  fmt.Sprintf("failed to create bin directory: %v", err),
@@ -208,7 +208,7 @@ func (m *Manager) BuildCBTWithResult(ctx context.Context, force bool) *diagnosti
 	cmd := exec.CommandContext(ctx, "go", "build", "-o", binary, ".")
 	cmd.Dir = m.cfg.Repos.CBT
 
-	return executil.RunCmdWithResult(cmd, m.verbose, diagnostic.PhaseBuild, "cbt")
+	return executil.RunCmdWithResult(cmd, m.verbose, diagnostic.PhaseBuild, constants.RepoCBT)
 }
 
 // BuildCBTAPI builds cbt-api with proto generation
@@ -231,29 +231,29 @@ func (m *Manager) BuildCBTAPIWithResult(ctx context.Context, force bool) *diagno
 	binary := filepath.Join(m.cfg.Repos.CBTAPI, "bin", "server")
 
 	if !force && m.binaryExists(binary) {
-		m.log.WithField("repo", "cbt-api").Info("binary exists, skipping build")
+		m.log.WithField("repo", constants.RepoCBTAPI).Info("binary exists, skipping build")
 
 		now := time.Now()
 
 		return &diagnostic.BuildResult{
 			Phase:     diagnostic.PhaseBuild,
-			Service:   "cbt-api",
+			Service:   constants.RepoCBTAPI,
 			Success:   true,
 			StartTime: now,
 			EndTime:   now,
 		}
 	}
 
-	m.log.WithField("repo", "cbt-api").Info("building project")
+	m.log.WithField("repo", constants.RepoCBTAPI).Info("building project")
 
 	// Generate OpenAPI and other code (requires proto to be run first)
-	genResult := m.runMakeWithResult(ctx, m.cfg.Repos.CBTAPI, "generate", diagnostic.PhaseBuild, "cbt-api")
+	genResult := m.runMakeWithResult(ctx, m.cfg.Repos.CBTAPI, "generate", diagnostic.PhaseBuild, constants.RepoCBTAPI)
 	if !genResult.Success {
 		return genResult
 	}
 
 	// Build the binary
-	return m.runMakeWithResult(ctx, m.cfg.Repos.CBTAPI, "build-binary", diagnostic.PhaseBuild, "cbt-api")
+	return m.runMakeWithResult(ctx, m.cfg.Repos.CBTAPI, "build-binary", diagnostic.PhaseBuild, constants.RepoCBTAPI)
 }
 
 // BuildLabBackend builds lab-backend binary.
@@ -336,7 +336,7 @@ func (m *Manager) GenerateXatuCBTProtos(ctx context.Context) error {
 
 // GenerateXatuCBTProtosWithResult generates protobuf files for xatu-cbt and returns BuildResult.
 func (m *Manager) GenerateXatuCBTProtosWithResult(ctx context.Context) *diagnostic.BuildResult {
-	m.log.WithField("repo", "xatu-cbt").Info("generating protos")
+	m.log.WithField("repo", constants.RepoXatuCBT).Info("generating protos")
 
 	// Clean generated proto files before regenerating to avoid stale files
 	if err := m.CleanXatuCBTProtos(); err != nil {
@@ -356,7 +356,7 @@ func (m *Manager) GenerateXatuCBTProtosWithResult(ctx context.Context) *diagnost
 		if urlErr != nil {
 			return &diagnostic.BuildResult{
 				Phase:    diagnostic.PhaseProtoGen,
-				Service:  "xatu-cbt",
+				Service:  constants.RepoXatuCBT,
 				Success:  false,
 				Error:    urlErr,
 				ErrorMsg: urlErr.Error(),
@@ -374,12 +374,12 @@ func (m *Manager) GenerateXatuCBTProtosWithResult(ctx context.Context) *diagnost
 	cmd.Dir = m.cfg.Repos.XatuCBT
 	cmd.Env = env
 
-	return executil.RunCmdWithResult(cmd, m.verbose, diagnostic.PhaseProtoGen, "xatu-cbt")
+	return executil.RunCmdWithResult(cmd, m.verbose, diagnostic.PhaseProtoGen, constants.RepoXatuCBT)
 }
 
 // CleanXatuCBTProtos removes generated proto files from xatu-cbt.
 func (m *Manager) CleanXatuCBTProtos() error {
-	m.log.WithField("repo", "xatu-cbt").Info("cleaning generated proto files")
+	m.log.WithField("repo", constants.RepoXatuCBT).Info("cleaning generated proto files")
 
 	// xatu-cbt generates protos to pkg/proto/clickhouse/
 	protoDir := filepath.Join(m.cfg.Repos.XatuCBT, "pkg", "proto", "clickhouse")
@@ -405,7 +405,7 @@ func (m *Manager) GenerateProtosWithResult(ctx context.Context) *diagnostic.Buil
 	network := m.cfg.EnabledNetworks()[0]
 
 	m.log.WithFields(logrus.Fields{
-		"repo":    "cbt-api",
+		"repo":    constants.RepoCBTAPI,
 		"network": network.Name,
 	}).Info("generating protos")
 
@@ -423,13 +423,13 @@ func (m *Manager) GenerateProtosWithResult(ctx context.Context) *diagnostic.Buil
 
 	cmd.Env = append(os.Environ(), fmt.Sprintf("CONFIG_FILE=%s", configPath))
 
-	return executil.RunCmdWithResult(cmd, m.verbose, diagnostic.PhaseProtoGen, "cbt-api")
+	return executil.RunCmdWithResult(cmd, m.verbose, diagnostic.PhaseProtoGen, constants.RepoCBTAPI)
 }
 
 // CleanCBTAPIGenerated removes all generated files from cbt-api.
 // This includes proto files, handlers, server implementation, and OpenAPI specs.
 func (m *Manager) CleanCBTAPIGenerated() error {
-	m.log.WithField("repo", "cbt-api").Info("cleaning generated files")
+	m.log.WithField("repo", constants.RepoCBTAPI).Info("cleaning generated files")
 
 	// Files and directories to remove (matches cbt-api Makefile clean target)
 	toRemove := []string{

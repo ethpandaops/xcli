@@ -12,6 +12,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	fctBlock            = "fct_block"
+	fctBlockHead        = "fct_block_head"
+	fctAttestation      = "fct_attestation"
+	fctProposerSlashing = "fct_proposer_slashing"
+	fctBlockSummary     = "fct_block_summary"
+	fctSummary          = "fct_summary"
+)
+
 // setupFakeXatuCBTRepo creates a fake xatu-cbt repo directory structure
 // with the given external and transformation model names.
 func setupFakeXatuCBTRepo(
@@ -23,7 +32,7 @@ func setupFakeXatuCBTRepo(
 
 	repoDir := t.TempDir()
 
-	externalDir := filepath.Join(repoDir, "models", "external")
+	externalDir := filepath.Join(repoDir, keyModels, "external")
 	require.NoError(t, os.MkdirAll(externalDir, 0755))
 
 	for _, name := range external {
@@ -31,7 +40,7 @@ func setupFakeXatuCBTRepo(
 		require.NoError(t, os.WriteFile(path, []byte("SELECT 1"), 0600))
 	}
 
-	transformDir := filepath.Join(repoDir, "models", "transformations")
+	transformDir := filepath.Join(repoDir, keyModels, "transformations")
 	require.NoError(t, os.MkdirAll(transformDir, 0755))
 
 	for _, name := range transformations {
@@ -44,12 +53,12 @@ func setupFakeXatuCBTRepo(
 
 func TestGetLocallyEnabledTables(t *testing.T) {
 	allExternal := []string{
-		"fct_block",
-		"fct_block_head",
-		"fct_attestation",
-		"fct_proposer_slashing",
+		fctBlock,
+		fctBlockHead,
+		fctAttestation,
+		fctProposerSlashing,
 	}
-	allTransformations := []string{"fct_block_summary"}
+	allTransformations := []string{fctBlockSummary}
 
 	tests := []struct {
 		name            string
@@ -65,11 +74,11 @@ models:
   overrides: {}
 `,
 			expectedTables: []string{
-				"fct_attestation",
-				"fct_block",
-				"fct_block_head",
-				"fct_block_summary",
-				"fct_proposer_slashing",
+				fctAttestation,
+				fctBlock,
+				fctBlockHead,
+				fctBlockSummary,
+				fctProposerSlashing,
 			},
 		},
 		{
@@ -83,9 +92,9 @@ models:
       enabled: false
 `,
 			expectedTables: []string{
-				"fct_block",
-				"fct_block_head",
-				"fct_block_summary",
+				fctBlock,
+				fctBlockHead,
+				fctBlockSummary,
 			},
 		},
 		{
@@ -110,11 +119,11 @@ models:
 			name:            "missing overrides file returns all models",
 			noOverridesFile: true,
 			expectedTables: []string{
-				"fct_attestation",
-				"fct_block",
-				"fct_block_head",
-				"fct_block_summary",
-				"fct_proposer_slashing",
+				fctAttestation,
+				fctBlock,
+				fctBlockHead,
+				fctBlockSummary,
+				fctProposerSlashing,
 			},
 		},
 		{
@@ -127,8 +136,8 @@ models:
     fct_block_summary: {}
 `,
 			expectedTables: []string{
-				"fct_block",
-				"fct_block_summary",
+				fctBlock,
+				fctBlockSummary,
 			},
 		},
 		{
@@ -151,7 +160,7 @@ models:
       enabled: false
 `,
 			expectedTables: []string{
-				"fct_block",
+				fctBlock,
 			},
 		},
 	}
@@ -203,36 +212,36 @@ func TestDiscoverAllModels(t *testing.T) {
 	t.Run("models without database frontmatter", func(t *testing.T) {
 		repoDir := setupFakeXatuCBTRepo(
 			t,
-			[]string{"fct_block", "fct_attestation"},
-			[]string{"fct_summary"},
+			[]string{fctBlock, fctAttestation},
+			[]string{fctSummary},
 		)
 
 		models, err := discoverAllModels(repoDir)
 		require.NoError(t, err)
 		assert.Equal(t, []string{
-			"fct_attestation",
-			"fct_block",
-			"fct_summary",
+			fctAttestation,
+			fctBlock,
+			fctSummary,
 		}, models)
 	})
 
 	t.Run("external models with database frontmatter use prefixed keys", func(t *testing.T) {
 		repoDir := setupFakeXatuCBTRepo(
 			t,
-			[]string{"cpu_utilization", "fct_block"},
-			[]string{"fct_summary"},
+			[]string{"cpu_utilization", fctBlock},
+			[]string{fctSummary},
 		)
 
 		// Add database frontmatter to cpu_utilization to simulate observoor.
 		sqlWithFrontmatter := "---\ndatabase: observoor\ntable: cpu_utilization\n---\nSELECT 1"
-		path := filepath.Join(repoDir, "models", "external", "cpu_utilization.sql")
+		path := filepath.Join(repoDir, keyModels, "external", "cpu_utilization.sql")
 		require.NoError(t, os.WriteFile(path, []byte(sqlWithFrontmatter), 0600))
 
 		models, err := discoverAllModels(repoDir)
 		require.NoError(t, err)
 		assert.Equal(t, []string{
-			"fct_block",
-			"fct_summary",
+			fctBlock,
+			fctSummary,
 			"observoor.cpu_utilization",
 		}, models)
 	})
@@ -259,10 +268,10 @@ models:
 		states, err := loadModelStates(overridesPath)
 		require.NoError(t, err)
 		assert.True(t, states.defaultEnabled)
-		assert.True(t, states.disabled["fct_block"])
-		assert.True(t, states.disabled["fct_attestation"])
-		assert.False(t, states.disabled["fct_block_head"])
-		assert.True(t, states.enabled["fct_block_head"])
+		assert.True(t, states.disabled[fctBlock])
+		assert.True(t, states.disabled[fctAttestation])
+		assert.False(t, states.disabled[fctBlockHead])
+		assert.True(t, states.enabled[fctBlockHead])
 	})
 
 	t.Run("allowlist mode", func(t *testing.T) {
@@ -284,8 +293,8 @@ models:
 		states, err := loadModelStates(overridesPath)
 		require.NoError(t, err)
 		assert.False(t, states.defaultEnabled)
-		assert.True(t, states.enabled["fct_block"])
-		assert.True(t, states.disabled["fct_attestation"])
+		assert.True(t, states.enabled[fctBlock])
+		assert.True(t, states.disabled[fctAttestation])
 	})
 }
 
@@ -303,8 +312,8 @@ func TestRemoveEmptyMaps(t *testing.T) {
 		{
 			name: "removes empty nested map",
 			input: map[string]any{
-				"models": map[string]any{
-					"env": map[string]any{},
+				keyModels: map[string]any{
+					keyEnv: map[string]any{},
 				},
 			},
 			expected: map[string]any{},
@@ -312,16 +321,16 @@ func TestRemoveEmptyMaps(t *testing.T) {
 		{
 			name: "preserves non-empty nested map",
 			input: map[string]any{
-				"models": map[string]any{
-					"env": map[string]any{
-						"NETWORK": "mainnet",
+				keyModels: map[string]any{
+					keyEnv: map[string]any{
+						keyNetwork: networkMainnet,
 					},
 				},
 			},
 			expected: map[string]any{
-				"models": map[string]any{
-					"env": map[string]any{
-						"NETWORK": "mainnet",
+				keyModels: map[string]any{
+					keyEnv: map[string]any{
+						keyNetwork: networkMainnet,
 					},
 				},
 			},
@@ -329,17 +338,17 @@ func TestRemoveEmptyMaps(t *testing.T) {
 		{
 			name: "removes only empty branches",
 			input: map[string]any{
-				"models": map[string]any{
-					"env":    map[string]any{},
+				keyModels: map[string]any{
+					keyEnv:   map[string]any{},
 					"config": "keep-me",
 				},
-				"other": "value",
+				"other": keyValue,
 			},
 			expected: map[string]any{
-				"models": map[string]any{
+				keyModels: map[string]any{
 					"config": "keep-me",
 				},
-				"other": "value",
+				"other": keyValue,
 			},
 		},
 		{
@@ -367,19 +376,19 @@ func TestRemoveEmptyMaps(t *testing.T) {
 
 func TestEmptyOverrideDoesNotWipeAutoDefaults(t *testing.T) {
 	baseConfig := map[string]any{
-		"models": map[string]any{
-			"env": map[string]any{
-				"NETWORK":                      "mainnet",
-				"EXTERNAL_MODEL_MIN_TIMESTAMP": "1234567890",
-				"EXTERNAL_MODEL_MIN_BLOCK":     "23800000",
-				"MODELS_SCRIPTS_PATH":          "../xatu-cbt/models/scripts",
+		keyModels: map[string]any{
+			keyEnv: map[string]any{
+				keyNetwork:                   networkMainnet,
+				envExternalModelMinTimestamp: "1234567890",
+				envExternalModelMinBlock:     "23800000",
+				envModelsScriptsPath:         modelsScriptsPath,
 			},
 		},
 	}
 
 	userOverrides := map[string]any{
-		"models": map[string]any{
-			"env": map[string]any{},
+		keyModels: map[string]any{
+			keyEnv: map[string]any{},
 		},
 	}
 
@@ -388,34 +397,34 @@ func TestEmptyOverrideDoesNotWipeAutoDefaults(t *testing.T) {
 	err := mergo.Merge(&baseConfig, userOverrides, mergo.WithOverride)
 	require.NoError(t, err)
 
-	models, ok := baseConfig["models"].(map[string]any)
+	models, ok := baseConfig[keyModels].(map[string]any)
 	require.True(t, ok, "models section must exist")
 
-	env, ok := models["env"].(map[string]any)
+	env, ok := models[keyEnv].(map[string]any)
 	require.True(t, ok, "models.env section must exist")
 
-	assert.Equal(t, "mainnet", env["NETWORK"])
-	assert.Equal(t, "1234567890", env["EXTERNAL_MODEL_MIN_TIMESTAMP"])
-	assert.Equal(t, "23800000", env["EXTERNAL_MODEL_MIN_BLOCK"])
-	assert.Equal(t, "../xatu-cbt/models/scripts", env["MODELS_SCRIPTS_PATH"])
+	assert.Equal(t, networkMainnet, env[keyNetwork])
+	assert.Equal(t, "1234567890", env[envExternalModelMinTimestamp])
+	assert.Equal(t, "23800000", env[envExternalModelMinBlock])
+	assert.Equal(t, modelsScriptsPath, env[envModelsScriptsPath])
 }
 
 func TestUserOverridesTakePrecedence(t *testing.T) {
 	baseConfig := map[string]any{
-		"models": map[string]any{
-			"env": map[string]any{
-				"NETWORK":                      "mainnet",
-				"EXTERNAL_MODEL_MIN_TIMESTAMP": "1234567890",
-				"EXTERNAL_MODEL_MIN_BLOCK":     "23800000",
+		keyModels: map[string]any{
+			keyEnv: map[string]any{
+				keyNetwork:                   networkMainnet,
+				envExternalModelMinTimestamp: "1234567890",
+				envExternalModelMinBlock:     "23800000",
 			},
 		},
 	}
 
 	userOverrides := map[string]any{
-		"models": map[string]any{
-			"env": map[string]any{
-				"EXTERNAL_MODEL_MIN_TIMESTAMP": "0",
-				"EXTERNAL_MODEL_MIN_BLOCK":     "0",
+		keyModels: map[string]any{
+			keyEnv: map[string]any{
+				envExternalModelMinTimestamp: "0",
+				envExternalModelMinBlock:     "0",
 			},
 		},
 	}
@@ -425,25 +434,25 @@ func TestUserOverridesTakePrecedence(t *testing.T) {
 	err := mergo.Merge(&baseConfig, userOverrides, mergo.WithOverride)
 	require.NoError(t, err)
 
-	models, ok := baseConfig["models"].(map[string]any)
+	models, ok := baseConfig[keyModels].(map[string]any)
 	require.True(t, ok)
 
-	env, ok := models["env"].(map[string]any)
+	env, ok := models[keyEnv].(map[string]any)
 	require.True(t, ok)
 
-	assert.Equal(t, "0", env["EXTERNAL_MODEL_MIN_TIMESTAMP"])
-	assert.Equal(t, "0", env["EXTERNAL_MODEL_MIN_BLOCK"])
-	assert.Equal(t, "mainnet", env["NETWORK"])
+	assert.Equal(t, "0", env[envExternalModelMinTimestamp])
+	assert.Equal(t, "0", env[envExternalModelMinBlock])
+	assert.Equal(t, networkMainnet, env[keyNetwork])
 }
 
 func TestCommentOnlyEnvOverrideDoesNotWipeAutoDefaults(t *testing.T) {
 	baseConfig := map[string]any{
-		"models": map[string]any{
-			"env": map[string]any{
-				"NETWORK":                      "mainnet",
-				"EXTERNAL_MODEL_MIN_TIMESTAMP": "1234567890",
-				"EXTERNAL_MODEL_MIN_BLOCK":     "23800000",
-				"MODELS_SCRIPTS_PATH":          "../xatu-cbt/models/scripts",
+		keyModels: map[string]any{
+			keyEnv: map[string]any{
+				keyNetwork:                   networkMainnet,
+				envExternalModelMinTimestamp: "1234567890",
+				envExternalModelMinBlock:     "23800000",
+				envModelsScriptsPath:         modelsScriptsPath,
 			},
 		},
 	}
@@ -465,22 +474,22 @@ models:
 	err = mergo.Merge(&baseConfig, userOverrides, mergo.WithOverride)
 	require.NoError(t, err)
 
-	models, ok := baseConfig["models"].(map[string]any)
+	models, ok := baseConfig[keyModels].(map[string]any)
 	require.True(t, ok)
 
-	env, ok := models["env"].(map[string]any)
+	env, ok := models[keyEnv].(map[string]any)
 	require.True(t, ok, "models.env section must remain populated")
 
-	assert.Equal(t, "mainnet", env["NETWORK"])
-	assert.Equal(t, "1234567890", env["EXTERNAL_MODEL_MIN_TIMESTAMP"])
-	assert.Equal(t, "23800000", env["EXTERNAL_MODEL_MIN_BLOCK"])
-	assert.Equal(t, "../xatu-cbt/models/scripts", env["MODELS_SCRIPTS_PATH"])
+	assert.Equal(t, networkMainnet, env[keyNetwork])
+	assert.Equal(t, "1234567890", env[envExternalModelMinTimestamp])
+	assert.Equal(t, "23800000", env[envExternalModelMinBlock])
+	assert.Equal(t, modelsScriptsPath, env[envModelsScriptsPath])
 }
 
 func TestExpandDefaultEnabled(t *testing.T) {
 	t.Run("no defaultEnabled does nothing", func(t *testing.T) {
 		repoDir := setupFakeXatuCBTRepo(t,
-			[]string{"fct_block", "fct_attestation"}, nil,
+			[]string{fctBlock, fctAttestation}, nil,
 		)
 
 		gen := NewGenerator(logrus.New(), &config.LabConfig{
@@ -488,30 +497,30 @@ func TestExpandDefaultEnabled(t *testing.T) {
 		})
 
 		overrides := map[string]any{
-			"models": map[string]any{
-				"overrides": map[string]any{
-					"fct_block": map[string]any{},
+			keyModels: map[string]any{
+				keyOverrides: map[string]any{
+					fctBlock: map[string]any{},
 				},
 			},
 		}
 
 		gen.expandDefaultEnabled(overrides)
 
-		models, ok := overrides["models"].(map[string]any)
+		models, ok := overrides[keyModels].(map[string]any)
 		require.True(t, ok)
 
-		ov, ok := models["overrides"].(map[string]any)
+		ov, ok := models[keyOverrides].(map[string]any)
 		require.True(t, ok)
 
 		// Only the original entry should exist.
 		assert.Len(t, ov, 1)
-		assert.Contains(t, ov, "fct_block")
+		assert.Contains(t, ov, fctBlock)
 	})
 
 	t.Run("defaultEnabled false expands unlisted models", func(t *testing.T) {
 		repoDir := setupFakeXatuCBTRepo(t,
-			[]string{"fct_block", "fct_attestation", "fct_proposer"},
-			[]string{"fct_summary"},
+			[]string{fctBlock, fctAttestation, "fct_proposer"},
+			[]string{fctSummary},
 		)
 
 		gen := NewGenerator(logrus.New(), &config.LabConfig{
@@ -519,27 +528,27 @@ func TestExpandDefaultEnabled(t *testing.T) {
 		})
 
 		overrides := map[string]any{
-			"models": map[string]any{
+			keyModels: map[string]any{
 				"defaultEnabled": false,
-				"overrides": map[string]any{
-					"fct_block": map[string]any{},
+				keyOverrides: map[string]any{
+					fctBlock: map[string]any{},
 				},
 			},
 		}
 
 		gen.expandDefaultEnabled(overrides)
 
-		models, ok := overrides["models"].(map[string]any)
+		models, ok := overrides[keyModels].(map[string]any)
 		require.True(t, ok)
 
-		ov, ok := models["overrides"].(map[string]any)
+		ov, ok := models[keyOverrides].(map[string]any)
 		require.True(t, ok)
 
 		// fct_block should be untouched (still listed, no enabled:false injected).
-		assert.Equal(t, map[string]any{}, ov["fct_block"])
+		assert.Equal(t, map[string]any{}, ov[fctBlock])
 
 		// All other models should have enabled: false injected.
-		for _, name := range []string{"fct_attestation", "fct_proposer", "fct_summary"} {
+		for _, name := range []string{fctAttestation, "fct_proposer", fctSummary} {
 			entry, ok := ov[name]
 			require.True(t, ok, "expected %s to be injected", name)
 
@@ -555,7 +564,7 @@ func TestExpandDefaultEnabled(t *testing.T) {
 
 	t.Run("defaultEnabled true does nothing", func(t *testing.T) {
 		repoDir := setupFakeXatuCBTRepo(t,
-			[]string{"fct_block", "fct_attestation"}, nil,
+			[]string{fctBlock, fctAttestation}, nil,
 		)
 
 		gen := NewGenerator(logrus.New(), &config.LabConfig{
@@ -563,20 +572,20 @@ func TestExpandDefaultEnabled(t *testing.T) {
 		})
 
 		overrides := map[string]any{
-			"models": map[string]any{
+			keyModels: map[string]any{
 				"defaultEnabled": true,
-				"overrides": map[string]any{
-					"fct_block": map[string]any{},
+				keyOverrides: map[string]any{
+					fctBlock: map[string]any{},
 				},
 			},
 		}
 
 		gen.expandDefaultEnabled(overrides)
 
-		models, ok := overrides["models"].(map[string]any)
+		models, ok := overrides[keyModels].(map[string]any)
 		require.True(t, ok)
 
-		ov, ok := models["overrides"].(map[string]any)
+		ov, ok := models[keyOverrides].(map[string]any)
 		require.True(t, ok)
 
 		// Should not inject anything.

@@ -36,6 +36,9 @@ const (
 	// clickHouseClusterHostPrefix is the hostname prefix for ClickHouse clusters.
 	// When this prefix is detected, additional DNS checks are performed for individual shards.
 	clickHouseClusterHostPrefix = "chendpoint-clickhouse-raw"
+
+	// logFieldHost is the structured log field key for a host.
+	logFieldHost = "host"
 )
 
 // clickHouseClusterShards are the shard suffixes for ClickHouse clusters.
@@ -389,9 +392,9 @@ func (m *Manager) TestExternalConnection(ctx context.Context) error {
 	args = append(args, "--query", "SELECT 1")
 
 	m.log.WithFields(logrus.Fields{
-		"host": host,
-		"port": port,
-		"user": username,
+		logFieldHost: host,
+		"port":       port,
+		"user":       username,
 	}).Debug("testing external ClickHouse connection")
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
@@ -619,9 +622,9 @@ func (m *Manager) checkClusterShardDNS(ctx context.Context, host string) error {
 			ui.Error(fmt.Sprintf("DNS lookup failed for shard %s: %s", shard, shardHost))
 
 			m.log.WithFields(logrus.Fields{
-				"shard": shard,
-				"host":  shardHost,
-				"error": err.Error(),
+				"shard":      shard,
+				logFieldHost: shardHost,
+				"error":      err.Error(),
 			}).Warn("DNS lookup failed for shard")
 
 			dnsErrors = append(dnsErrors, fmt.Sprintf("%s: %v", shardHost, err))
@@ -629,8 +632,8 @@ func (m *Manager) checkClusterShardDNS(ctx context.Context, host string) error {
 			ui.Success(fmt.Sprintf("DNS OK for shard %s: %s", shard, shardHost))
 
 			m.log.WithFields(logrus.Fields{
-				"shard": shard,
-				"host":  shardHost,
+				"shard":      shard,
+				logFieldHost: shardHost,
 			}).Debug("DNS lookup successful for shard")
 		}
 	}

@@ -8,6 +8,7 @@ const (
 
 	healthHealthy   = "healthy"
 	healthUnhealthy = "unhealthy"
+	healthUnknown   = "unknown"
 
 	panelServices = "services"
 	panelActions  = "actions"

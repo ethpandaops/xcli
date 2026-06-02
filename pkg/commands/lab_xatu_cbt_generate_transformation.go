@@ -17,6 +17,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// defaultTransformationDuration is the default duration for transformation tests.
+const defaultTransformationDuration = "5m"
+
 // generateTransformationTestOptions holds all options for the generate-transformation-test command.
 type generateTransformationTestOptions struct {
 	model           string
@@ -184,7 +187,7 @@ func runGenerateTransformationTest(
 		}
 
 		if duration == "" {
-			duration = "5m" // Default duration in non-interactive mode
+			duration = defaultTransformationDuration // Default duration in non-interactive mode
 		}
 	}
 
@@ -258,7 +261,7 @@ func runGenerateTransformationTest(
 			{Label: "10m", Description: "recommended", Value: "10m"},
 			{Label: "30s", Description: "minimal test", Value: "30s"},
 			{Label: "1m", Description: "quick test", Value: "1m"},
-			{Label: "5m", Description: "", Value: "5m"},
+			{Label: defaultTransformationDuration, Description: "", Value: defaultTransformationDuration},
 			{Label: "30m", Description: "", Value: "30m"},
 			{Label: "1h", Description: "large dataset", Value: "1h"},
 			{Label: "6h", Description: "", Value: "6h"},
@@ -1039,7 +1042,7 @@ func runBatchGenerateTransformationTest(
 
 	// Set defaults for batch mode
 	if opts.duration == "" {
-		opts.duration = "5m"
+		opts.duration = defaultTransformationDuration
 	}
 
 	// Force non-interactive mode for batch

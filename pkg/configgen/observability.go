@@ -13,6 +13,28 @@ import (
 	"github.com/ethpandaops/xcli/pkg/configgen/dashboards"
 )
 
+const (
+	keyList       = "list"
+	keyID         = "id"
+	keyPanels     = "panels"
+	keyTitle      = "title"
+	keyUID        = "uid"
+	keyGridPos    = "gridPos"
+	keyType       = "type"
+	keyDatasource = "datasource"
+	keyColor      = "color"
+	keyMode       = "mode"
+	keyText       = "text"
+	keyValue      = "value"
+	keyThresholds = "thresholds"
+	keyOptions    = "options"
+
+	valPrometheus = "prometheus"
+	valGreen      = "green"
+	valNone       = "none"
+	valAuto       = "auto"
+)
+
 // grafanaDatasourceConfig is the static Grafana datasource provisioning YAML.
 const grafanaDatasourceConfig = `apiVersion: 1
 datasources:
@@ -293,18 +315,18 @@ func (g *Generator) generateLabDashboard(outputPath string) error {
 
 	dashboard := map[string]any{
 		"annotations": map[string]any{
-			"list": []any{},
+			keyList: []any{},
 		},
 		"editable":             true,
 		"fiscalYearStartMonth": 0,
 		"graphTooltip":         0,
-		"id":                   nil,
+		keyID:                  nil,
 		"links":                []any{},
-		"panels":               panels,
+		keyPanels:              panels,
 		"schemaVersion":        39,
 		"tags":                 []string{"lab", "xcli"},
 		"templating": map[string]any{
-			"list": []any{},
+			keyList: []any{},
 		},
 		"time": map[string]any{
 			"from": "now-1h",
@@ -312,8 +334,8 @@ func (g *Generator) generateLabDashboard(outputPath string) error {
 		},
 		"timepicker": map[string]any{},
 		"timezone":   "browser",
-		"title":      "Lab Overview",
-		"uid":        "xcli-lab-overview",
+		keyTitle:     "Lab Overview",
+		keyUID:       "xcli-lab-overview",
 		"version":    1,
 		"weekStart":  "",
 	}
@@ -340,11 +362,11 @@ func (g *Generator) buildDashboardPanels() []any {
 	// Service health row
 	panels = append(panels, map[string]any{
 		"collapsed": false,
-		"gridPos":   map[string]any{"h": 1, "w": 24, "x": 0, "y": gridY},
-		"id":        1,
-		"panels":    []any{},
-		"title":     "Service Health",
-		"type":      "row",
+		keyGridPos:  map[string]any{"h": 1, "w": 24, "x": 0, "y": gridY},
+		keyID:       1,
+		keyPanels:   []any{},
+		keyTitle:    "Service Health",
+		keyType:     "row",
 	})
 	gridY++
 
@@ -387,11 +409,11 @@ func (g *Generator) buildDashboardPanels() []any {
 	// Go runtime metrics row
 	panels = append(panels, map[string]any{
 		"collapsed": false,
-		"gridPos":   map[string]any{"h": 1, "w": 24, "x": 0, "y": gridY},
-		"id":        panelID,
-		"panels":    []any{},
-		"title":     "Go Runtime",
-		"type":      "row",
+		keyGridPos:  map[string]any{"h": 1, "w": 24, "x": 0, "y": gridY},
+		keyID:       panelID,
+		keyPanels:   []any{},
+		keyTitle:    "Go Runtime",
+		keyType:     "row",
 	})
 	panelID++
 	gridY++
@@ -419,62 +441,62 @@ func (g *Generator) buildDashboardPanels() []any {
 // createStatPanel creates a Grafana stat panel configuration.
 func (g *Generator) createStatPanel(id int, title, query string, x, y, w, h int) map[string]any {
 	return map[string]any{
-		"datasource": map[string]any{
-			"type": "prometheus",
-			"uid":  "prometheus",
+		keyDatasource: map[string]any{
+			keyType: valPrometheus,
+			keyUID:  valPrometheus,
 		},
 		"fieldConfig": map[string]any{
 			"defaults": map[string]any{
-				"color": map[string]any{
-					"mode": "thresholds",
+				keyColor: map[string]any{
+					keyMode: "thresholds",
 				},
 				"mappings": []any{
 					map[string]any{
-						"options": map[string]any{
+						keyOptions: map[string]any{
 							"0": map[string]any{
-								"color": "red",
-								"index": 1,
-								"text":  "Down",
+								keyColor: "red",
+								"index":  1,
+								keyText:  "Down",
 							},
 							"1": map[string]any{
-								"color": "green",
-								"index": 0,
-								"text":  "Up",
+								keyColor: valGreen,
+								"index":  0,
+								keyText:  "Up",
 							},
 						},
-						"type": "value",
+						keyType: keyValue,
 					},
 				},
-				"thresholds": map[string]any{
-					"mode": "absolute",
+				keyThresholds: map[string]any{
+					keyMode: "absolute",
 					"steps": []any{
-						map[string]any{"color": "red", "value": nil},
-						map[string]any{"color": "green", "value": 1},
+						map[string]any{keyColor: "red", keyValue: nil},
+						map[string]any{keyColor: valGreen, keyValue: 1},
 					},
 				},
 			},
-			"overrides": []any{},
+			keyOverrides: []any{},
 		},
-		"gridPos": map[string]any{"h": h, "w": w, "x": x, "y": y},
-		"id":      id,
-		"options": map[string]any{
-			"colorMode":   "value",
-			"graphMode":   "none",
-			"justifyMode": "auto",
-			"orientation": "auto",
+		keyGridPos: map[string]any{"h": h, "w": w, "x": x, "y": y},
+		keyID:      id,
+		keyOptions: map[string]any{
+			"colorMode":   keyValue,
+			"graphMode":   valNone,
+			"justifyMode": valAuto,
+			"orientation": valAuto,
 			"reduceOptions": map[string]any{
 				"calcs":  []string{"lastNotNull"},
 				"fields": "",
 				"values": false,
 			},
-			"textMode": "auto",
+			"textMode": valAuto,
 		},
 		"pluginVersion": "11.3.1",
 		"targets": []any{
 			map[string]any{
-				"datasource": map[string]any{
-					"type": "prometheus",
-					"uid":  "prometheus",
+				keyDatasource: map[string]any{
+					keyType: valPrometheus,
+					keyUID:  valPrometheus,
 				},
 				"expr":         query,
 				"instant":      true,
@@ -482,33 +504,33 @@ func (g *Generator) createStatPanel(id int, title, query string, x, y, w, h int)
 				"refId":        "A",
 			},
 		},
-		"title": title,
-		"type":  "stat",
+		keyTitle: title,
+		keyType:  "stat",
 	}
 }
 
 // createTimeSeriesPanel creates a Grafana time series panel configuration.
 func (g *Generator) createTimeSeriesPanel(id int, title, query string, x, y, w, h int) map[string]any {
 	return map[string]any{
-		"datasource": map[string]any{
-			"type": "prometheus",
-			"uid":  "prometheus",
+		keyDatasource: map[string]any{
+			keyType: valPrometheus,
+			keyUID:  valPrometheus,
 		},
 		"fieldConfig": map[string]any{
 			"defaults": map[string]any{
-				"color": map[string]any{
-					"mode": "palette-classic",
+				keyColor: map[string]any{
+					keyMode: "palette-classic",
 				},
 				"custom": map[string]any{
 					"axisBorderShow":   false,
 					"axisCenteredZero": false,
-					"axisColorMode":    "text",
+					"axisColorMode":    keyText,
 					"axisLabel":        "",
-					"axisPlacement":    "auto",
+					"axisPlacement":    valAuto,
 					"barAlignment":     0,
 					"drawStyle":        "line",
 					"fillOpacity":      10,
-					"gradientMode":     "none",
+					"gradientMode":     valNone,
 					"hideFrom": map[string]any{
 						"legend":  false,
 						"tooltip": false,
@@ -519,54 +541,54 @@ func (g *Generator) createTimeSeriesPanel(id int, title, query string, x, y, w, 
 					"lineWidth":         1,
 					"pointSize":         5,
 					"scaleDistribution": map[string]any{
-						"type": "linear",
+						keyType: "linear",
 					},
-					"showPoints": "auto",
+					"showPoints": valAuto,
 					"spanNulls":  false,
 					"stacking": map[string]any{
 						"group": "A",
-						"mode":  "none",
+						keyMode: valNone,
 					},
 					"thresholdsStyle": map[string]any{
-						"mode": "off",
+						keyMode: "off",
 					},
 				},
 				"mappings": []any{},
-				"thresholds": map[string]any{
-					"mode": "absolute",
+				keyThresholds: map[string]any{
+					keyMode: "absolute",
 					"steps": []any{
-						map[string]any{"color": "green", "value": nil},
+						map[string]any{keyColor: valGreen, keyValue: nil},
 					},
 				},
 			},
-			"overrides": []any{},
+			keyOverrides: []any{},
 		},
-		"gridPos": map[string]any{"h": h, "w": w, "x": x, "y": y},
-		"id":      id,
-		"options": map[string]any{
+		keyGridPos: map[string]any{"h": h, "w": w, "x": x, "y": y},
+		keyID:      id,
+		keyOptions: map[string]any{
 			"legend": map[string]any{
 				"calcs":       []any{},
-				"displayMode": "list",
+				"displayMode": keyList,
 				"placement":   "bottom",
 				"showLegend":  true,
 			},
 			"tooltip": map[string]any{
-				"mode": "single",
-				"sort": "none",
+				keyMode: "single",
+				"sort":  valNone,
 			},
 		},
 		"targets": []any{
 			map[string]any{
-				"datasource": map[string]any{
-					"type": "prometheus",
-					"uid":  "prometheus",
+				keyDatasource: map[string]any{
+					keyType: valPrometheus,
+					keyUID:  valPrometheus,
 				},
 				"expr":         query,
 				"legendFormat": "{{job}}",
 				"refId":        "A",
 			},
 		},
-		"title": title,
-		"type":  "timeseries",
+		keyTitle: title,
+		keyType:  "timeseries",
 	}
 }

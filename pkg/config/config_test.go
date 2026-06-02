@@ -7,6 +7,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	testHost = "http://host:9000"
+	testUser = "readonly"
+	testPass = "s3cr3t"
+)
+
 func TestExternalURLWithCredentials(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -21,15 +27,15 @@ func TestExternalURLWithCredentials(t *testing.T) {
 		},
 		{
 			name: "no credentials leaves URL unchanged",
-			cfg:  ClickHouseClusterConfig{ExternalURL: "http://host:9000"},
-			want: "http://host:9000",
+			cfg:  ClickHouseClusterConfig{ExternalURL: testHost},
+			want: testHost,
 		},
 		{
 			name: "username and password are embedded",
 			cfg: ClickHouseClusterConfig{
-				ExternalURL:      "http://host:9000",
-				ExternalUsername: "readonly",
-				ExternalPassword: "s3cr3t",
+				ExternalURL:      testHost,
+				ExternalUsername: testUser,
+				ExternalPassword: testPass,
 			},
 			want: "http://readonly:s3cr3t@host:9000",
 		},
@@ -53,16 +59,16 @@ func TestExternalURLWithCredentials(t *testing.T) {
 		{
 			name: "password-only falls back to default user",
 			cfg: ClickHouseClusterConfig{
-				ExternalURL:      "http://host:9000",
-				ExternalPassword: "s3cr3t",
+				ExternalURL:      testHost,
+				ExternalPassword: testPass,
 			},
 			want: "http://default:s3cr3t@host:9000",
 		},
 		{
 			name: "special characters in password are percent-encoded",
 			cfg: ClickHouseClusterConfig{
-				ExternalURL:      "http://host:9000",
-				ExternalUsername: "readonly",
+				ExternalURL:      testHost,
+				ExternalUsername: testUser,
 				ExternalPassword: "p@ss:w/rd?",
 			},
 			want: "http://readonly:p%40ss%3Aw%2Frd%3F@host:9000",
@@ -71,8 +77,8 @@ func TestExternalURLWithCredentials(t *testing.T) {
 			name: "https scheme is preserved",
 			cfg: ClickHouseClusterConfig{
 				ExternalURL:      "https://host:8443",
-				ExternalUsername: "readonly",
-				ExternalPassword: "s3cr3t",
+				ExternalUsername: testUser,
+				ExternalPassword: testPass,
 			},
 			want: "https://readonly:s3cr3t@host:8443",
 		},

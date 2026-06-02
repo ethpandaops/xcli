@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testModelFctBlock = "fct_block"
+
 func TestIsModelDisabled(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -20,7 +22,7 @@ func TestIsModelDisabled(t *testing.T) {
 		{
 			name:      "nil overrides returns false",
 			overrides: nil,
-			modelName: "fct_block",
+			modelName: testModelFctBlock,
 			expected:  false,
 		},
 		{
@@ -28,7 +30,7 @@ func TestIsModelDisabled(t *testing.T) {
 			overrides: &CBTOverrides{
 				Models: ModelsConfig{},
 			},
-			modelName: "fct_block",
+			modelName: testModelFctBlock,
 			expected:  false,
 		},
 		{
@@ -38,7 +40,7 @@ func TestIsModelDisabled(t *testing.T) {
 					Overrides: map[string]ModelOverride{},
 				},
 			},
-			modelName: "fct_block",
+			modelName: testModelFctBlock,
 			expected:  false,
 		},
 		{
@@ -46,11 +48,11 @@ func TestIsModelDisabled(t *testing.T) {
 			overrides: &CBTOverrides{
 				Models: ModelsConfig{
 					Overrides: map[string]ModelOverride{
-						"fct_block": {Enabled: new(false)},
+						testModelFctBlock: {Enabled: new(false)},
 					},
 				},
 			},
-			modelName: "fct_block",
+			modelName: testModelFctBlock,
 			expected:  true,
 		},
 		{
@@ -58,11 +60,11 @@ func TestIsModelDisabled(t *testing.T) {
 			overrides: &CBTOverrides{
 				Models: ModelsConfig{
 					Overrides: map[string]ModelOverride{
-						"fct_block": {Enabled: new(true)},
+						testModelFctBlock: {Enabled: new(true)},
 					},
 				},
 			},
-			modelName: "fct_block",
+			modelName: testModelFctBlock,
 			expected:  false,
 		},
 		{
@@ -70,11 +72,11 @@ func TestIsModelDisabled(t *testing.T) {
 			overrides: &CBTOverrides{
 				Models: ModelsConfig{
 					Overrides: map[string]ModelOverride{
-						"fct_block": {},
+						testModelFctBlock: {},
 					},
 				},
 			},
-			modelName: "fct_block",
+			modelName: testModelFctBlock,
 			expected:  false,
 		},
 		{
@@ -85,7 +87,7 @@ func TestIsModelDisabled(t *testing.T) {
 					Overrides:      map[string]ModelOverride{},
 				},
 			},
-			modelName: "fct_block",
+			modelName: testModelFctBlock,
 			expected:  true,
 		},
 		{
@@ -94,11 +96,11 @@ func TestIsModelDisabled(t *testing.T) {
 				Models: ModelsConfig{
 					DefaultEnabled: new(false),
 					Overrides: map[string]ModelOverride{
-						"fct_block": {},
+						testModelFctBlock: {},
 					},
 				},
 			},
-			modelName: "fct_block",
+			modelName: testModelFctBlock,
 			expected:  false,
 		},
 		{
@@ -107,11 +109,11 @@ func TestIsModelDisabled(t *testing.T) {
 				Models: ModelsConfig{
 					DefaultEnabled: new(false),
 					Overrides: map[string]ModelOverride{
-						"fct_block": {Enabled: new(false)},
+						testModelFctBlock: {Enabled: new(false)},
 					},
 				},
 			},
-			modelName: "fct_block",
+			modelName: testModelFctBlock,
 			expected:  true,
 		},
 		{
@@ -121,7 +123,7 @@ func TestIsModelDisabled(t *testing.T) {
 					DefaultEnabled: new(false),
 				},
 			},
-			modelName: "fct_block",
+			modelName: testModelFctBlock,
 			expected:  true,
 		},
 		{
@@ -132,7 +134,7 @@ func TestIsModelDisabled(t *testing.T) {
 					Overrides:      map[string]ModelOverride{},
 				},
 			},
-			modelName: "fct_block",
+			modelName: testModelFctBlock,
 			expected:  false,
 		},
 	}
@@ -168,7 +170,7 @@ models:
 		require.NoError(t, err)
 		assert.True(t, exists)
 		assert.Nil(t, overrides.Models.DefaultEnabled)
-		assert.True(t, IsModelDisabled(overrides, "fct_block"))
+		assert.True(t, IsModelDisabled(overrides, testModelFctBlock))
 		assert.False(t, IsModelDisabled(overrides, "fct_other"))
 	})
 
@@ -190,7 +192,7 @@ models:
 		require.NotNil(t, overrides.Models.DefaultEnabled)
 		assert.False(t, *overrides.Models.DefaultEnabled)
 		// fct_block is listed → enabled
-		assert.False(t, IsModelDisabled(overrides, "fct_block"))
+		assert.False(t, IsModelDisabled(overrides, testModelFctBlock))
 		// fct_attestation is listed with enabled:false → disabled
 		assert.True(t, IsModelDisabled(overrides, "fct_attestation"))
 		// fct_other is unlisted → disabled (allowlist mode)
@@ -343,7 +345,7 @@ func TestSaveOverridesFromEntries_PreservesConfig(t *testing.T) {
 	existing := &CBTOverrides{
 		Models: ModelsConfig{
 			Overrides: map[string]ModelOverride{
-				"fct_block": {
+				testModelFctBlock: {
 					Enabled: new(false),
 					Config:  map[string]any{"limits": map[string]any{"min": 42}},
 				},
@@ -353,7 +355,7 @@ func TestSaveOverridesFromEntries_PreservesConfig(t *testing.T) {
 
 	err := SaveOverridesFromEntries(
 		path,
-		[]ModelEntry{{Name: "fct_block", OverrideKey: "fct_block", Enabled: false}},
+		[]ModelEntry{{Name: testModelFctBlock, OverrideKey: testModelFctBlock, Enabled: false}},
 		nil,
 		"", false, "", false,
 		existing,

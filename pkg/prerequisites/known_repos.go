@@ -1,5 +1,8 @@
 package prerequisites
 
+// envFile is the default environment file name created from .env.example.
+const envFile = ".env"
+
 // buildKnownRepo returns prerequisite definitions for all known repos.
 func buildKnownRepo() map[string]Repo {
 	return map[string]Repo{
@@ -10,8 +13,8 @@ func buildKnownRepo() map[string]Repo {
 					Type:            TypeFileCopy,
 					Description:     "Copy .env.example to .env",
 					SourcePath:      ".env.example",
-					DestinationPath: ".env",
-					SkipIfExists:    ".env",
+					DestinationPath: envFile,
+					SkipIfExists:    envFile,
 				},
 			},
 		},
@@ -43,8 +46,8 @@ func buildKnownRepo() map[string]Repo {
 					Type:            TypeFileCopy,
 					Description:     "Copy example.env to .env",
 					SourcePath:      "example.env",
-					DestinationPath: ".env",
-					SkipIfExists:    ".env",
+					DestinationPath: envFile,
+					SkipIfExists:    envFile,
 				},
 			},
 		},

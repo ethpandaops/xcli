@@ -22,6 +22,12 @@ import (
 // ExpandWindowMultiplier defines how much to expand the window on each retry.
 const ExpandWindowMultiplier = 2
 
+// Field keys used in log fields and template metadata maps.
+const (
+	fieldKeyModel   = "model"
+	fieldKeyNetwork = "network"
+)
+
 // RangeColumnType identifies the semantic type of a range column.
 type RangeColumnType string
 
@@ -176,12 +182,12 @@ func (c *ClaudeDiscoveryClient) GatherSchemaInfo(
 	schemas := make([]TableSchemaInfo, 0, len(models))
 
 	for _, model := range models {
-		c.log.WithField("model", model).Debug("gathering schema info")
+		c.log.WithField(fieldKeyModel, model).Debug("gathering schema info")
 
 		// Get interval type from model frontmatter (informational context for Claude)
 		intervalType, err := GetExternalModelIntervalType(model, xatuCBTPath)
 		if err != nil {
-			c.log.WithError(err).WithField("model", model).Warn("failed to get interval type")
+			c.log.WithError(err).WithField(fieldKeyModel, model).Warn("failed to get interval type")
 
 			intervalType = IntervalTypeSlot // Default to slot
 		}
@@ -201,7 +207,7 @@ func (c *ClaudeDiscoveryClient) GatherSchemaInfo(
 		// Try to detect range column from SQL file
 		rangeCol, detectErr := DetectRangeColumnForModel(model, xatuCBTPath)
 		if detectErr != nil {
-			c.log.WithError(detectErr).WithField("model", model).Debug("failed to detect range column from SQL")
+			c.log.WithError(detectErr).WithField(fieldKeyModel, model).Debug("failed to detect range column from SQL")
 
 			// For tables without a detected range column, find any time column in schema
 			// This handles entity tables and other tables without explicit range definitions
@@ -221,7 +227,7 @@ func (c *ClaudeDiscoveryClient) GatherSchemaInfo(
 		case RangeColumnTypeBlock, RangeColumnTypeSlot, RangeColumnTypeEpoch:
 			rawRange, rangeErr := c.gen.QueryModelRangeRaw(ctx, model, network, rangeCol)
 			if rangeErr != nil {
-				c.log.WithError(rangeErr).WithField("model", model).Warn("failed to query model range")
+				c.log.WithError(rangeErr).WithField(fieldKeyModel, model).Warn("failed to query model range")
 			} else {
 				minVal = rawRange.MinRaw
 				maxVal = rawRange.MaxRaw
@@ -229,7 +235,7 @@ func (c *ClaudeDiscoveryClient) GatherSchemaInfo(
 		default:
 			modelRange, rangeErr := c.gen.QueryModelRange(ctx, model, network, rangeCol)
 			if rangeErr != nil {
-				c.log.WithError(rangeErr).WithField("model", model).Warn("failed to query model range")
+				c.log.WithError(rangeErr).WithField(fieldKeyModel, model).Warn("failed to query model range")
 			} else {
 				minVal = modelRange.MinRaw
 				maxVal = modelRange.MaxRaw
@@ -239,7 +245,7 @@ func (c *ClaudeDiscoveryClient) GatherSchemaInfo(
 		// Get sample data (limited to 3 rows for prompt size)
 		sampleData, sampleErr := c.gen.QueryTableSample(ctx, model, network, 3)
 		if sampleErr != nil {
-			c.log.WithError(sampleErr).WithField("model", model).Warn("failed to query sample data")
+			c.log.WithError(sampleErr).WithField(fieldKeyModel, model).Warn("failed to query sample data")
 			// Continue without sample data - not critical
 		}
 
@@ -270,8 +276,8 @@ func (c *ClaudeDiscoveryClient) AnalyzeRanges(
 	prompt := c.buildDiscoveryPrompt(input)
 
 	c.log.WithFields(logrus.Fields{
-		"timeout": c.timeout,
-		"model":   input.TransformationModel,
+		"timeout":     c.timeout,
+		fieldKeyModel: input.TransformationModel,
 	}).Debug("invoking AI engine for range discovery")
 
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
@@ -408,10 +414,10 @@ func (g *Generator) QueryRowCount(
 	}
 
 	g.log.WithFields(logrus.Fields{
-		"model":   model,
-		"network": network,
-		"from":    fromValue,
-		"to":      toValue,
+		fieldKeyModel:   model,
+		fieldKeyNetwork: network,
+		"from":          fromValue,
+		"to":            toValue,
 	}).Debug("querying row count")
 
 	chURL, err := g.buildClickHouseHTTPURL()
@@ -500,9 +506,9 @@ func (g *Generator) QueryTableSample(
 	`, tableRef, network, limit)
 
 	g.log.WithFields(logrus.Fields{
-		"model":   model,
-		"network": network,
-		"limit":   limit,
+		fieldKeyModel:   model,
+		fieldKeyNetwork: network,
+		"limit":         limit,
 	}).Debug("querying table sample")
 
 	chURL, err := g.buildClickHouseHTTPURL()
@@ -652,7 +658,7 @@ func FallbackRangeDiscovery(
 		// For entity models, they typically don't have time-based ranges
 		// Mark them as "none" type - they'll get all data or use correlation
 		if isEntity {
-			gen.log.WithField("model", model).Info("entity/dimension table - will query without range filter")
+			gen.log.WithField(fieldKeyModel, model).Info("entity/dimension table - will query without range filter")
 
 			strategies = append(strategies, TableRangeStrategy{
 				Model:      model,
@@ -686,7 +692,7 @@ func FallbackRangeDiscovery(
 
 		modelRange, queryErr := gen.QueryModelRange(ctx, model, network, rangeCol)
 		if queryErr != nil {
-			gen.log.WithError(queryErr).WithField("model", model).Warn("range query failed")
+			gen.log.WithError(queryErr).WithField(fieldKeyModel, model).Warn("range query failed")
 
 			strategies = append(strategies, TableRangeStrategy{
 				Model:       model,
@@ -705,13 +711,13 @@ func FallbackRangeDiscovery(
 			var minBlock, maxBlock int64
 
 			if _, scanErr := fmt.Sscanf(modelRange.MinRaw, "%d", &minBlock); scanErr != nil {
-				gen.log.WithError(scanErr).WithField("model", model).Warn("failed to parse min block number")
+				gen.log.WithError(scanErr).WithField(fieldKeyModel, model).Warn("failed to parse min block number")
 
 				continue
 			}
 
 			if _, scanErr := fmt.Sscanf(modelRange.MaxRaw, "%d", &maxBlock); scanErr != nil {
-				gen.log.WithError(scanErr).WithField("model", model).Warn("failed to parse max block number")
+				gen.log.WithError(scanErr).WithField(fieldKeyModel, model).Warn("failed to parse max block number")
 
 				continue
 			}

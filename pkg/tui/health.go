@@ -79,7 +79,7 @@ func (hm *HealthMonitor) checkAll() {
 	for _, svc := range services {
 		if svc.Status != statusRunning {
 			hm.services[svc.Name] = HealthStatus{
-				Status:    "unknown",
+				Status:    healthUnknown,
 				LastCheck: time.Now(),
 			}
 
@@ -103,7 +103,7 @@ func (hm *HealthMonitor) checkAll() {
 func (hm *HealthMonitor) checkService(svc ServiceInfo) HealthStatus {
 	status := HealthStatus{
 		LastCheck: time.Now(),
-		Status:    "unknown",
+		Status:    healthUnknown,
 	}
 
 	// Determine check method based on service type

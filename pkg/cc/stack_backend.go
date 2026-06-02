@@ -22,11 +22,11 @@ type ProgressFunc func(phase string, message string)
 
 // LogSourceInfo describes how to stream logs for a service.
 type LogSourceInfo struct {
-	// Type is "file" or "docker".
+	// Type is "file" or cmdDocker.
 	Type string
 	// Path is the log file path (when Type == "file").
 	Path string
-	// Container is the Docker container name (when Type == "docker").
+	// Container is the Docker container name (when Type == cmdDocker).
 	Container string
 }
 

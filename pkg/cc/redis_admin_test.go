@@ -2,6 +2,11 @@ package cc
 
 import "testing"
 
+const (
+	testKeyCBTExternal123 = "cbt:external:123"
+	testPrefixCBT         = "cbt:"
+)
+
 func TestSplitKeyByPrefix(t *testing.T) {
 	t.Parallel()
 
@@ -16,8 +21,8 @@ func TestSplitKeyByPrefix(t *testing.T) {
 		{
 			name:         "root branch",
 			prefix:       "",
-			key:          "cbt:external:123",
-			wantBranch:   "cbt:",
+			key:          testKeyCBTExternal123,
+			wantBranch:   testPrefixCBT,
 			wantAccepted: true,
 		},
 		{
@@ -29,21 +34,21 @@ func TestSplitKeyByPrefix(t *testing.T) {
 		},
 		{
 			name:         "nested branch",
-			prefix:       "cbt:",
-			key:          "cbt:external:123",
+			prefix:       testPrefixCBT,
+			key:          testKeyCBTExternal123,
 			wantBranch:   "cbt:external:",
 			wantAccepted: true,
 		},
 		{
 			name:         "nested leaf",
 			prefix:       "cbt:external:",
-			key:          "cbt:external:123",
-			wantLeaf:     "cbt:external:123",
+			key:          testKeyCBTExternal123,
+			wantLeaf:     testKeyCBTExternal123,
 			wantAccepted: true,
 		},
 		{
 			name:         "non matching prefix",
-			prefix:       "cbt:",
+			prefix:       testPrefixCBT,
 			key:          "lab:foo",
 			wantAccepted: false,
 		},
@@ -73,20 +78,20 @@ func TestBuildVersionTokenSetOrderInsensitive(t *testing.T) {
 	t.Parallel()
 
 	base := redisKeyDetailResponse{
-		Type:  "set",
+		Type:  redisTypeSet,
 		TTLMS: 1234,
 		SetMembers: []redisEncodedValue{
-			{Mode: "text", Text: "a"},
-			{Mode: "text", Text: "b"},
+			{Mode: keyText, Text: "a"},
+			{Mode: keyText, Text: "b"},
 		},
 	}
 
 	reordered := redisKeyDetailResponse{
-		Type:  "set",
+		Type:  redisTypeSet,
 		TTLMS: 1234,
 		SetMembers: []redisEncodedValue{
-			{Mode: "text", Text: "b"},
-			{Mode: "text", Text: "a"},
+			{Mode: keyText, Text: "b"},
+			{Mode: keyText, Text: "a"},
 		},
 	}
 
@@ -102,8 +107,8 @@ func TestBuildVersionTokenListOrderSensitive(t *testing.T) {
 		Type:  "list",
 		TTLMS: 1,
 		ListItems: []redisEncodedValue{
-			{Mode: "text", Text: "a"},
-			{Mode: "text", Text: "b"},
+			{Mode: keyText, Text: "a"},
+			{Mode: keyText, Text: "b"},
 		},
 	}
 
@@ -111,8 +116,8 @@ func TestBuildVersionTokenListOrderSensitive(t *testing.T) {
 		Type:  "list",
 		TTLMS: 1,
 		ListItems: []redisEncodedValue{
-			{Mode: "text", Text: "b"},
-			{Mode: "text", Text: "a"},
+			{Mode: keyText, Text: "b"},
+			{Mode: keyText, Text: "a"},
 		},
 	}
 
