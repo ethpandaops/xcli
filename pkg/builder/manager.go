@@ -350,8 +350,21 @@ func (m *Manager) GenerateXatuCBTProtosWithResult(ctx context.Context) *diagnost
 	if m.cfg.Infrastructure.ClickHouse.Xatu.Mode == constants.InfraModeExternal {
 		env = append(env, "XATU_SOURCE=external")
 
-		if m.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL != "" {
-			env = append(env, fmt.Sprintf("XATU_URL=%s", m.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL))
+		// Embed any separately-configured credentials into the URL, since
+		// downstream tooling reads them only from the URL itself.
+		xatuURL, urlErr := m.cfg.Infrastructure.ClickHouse.Xatu.ExternalURLWithCredentials()
+		if urlErr != nil {
+			return &diagnostic.BuildResult{
+				Phase:    diagnostic.PhaseProtoGen,
+				Service:  "xatu-cbt",
+				Success:  false,
+				Error:    urlErr,
+				ErrorMsg: urlErr.Error(),
+			}
+		}
+
+		if xatuURL != "" {
+			env = append(env, fmt.Sprintf("XATU_URL=%s", xatuURL))
 		}
 
 		m.log.WithField("xatu_source", "external").Debug("passing external mode to proto generation")

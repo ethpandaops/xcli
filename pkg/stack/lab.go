@@ -13,6 +13,7 @@ import (
 
 	"github.com/ethpandaops/xcli/pkg/builder"
 	"github.com/ethpandaops/xcli/pkg/config"
+	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/ethpandaops/xcli/pkg/diagnostic"
 	"github.com/ethpandaops/xcli/pkg/discovery"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
@@ -352,6 +353,8 @@ func (s *labStack) Init(ctx context.Context) error {
 		resolvedConfigPath = absPath
 	}
 
+	var existingXatu *config.ClickHouseClusterConfig
+
 	if rootCfg.Lab != nil {
 		s.log.Warn("lab configuration already exists")
 		fmt.Print("Overwrite existing lab configuration? (y/N): ")
@@ -365,6 +368,11 @@ func (s *labStack) Init(ctx context.Context) error {
 
 			return nil
 		}
+
+		// Preserve existing external ClickHouse credentials so the overwrite can
+		// offer them as defaults rather than silently discarding them.
+		xatu := rootCfg.Lab.Infrastructure.ClickHouse.Xatu
+		existingXatu = &xatu
 	}
 
 	cwd, err := os.Getwd()
@@ -415,6 +423,10 @@ func (s *labStack) Init(ctx context.Context) error {
 	labCfg := config.DefaultLab()
 	labCfg.Repos = *repos
 
+	if err := promptXatuClickHouseCredentials(labCfg, existingXatu); err != nil {
+		return err
+	}
+
 	rootCfg.Lab = labCfg
 
 	if err := rootCfg.Save(resolvedConfigPath); err != nil {
@@ -449,6 +461,72 @@ func (s *labStack) Init(ctx context.Context) error {
 	ui.Header("Next steps:")
 	fmt.Println("  1. Review and edit the 'lab:' section in .xcli.yaml if needed")
 	fmt.Println("  2. Run 'xcli lab up' to start the lab stack")
+
+	return nil
+}
+
+// promptXatuClickHouseCredentials optionally collects username/password for the
+// external Xatu ClickHouse cluster. Both prompts may be left blank to skip,
+// which leaves credentials unset (e.g. for unauthenticated or in-URL access).
+// When prior is non-nil (overwriting an existing config), its credentials are
+// offered as defaults so an overwrite preserves them unless explicitly changed.
+func promptXatuClickHouseCredentials(labCfg *config.LabConfig, prior *config.ClickHouseClusterConfig) error {
+	xatu := &labCfg.Infrastructure.ClickHouse.Xatu
+	if xatu.Mode != constants.InfraModeExternal {
+		return nil
+	}
+
+	var priorUser, priorPass string
+	if prior != nil {
+		priorUser = prior.ExternalUsername
+		priorPass = prior.ExternalPassword
+	}
+
+	ui.Header("External Xatu ClickHouse credentials (optional)")
+	ui.Info(fmt.Sprintf("Connecting to: %s", xatu.ExternalURL))
+
+	if priorUser != "" {
+		fmt.Printf("Username [%s] (enter to keep, '-' to clear): ", priorUser)
+	} else {
+		ui.Info("Leave blank to skip (use an unauthenticated cluster or credentials in the URL).")
+		fmt.Print("Username: ")
+	}
+
+	var username string
+
+	_, _ = fmt.Scanln(&username)
+
+	username = strings.TrimSpace(username)
+
+	switch username {
+	case "":
+		// Empty keeps the existing username (or stays empty to skip entirely).
+		username = priorUser
+	case "-":
+		// Sentinel to remove previously-stored credentials.
+		xatu.ExternalUsername = ""
+		xatu.ExternalPassword = ""
+
+		return nil
+	}
+
+	if username == "" {
+		return nil
+	}
+
+	// Reuse the existing password when the username is unchanged and the user
+	// leaves the password blank; otherwise take the freshly entered value.
+	password, err := ui.PasswordInput("Password: ")
+	if err != nil {
+		return fmt.Errorf("failed to read ClickHouse password: %w", err)
+	}
+
+	if password == "" && username == priorUser {
+		password = priorPass
+	}
+
+	xatu.ExternalUsername = username
+	xatu.ExternalPassword = password
 
 	return nil
 }

@@ -35,7 +35,7 @@ const (
 
 	// clickHouseClusterHostPrefix is the hostname prefix for ClickHouse clusters.
 	// When this prefix is detected, additional DNS checks are performed for individual shards.
-	clickHouseClusterHostPrefix = "chendpoint-xatu-clickhouse"
+	clickHouseClusterHostPrefix = "chendpoint-clickhouse-raw"
 )
 
 // clickHouseClusterShards are the shard suffixes for ClickHouse clusters.
@@ -103,9 +103,27 @@ func (m *Manager) Start(ctx context.Context) error {
 	// Build command arguments
 	args := []string{"infra", "start", "--xatu-source", xatuSource}
 
-	// Add external Xatu URL if in external mode
+	// Add external Xatu URL if in external mode. Credentials configured via the
+	// separate externalUsername/externalPassword fields must be embedded into the
+	// URL, since xatu-cbt reads them only from the URL when generating its cluster
+	// config.
+	//
+	// Trade-off: embedding credentials means the password appears in this child
+	// process's command line (world-readable via /proc/<pid>/cmdline on Linux)
+	// for the lifetime of the short-lived `infra start` call. xatu-cbt's
+	// infra-start currently has no env/file alternative to the --xatu-url flag;
+	// switching to an env var (as the builder path uses) would require a change
+	// there. The password is also already persisted to disk in xatu-cbt's
+	// generated ClickHouse config, so this does not introduce on-disk exposure.
 	if xatuSource == constants.InfraModeExternal {
-		args = append(args, "--xatu-url", m.cfg.Infrastructure.ClickHouse.Xatu.ExternalURL)
+		xatuURL, urlErr := m.cfg.Infrastructure.ClickHouse.Xatu.ExternalURLWithCredentials()
+		if urlErr != nil {
+			spinner.Fail("Failed to start infrastructure services")
+
+			return fmt.Errorf("failed to build external Xatu URL: %w", urlErr)
+		}
+
+		args = append(args, "--xatu-url", xatuURL)
 	}
 
 	// Add xatu ref if configured
@@ -573,7 +591,7 @@ func (m *Manager) checkPort(ctx context.Context, addr string) bool {
 }
 
 // checkClusterShardDNS performs DNS lookups for individual shard endpoints
-// when the configured host matches a ClickHouse cluster (e.g., chendpoint-xatu-clickhouse).
+// when the configured host matches a ClickHouse cluster (e.g., chendpoint-clickhouse-raw).
 // This helps diagnose connectivity issues to specific shards in the cluster.
 func (m *Manager) checkClusterShardDNS(ctx context.Context, host string) error {
 	// Extract the first component of the hostname
