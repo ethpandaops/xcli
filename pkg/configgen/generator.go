@@ -31,6 +31,19 @@ const (
 	cbtAPIMetricsPortBase = 9200
 )
 
+const (
+	keyPort                      = "Port"
+	keyEnv                       = "env"
+	keyModels                    = "models"
+	keyNetwork                   = "NETWORK"
+	keyOverrides                 = "overrides"
+	networkMainnet               = "mainnet"
+	envExternalModelMinTimestamp = "EXTERNAL_MODEL_MIN_TIMESTAMP"
+	envExternalModelMinBlock     = "EXTERNAL_MODEL_MIN_BLOCK"
+	envModelsScriptsPath         = "MODELS_SCRIPTS_PATH"
+	modelsScriptsPath            = "../xatu-cbt/models/scripts"
+)
+
 // Generator generates service configuration files.
 type Generator struct {
 	log logrus.FieldLogger
@@ -167,7 +180,7 @@ func (g *Generator) GenerateCBTAPIConfig(network string) (string, error) {
 
 	data := map[string]any{
 		"Network":     network,
-		"Port":        port,
+		keyPort:       port,
 		"MetricsPort": metricsPort,
 	}
 
@@ -212,7 +225,7 @@ func (g *Generator) GenerateLabBackendConfig(
 	for _, net := range g.cfg.Networks {
 		entry := map[string]any{
 			"Name":    net.Name,
-			"Port":    g.cfg.GetCBTAPIPort(net.Name),
+			keyPort:   g.cfg.GetCBTAPIPort(net.Name),
 			"Enabled": net.Enabled,
 		}
 
@@ -231,7 +244,7 @@ func (g *Generator) GenerateLabBackendConfig(
 
 	data := map[string]any{
 		"Networks":     networks,
-		"Port":         g.cfg.Ports.LabBackend,
+		keyPort:        g.cfg.Ports.LabBackend,
 		"FrontendPort": g.cfg.Ports.LabFrontend,
 	}
 
@@ -256,22 +269,22 @@ func (g *Generator) generateAutoDefaults(network string) (map[string]any, error)
 
 	// Set sane default for mainnet
 	externalModelMinBlock := 0
-	if network == "mainnet" {
+	if network == networkMainnet {
 		externalModelMinBlock = 23800000
 	}
 
 	// Build models section with env
 	modelsSection := map[string]any{
-		"env": map[string]any{
-			"NETWORK":                      network,
-			"EXTERNAL_MODEL_MIN_TIMESTAMP": fmt.Sprintf("%d", externalModelMinTimestamp),
-			"EXTERNAL_MODEL_MIN_BLOCK":     fmt.Sprintf("%d", externalModelMinBlock),
-			"MODELS_SCRIPTS_PATH":          "../xatu-cbt/models/scripts",
+		keyEnv: map[string]any{
+			keyNetwork:                   network,
+			envExternalModelMinTimestamp: fmt.Sprintf("%d", externalModelMinTimestamp),
+			envExternalModelMinBlock:     fmt.Sprintf("%d", externalModelMinBlock),
+			envModelsScriptsPath:         modelsScriptsPath,
 		},
 	}
 
 	return map[string]any{
-		"models": modelsSection,
+		keyModels: modelsSection,
 	}, nil
 }
 
@@ -280,7 +293,7 @@ func (g *Generator) generateAutoDefaults(network string) (map[string]any, error)
 // not explicitly listed in overrides. This ensures the cbt binary receives
 // a fully-expanded config even in allowlist mode.
 func (g *Generator) expandDefaultEnabled(userOverrides map[string]any) {
-	models, ok := userOverrides["models"].(map[string]any)
+	models, ok := userOverrides[keyModels].(map[string]any)
 	if !ok {
 		return
 	}
@@ -315,10 +328,10 @@ func (g *Generator) expandDefaultEnabled(userOverrides map[string]any) {
 	}
 
 	// Get existing overrides map, or create one.
-	overrides, ok := models["overrides"].(map[string]any)
+	overrides, ok := models[keyOverrides].(map[string]any)
 	if !ok {
 		overrides = make(map[string]any, len(allModels))
-		models["overrides"] = overrides
+		models[keyOverrides] = overrides
 	}
 
 	// Inject enabled: false for all models not already listed.
@@ -387,7 +400,7 @@ func discoverAllModels(xatuCBTPath string) ([]string, error) {
 	models := make([]string, 0, 64)
 
 	// Discover external models (.sql files).
-	externalDir := filepath.Join(xatuCBTPath, "models", "external")
+	externalDir := filepath.Join(xatuCBTPath, keyModels, "external")
 
 	entries, err := os.ReadDir(externalDir)
 	if err != nil {
@@ -400,8 +413,8 @@ func discoverAllModels(xatuCBTPath string) ([]string, error) {
 		}
 
 		name := entry.Name()
-		if strings.HasSuffix(name, ".sql") {
-			modelName := strings.TrimSuffix(name, ".sql")
+		if before, ok := strings.CutSuffix(name, ".sql"); ok {
+			modelName := before
 
 			// Use the override key that matches the CBT binary's model ID.
 			models = append(models, seeddata.GetExternalModelOverrideKey(modelName, xatuCBTPath))
@@ -409,7 +422,7 @@ func discoverAllModels(xatuCBTPath string) ([]string, error) {
 	}
 
 	// Discover transformation models (.sql, .yml, .yaml files).
-	transformDir := filepath.Join(xatuCBTPath, "models", "transformations")
+	transformDir := filepath.Join(xatuCBTPath, keyModels, "transformations")
 
 	entries, err = os.ReadDir(transformDir)
 	if err != nil {
@@ -426,8 +439,8 @@ func discoverAllModels(xatuCBTPath string) ([]string, error) {
 		name := entry.Name()
 
 		for _, ext := range []string{".sql", ".yml", ".yaml"} {
-			if strings.HasSuffix(name, ext) {
-				models = append(models, strings.TrimSuffix(name, ext))
+			if before, ok := strings.CutSuffix(name, ext); ok {
+				models = append(models, before)
 
 				break
 			}

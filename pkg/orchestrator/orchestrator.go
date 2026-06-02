@@ -28,6 +28,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Service status values and log field keys.
+const (
+	statusRunning   = "running"
+	logFieldService = "service"
+)
+
 // ProgressFunc reports stack boot progress.
 // phase is a short identifier, message is human-readable.
 type ProgressFunc func(phase string, message string)
@@ -414,12 +420,12 @@ func (o *Orchestrator) Up(
 		{
 			Name:   "Lab Frontend",
 			URL:    fmt.Sprintf("http://localhost:%d", o.cfg.Ports.LabFrontend),
-			Status: "running",
+			Status: statusRunning,
 		},
 		{
 			Name:   "Lab Backend",
 			URL:    fmt.Sprintf("http://localhost:%d", o.cfg.Ports.LabBackend),
-			Status: "running",
+			Status: statusRunning,
 		},
 	}
 
@@ -427,12 +433,12 @@ func (o *Orchestrator) Up(
 		services = append(services, ui.Service{
 			Name:   fmt.Sprintf("CBT API (%s)", net.Name),
 			URL:    fmt.Sprintf("http://localhost:%d", o.cfg.GetCBTAPIPort(net.Name)),
-			Status: "running",
+			Status: statusRunning,
 		})
 		services = append(services, ui.Service{
 			Name:   fmt.Sprintf("CBT Frontend (%s)", net.Name),
 			URL:    fmt.Sprintf("http://localhost:%d", o.cfg.GetCBTFrontendPort(net.Name)),
-			Status: "running",
+			Status: statusRunning,
 		})
 	}
 
@@ -441,12 +447,12 @@ func (o *Orchestrator) Up(
 		services = append(services, ui.Service{
 			Name:   "Prometheus",
 			URL:    fmt.Sprintf("http://localhost:%d", o.cfg.Infrastructure.Observability.PrometheusPort),
-			Status: "running",
+			Status: statusRunning,
 		})
 		services = append(services, ui.Service{
 			Name:   "Grafana",
 			URL:    fmt.Sprintf("http://localhost:%d", o.cfg.Infrastructure.Observability.GrafanaPort),
-			Status: "running",
+			Status: statusRunning,
 		})
 	}
 
@@ -589,7 +595,7 @@ func (o *Orchestrator) Restart(ctx context.Context, service string) error {
 		return fmt.Errorf("failed to stop service: %w", err)
 	}
 
-	o.log.WithField("service", service).Info("service stopped, starting again")
+	o.log.WithField(logFieldService, service).Info("service stopped, starting again")
 
 	// Start the service
 	if err := o.StartService(ctx, service); err != nil {
@@ -780,7 +786,7 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 
 		status := "down"
 		if running {
-			status = "running"
+			status = statusRunning
 		}
 
 		infraServices = append(infraServices, ui.Service{
@@ -796,7 +802,7 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 		infraServices = append(infraServices, ui.Service{
 			Name:   "ClickHouse Xatu (external)",
 			URL:    externalInfo,
-			Status: "running",
+			Status: statusRunning,
 		})
 	}
 
@@ -816,7 +822,7 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 			for name, status := range obsStatus {
 				state := "down"
 				if status.Running {
-					state = "running"
+					state = statusRunning
 				}
 
 				url := fmt.Sprintf("http://localhost:%d", status.Port)
@@ -849,7 +855,7 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 			services = append(services, ui.Service{
 				Name:   p.Name,
 				URL:    url,
-				Status: "running",
+				Status: statusRunning,
 			})
 		}
 
@@ -1020,7 +1026,7 @@ func (o *Orchestrator) WaitForCBTAPIReady(ctx context.Context) error {
 	maxRetries := 30
 	retryDelay := 1 * time.Second
 
-	for i := 0; i < maxRetries; i++ {
+	for i := range maxRetries {
 		// Try to fetch the health endpoint
 		client := &http.Client{Timeout: 2 * time.Second}
 
@@ -1144,11 +1150,11 @@ func (o *Orchestrator) checkGitStatus(ctx context.Context) {
 
 	// Build map of repositories to check
 	repos := map[string]string{
-		"cbt":         o.cfg.Repos.CBT,
-		"xatu-cbt":    o.cfg.Repos.XatuCBT,
-		"cbt-api":     o.cfg.Repos.CBTAPI,
-		"lab-backend": o.cfg.Repos.LabBackend,
-		"lab":         o.cfg.Repos.Lab,
+		"cbt":                    o.cfg.Repos.CBT,
+		"xatu-cbt":               o.cfg.Repos.XatuCBT,
+		"cbt-api":                o.cfg.Repos.CBTAPI,
+		constants.RepoLabBackend: o.cfg.Repos.LabBackend,
+		"lab":                    o.cfg.Repos.Lab,
 	}
 
 	o.log.Info("checking git status for all repositories")
@@ -1241,11 +1247,11 @@ func (o *Orchestrator) validatePrerequisites(ctx context.Context) error {
 
 	// Check that all required repositories exist
 	requiredRepos := map[string]string{
-		"cbt":         o.cfg.Repos.CBT,
-		"xatu-cbt":    o.cfg.Repos.XatuCBT,
-		"cbt-api":     o.cfg.Repos.CBTAPI,
-		"lab-backend": o.cfg.Repos.LabBackend,
-		"lab":         o.cfg.Repos.Lab,
+		"cbt":                    o.cfg.Repos.CBT,
+		"xatu-cbt":               o.cfg.Repos.XatuCBT,
+		"cbt-api":                o.cfg.Repos.CBTAPI,
+		constants.RepoLabBackend: o.cfg.Repos.LabBackend,
+		"lab":                    o.cfg.Repos.Lab,
 	}
 
 	for repoName, repoPath := range requiredRepos {
@@ -1343,8 +1349,8 @@ func (o *Orchestrator) cleanupOrphanedProcessesForService(service string) {
 	}
 
 	o.log.WithFields(logrus.Fields{
-		"service": service,
-		"ports":   ports,
+		logFieldService: service,
+		"ports":         ports,
 	}).Info("checking for orphaned processes")
 
 	conflicts := portutil.CheckPorts(ports)
@@ -1353,17 +1359,17 @@ func (o *Orchestrator) cleanupOrphanedProcessesForService(service string) {
 	}
 
 	o.log.WithFields(logrus.Fields{
-		"service":   service,
-		"conflicts": len(conflicts),
+		logFieldService: service,
+		"conflicts":     len(conflicts),
 	}).Info("found orphaned processes for service")
 
 	for _, conflict := range conflicts {
 		if conflict.PID > 0 {
 			o.log.WithFields(logrus.Fields{
-				"pid":     conflict.PID,
-				"port":    conflict.Port,
-				"service": service,
-				"process": conflict.Process,
+				"pid":           conflict.PID,
+				"port":          conflict.Port,
+				logFieldService: service,
+				"process":       conflict.Process,
 			}).Info("killing orphaned process for service")
 
 			if err := portutil.KillProcess(conflict.PID); err != nil {
@@ -1378,7 +1384,7 @@ func (o *Orchestrator) getServicePorts(service string) []int {
 	switch service {
 	case "lab-frontend":
 		return []int{o.cfg.Ports.LabFrontend}
-	case "lab-backend":
+	case constants.ServiceLabBackend:
 		port := o.cfg.Ports.LabBackend
 		if p := o.readConfigPort(constants.ConfigFileLabBackend); p != 0 {
 			port = p

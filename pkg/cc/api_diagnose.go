@@ -68,18 +68,18 @@ func (a *apiHandler) handleGetAIProviders(w http.ResponseWriter, r *http.Request
 
 // handleGetDiagnoseAvailable returns whether the selected provider is available.
 func (a *apiHandler) handleGetDiagnoseAvailable(w http.ResponseWriter, r *http.Request) {
-	provider := a.providerFromString(r.URL.Query().Get("provider"))
+	provider := a.providerFromString(r.URL.Query().Get(keyProvider))
 
 	engine, err := ai.NewEngine(provider, a.log)
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"available": false, "provider": provider})
+		writeJSON(w, http.StatusOK, map[string]any{"available": false, keyProvider: provider})
 
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"available": engine.IsAvailable(),
-		"provider":  provider,
+		keyProvider: provider,
 	})
 }
 
@@ -87,36 +87,36 @@ func (a *apiHandler) handleGetDiagnoseAvailable(w http.ResponseWriter, r *http.R
 func (a *apiHandler) handlePostDiagnose(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "service name required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{keyError: errMsgServiceNameRequired})
 
 		return
 	}
 
-	provider := a.providerFromString(r.URL.Query().Get("provider"))
+	provider := a.providerFromString(r.URL.Query().Get(keyProvider))
 
 	engine, err := ai.NewEngine(provider, a.log)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]string{keyError: err.Error()})
 
 		return
 	}
 
 	if !engine.IsAvailable() {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": fmt.Sprintf("provider %s is not available", provider)})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{keyError: fmt.Sprintf("provider %s is not available", provider)})
 
 		return
 	}
 
 	status, health, ok := a.getServiceStatus(name)
 	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "service not found: " + name})
+		writeJSON(w, http.StatusNotFound, map[string]string{keyError: "service not found: " + name})
 
 		return
 	}
 
 	logLines := a.collectServiceLogs(name)
 	if len(logLines) == 0 {
-		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "no logs available for service: " + name})
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{keyError: "no logs available for service: " + name})
 
 		return
 	}
@@ -125,7 +125,7 @@ func (a *apiHandler) handlePostDiagnose(w http.ResponseWriter, r *http.Request) 
 
 	response, err := engine.Ask(r.Context(), prompt)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("diagnosis failed: %v", err)})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{keyError: fmt.Sprintf("diagnosis failed: %v", err)})
 
 		return
 	}
@@ -137,14 +137,14 @@ func (a *apiHandler) handlePostDiagnose(w http.ResponseWriter, r *http.Request) 
 func (a *apiHandler) handlePostDiagnoseStart(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "service name required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{keyError: errMsgServiceNameRequired})
 
 		return
 	}
 
 	var req diagnoseStartRequest
 	if err := decodeJSONBody(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]string{keyError: err.Error()})
 
 		return
 	}
@@ -153,27 +153,27 @@ func (a *apiHandler) handlePostDiagnoseStart(w http.ResponseWriter, r *http.Requ
 
 	engine, err := ai.NewEngine(provider, a.log)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]string{keyError: err.Error()})
 
 		return
 	}
 
 	if !engine.IsAvailable() {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": fmt.Sprintf("provider %s is not available", provider)})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{keyError: fmt.Sprintf("provider %s is not available", provider)})
 
 		return
 	}
 
 	status, health, ok := a.getServiceStatus(name)
 	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "service not found: " + name})
+		writeJSON(w, http.StatusNotFound, map[string]string{keyError: "service not found: " + name})
 
 		return
 	}
 
 	logLines := a.collectServiceLogs(name)
 	if len(logLines) == 0 {
-		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"error": "no logs available for service: " + name})
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]string{keyError: "no logs available for service: " + name})
 
 		return
 	}
@@ -185,7 +185,7 @@ func (a *apiHandler) handlePostDiagnoseStart(w http.ResponseWriter, r *http.Requ
 
 	session, err := engine.StartSession(sessionCtx)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("failed to start provider session: %v", err)})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{keyError: fmt.Sprintf("failed to start provider session: %v", err)})
 
 		return
 	}
@@ -200,60 +200,60 @@ func (a *apiHandler) handlePostDiagnoseStart(w http.ResponseWriter, r *http.Requ
 
 	requestID := normalizeRequestID(req.RequestID)
 	writeJSON(w, http.StatusAccepted, map[string]string{
-		"sessionId": s.id,
-		"requestId": requestID,
-		"provider":  string(provider),
+		keySessionID: s.id,
+		keyRequestID: requestID,
+		keyProvider:  string(provider),
 	})
 
 	prompt := buildDiagnosePrompt(name, status, health, logLines)
-	go a.runDiagnoseTurn(s, requestID, prompt)
+	go a.runDiagnoseTurn(s, requestID, prompt) //nolint:gosec // G118: intentionally detached from request context; goroutine outlives the HTTP handler
 }
 
 func (a *apiHandler) handlePostDiagnoseMessage(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "service name required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{keyError: errMsgServiceNameRequired})
 
 		return
 	}
 
 	var req diagnoseMessageRequest
 	if err := decodeJSONBody(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]string{keyError: err.Error()})
 
 		return
 	}
 
 	if strings.TrimSpace(req.SessionID) == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "sessionId is required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{keyError: "sessionId is required"})
 
 		return
 	}
 
 	if strings.TrimSpace(req.Prompt) == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "prompt is required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{keyError: "prompt is required"})
 
 		return
 	}
 
 	s, ok := a.getDiagnoseSession(req.SessionID)
 	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "diagnose session not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{keyError: errMsgDiagnoseSessionNotFound})
 
 		return
 	}
 
 	if s.service != name {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session/service mismatch"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{keyError: errMsgSessionServiceMismatch})
 
 		return
 	}
 
 	requestID := normalizeRequestID(req.RequestID)
 	writeJSON(w, http.StatusAccepted, map[string]string{
-		"sessionId": s.id,
-		"requestId": requestID,
-		"provider":  string(s.provider),
+		keySessionID: s.id,
+		keyRequestID: requestID,
+		keyProvider:  string(s.provider),
 	})
 
 	go a.runDiagnoseTurn(s, requestID, buildFollowUpPrompt(req.Prompt))
@@ -282,33 +282,33 @@ func buildFollowUpPrompt(userPrompt string) string {
 func (a *apiHandler) handlePostDiagnoseInterrupt(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "service name required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{keyError: errMsgServiceNameRequired})
 
 		return
 	}
 
 	var req diagnoseInterruptRequest
 	if err := decodeJSONBody(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]string{keyError: err.Error()})
 
 		return
 	}
 
 	if strings.TrimSpace(req.SessionID) == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "sessionId is required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{keyError: "sessionId is required"})
 
 		return
 	}
 
 	s, ok := a.getDiagnoseSession(req.SessionID)
 	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "diagnose session not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{keyError: errMsgDiagnoseSessionNotFound})
 
 		return
 	}
 
 	if s.service != name {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session/service mismatch"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{keyError: errMsgSessionServiceMismatch})
 
 		return
 	}
@@ -316,23 +316,23 @@ func (a *apiHandler) handlePostDiagnoseInterrupt(w http.ResponseWriter, r *http.
 	s.setInterrupted(true)
 
 	if err := s.session.Interrupt(r.Context()); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("interrupt failed: %v", err)})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{keyError: fmt.Sprintf("interrupt failed: %v", err)})
 
 		return
 	}
 
 	requestID := normalizeRequestID(req.RequestID)
 	a.broadcastDiagnoseEvent("diagnose_interrupted", map[string]any{
-		"sessionId": s.id,
-		"requestId": requestID,
-		"service":   s.service,
-		"provider":  s.provider,
+		keySessionID: s.id,
+		keyRequestID: requestID,
+		keyService:   s.service,
+		keyProvider:  s.provider,
 	})
 
 	writeJSON(w, http.StatusAccepted, map[string]string{
-		"status":    "interrupted",
-		"sessionId": s.id,
-		"requestId": requestID,
+		keyStatus:    "interrupted",
+		keySessionID: s.id,
+		keyRequestID: requestID,
 	})
 }
 
@@ -341,14 +341,14 @@ func (a *apiHandler) handleDeleteDiagnoseSession(w http.ResponseWriter, r *http.
 	sessionID := r.PathValue("session")
 
 	if name == "" || sessionID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "service and session are required"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{keyError: "service and session are required"})
 
 		return
 	}
 
 	s, ok := a.deleteDiagnoseSession(sessionID)
 	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "diagnose session not found"})
+		writeJSON(w, http.StatusNotFound, map[string]string{keyError: errMsgDiagnoseSessionNotFound})
 
 		return
 	}
@@ -356,24 +356,24 @@ func (a *apiHandler) handleDeleteDiagnoseSession(w http.ResponseWriter, r *http.
 	if s.service != name {
 		_ = s.session.Close()
 
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session/service mismatch"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{keyError: errMsgSessionServiceMismatch})
 
 		return
 	}
 
 	if err := s.session.Close(); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("failed to close session: %v", err)})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{keyError: fmt.Sprintf("failed to close session: %v", err)})
 
 		return
 	}
 
 	a.broadcastDiagnoseEvent("diagnose_session_closed", map[string]any{
-		"sessionId": s.id,
-		"service":   s.service,
-		"provider":  s.provider,
+		keySessionID: s.id,
+		keyService:   s.service,
+		keyProvider:  s.provider,
 	})
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "closed", "sessionId": s.id})
+	writeJSON(w, http.StatusOK, map[string]string{keyStatus: "closed", keySessionID: s.id})
 }
 
 func (a *apiHandler) runDiagnoseTurn(s *diagnoseSession, requestID, prompt string) {
@@ -382,11 +382,11 @@ func (a *apiHandler) runDiagnoseTurn(s *diagnoseSession, requestID, prompt strin
 
 	s.setInterrupted(false)
 	a.broadcastDiagnoseEvent("diagnose_started", map[string]any{
-		"sessionId": s.id,
-		"requestId": requestID,
-		"service":   s.service,
-		"provider":  s.provider,
-		"ts":        time.Now().UTC(),
+		keySessionID: s.id,
+		keyRequestID: requestID,
+		keyService:   s.service,
+		keyProvider:  s.provider,
+		"ts":         time.Now().UTC(),
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), diagnoseTurnTimeout)
@@ -394,14 +394,14 @@ func (a *apiHandler) runDiagnoseTurn(s *diagnoseSession, requestID, prompt strin
 
 	response, err := s.session.AskStream(ctx, prompt, func(chunk ai.StreamChunk) {
 		a.broadcastDiagnoseEvent("diagnose_stream", map[string]any{
-			"sessionId": s.id,
-			"requestId": requestID,
-			"service":   s.service,
-			"provider":  s.provider,
-			"kind":      chunk.Kind,
-			"text":      chunk.Text,
-			"eventType": chunk.EventType,
-			"seq":       chunk.Seq,
+			keySessionID: s.id,
+			keyRequestID: requestID,
+			keyService:   s.service,
+			keyProvider:  s.provider,
+			"kind":       chunk.Kind,
+			keyText:      chunk.Text,
+			"eventType":  chunk.EventType,
+			"seq":        chunk.Seq,
 		})
 	})
 	if err != nil {
@@ -417,18 +417,18 @@ func (a *apiHandler) runDiagnoseTurn(s *diagnoseSession, requestID, prompt strin
 		}
 
 		a.log.WithError(err).WithFields(map[string]any{
-			"service":    s.service,
+			keyService:   s.service,
 			"session_id": s.id,
-			"provider":   s.provider,
+			keyProvider:  s.provider,
 			"debug":      debugInfo,
 		}).Warn("diagnose stream failed")
 
 		a.broadcastDiagnoseEvent("diagnose_error", map[string]any{
-			"sessionId": s.id,
-			"requestId": requestID,
-			"service":   s.service,
-			"provider":  s.provider,
-			"error":     err.Error(),
+			keySessionID: s.id,
+			keyRequestID: requestID,
+			keyService:   s.service,
+			keyProvider:  s.provider,
+			keyError:     err.Error(),
 		})
 
 		return
@@ -436,12 +436,12 @@ func (a *apiHandler) runDiagnoseTurn(s *diagnoseSession, requestID, prompt strin
 
 	diagnosis := diagnostic.ParseDiagnosisResponse(response)
 	a.broadcastDiagnoseEvent("diagnose_result", map[string]any{
-		"sessionId": s.id,
-		"requestId": requestID,
-		"service":   s.service,
-		"provider":  s.provider,
-		"rawText":   response,
-		"diagnosis": diagnosis,
+		keySessionID: s.id,
+		keyRequestID: requestID,
+		keyService:   s.service,
+		keyProvider:  s.provider,
+		"rawText":    response,
+		"diagnosis":  diagnosis,
 	})
 }
 
@@ -611,7 +611,7 @@ func promptMarkdownField(value string) string {
 
 // readLastLines reads the last n lines from a file.
 func readLastLines(path string, n int) []string {
-	f, err := os.Open(path) //nolint:gosec // path is constructed by LogFilePath from internal config
+	f, err := os.Open(path)
 	if err != nil {
 		return nil
 	}

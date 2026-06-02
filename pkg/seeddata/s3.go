@@ -50,7 +50,6 @@ type S3Uploader struct {
 type UploadOptions struct {
 	LocalPath string // Path to local file
 	Network   string // Network name (e.g., "mainnet", "sepolia")
-	Spec      string // Fork spec (e.g., "pectra", "fusaka")
 	Model     string // Model name (e.g., "beacon_api_eth_v1_events_block")
 	Filename  string // Custom filename (without .parquet extension, defaults to Model)
 }
@@ -111,7 +110,7 @@ func (u *S3Uploader) Upload(ctx context.Context, opts UploadOptions) (*UploadRes
 	}
 
 	// Build S3 key
-	key := fmt.Sprintf("%s/%s/%s/%s.parquet", u.prefix, opts.Network, opts.Spec, filename)
+	key := fmt.Sprintf("%s/tests/%s/%s.parquet", u.prefix, opts.Network, filename)
 
 	u.log.WithFields(logrus.Fields{
 		"bucket": u.bucket,
@@ -187,8 +186,8 @@ func (u *S3Uploader) SetPrefix(prefix string) {
 
 // ObjectExists checks if an object already exists at the given path.
 // Returns true if the object exists, false otherwise.
-func (u *S3Uploader) ObjectExists(ctx context.Context, network, spec, filename string) (bool, error) {
-	key := fmt.Sprintf("%s/%s/%s/%s.parquet", u.prefix, network, spec, filename)
+func (u *S3Uploader) ObjectExists(ctx context.Context, network, filename string) (bool, error) {
+	key := fmt.Sprintf("%s/tests/%s/%s.parquet", u.prefix, network, filename)
 
 	_, err := u.client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(u.bucket),
@@ -220,8 +219,8 @@ func (u *S3Uploader) ObjectExists(ctx context.Context, network, spec, filename s
 }
 
 // GetPublicURL returns the public URL for an object without uploading.
-func (u *S3Uploader) GetPublicURL(network, spec, filename string) string {
-	key := fmt.Sprintf("%s/%s/%s/%s.parquet", u.prefix, network, spec, filename)
+func (u *S3Uploader) GetPublicURL(network, filename string) string {
+	key := fmt.Sprintf("%s/tests/%s/%s.parquet", u.prefix, network, filename)
 
 	return fmt.Sprintf("https://%s/%s", u.publicDomain, key)
 }

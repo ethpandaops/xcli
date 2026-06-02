@@ -119,11 +119,7 @@ func DisplayBuildSummary(report *diagnostic.RebuildReport) {
 
 		// Calculate actual visible length: "  " + symbol + " " + servicePhase(24) + " " + duration(8) + "  " + status
 		visibleLen := 2 + 1 + 1 + 24 + 1 + 8 + 2 + statusLen
-		padding := contentWidth - visibleLen
-
-		if padding < 0 {
-			padding = 0
-		}
+		padding := max(contentWidth-visibleLen, 0)
 
 		// Truncate servicePhase if needed
 		if len(servicePhase) > 24 {
@@ -361,8 +357,8 @@ func DisplayPatternDiagnosis(result *diagnostic.BuildResult, diag *diagnostic.Di
 		fmt.Printf("%s\n", pterm.Bold.Sprint("Suggestion:"))
 
 		// Format multiline suggestions nicely.
-		lines := strings.Split(diag.Suggestion, "\n")
-		for _, line := range lines {
+		lines := strings.SplitSeq(diag.Suggestion, "\n")
+		for line := range lines {
 			if strings.TrimSpace(line) != "" {
 				fmt.Printf("%s\n", line)
 			} else {

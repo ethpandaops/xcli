@@ -152,7 +152,7 @@ func (r *Runner) PS(ctx context.Context) ([]ServiceStatus, error) {
 	// docker compose ps --format json outputs one JSON object per line
 	var statuses []ServiceStatus
 
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

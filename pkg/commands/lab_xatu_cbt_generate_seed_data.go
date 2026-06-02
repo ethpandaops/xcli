@@ -23,7 +23,6 @@ func NewLabXatuCBTGenerateSeedDataCommand(log logrus.FieldLogger, configPath str
 	var (
 		model         string
 		network       string
-		spec          string
 		rangeColumn   string
 		from          string
 		to            string
@@ -50,7 +49,6 @@ Scripted mode (all flags provided):
   xcli lab xatu-cbt generate-seed-data \
     --model beacon_api_eth_v1_events_block \
     --network mainnet \
-    --spec pectra \
     --range-column slot \
     --from 1000000 \
     --to 1001000 \
@@ -67,13 +65,12 @@ S3 Upload Configuration (defaults to Cloudflare R2):
   S3_BUCKET              Override bucket (default: ethpandaops-platform-production-public)`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runGenerateSeedData(cmd.Context(), log, configPath,
-				model, network, spec, rangeColumn, from, to, filters, limit, output, upload, !noSanitizeIPs)
+				model, network, rangeColumn, from, to, filters, limit, output, upload, !noSanitizeIPs)
 		},
 	}
 
 	cmd.Flags().StringVar(&model, "model", "", "Table name from xatu-cbt external models")
 	cmd.Flags().StringVar(&network, "network", "", "Network name (mainnet, sepolia, etc.)")
-	cmd.Flags().StringVar(&spec, "spec", "", "Fork spec (pectra, fusaka, etc.)")
 	cmd.Flags().StringVar(&rangeColumn, "range-column", "", "Column to filter on (e.g., slot, epoch)")
 	cmd.Flags().StringVar(&from, "from", "", "Range start value")
 	cmd.Flags().StringVar(&to, "to", "", "Range end value")
@@ -91,7 +88,7 @@ func runGenerateSeedData(
 	ctx context.Context,
 	log logrus.FieldLogger,
 	configPath string,
-	model, network, spec, rangeColumn, from, to string,
+	model, network, rangeColumn, from, to string,
 	filterStrings []string,
 	limit int,
 	output string,
@@ -130,13 +127,6 @@ func runGenerateSeedData(
 
 	if network == "" {
 		network, promptErr = promptForNetwork(labCfg)
-		if promptErr != nil {
-			return promptErr
-		}
-	}
-
-	if spec == "" {
-		spec, promptErr = promptForSpec()
 		if promptErr != nil {
 			return promptErr
 		}
@@ -209,11 +199,11 @@ func runGenerateSeedData(
 		s3Spinner.Success("S3 access verified")
 
 		// Check if object already exists
-		exists, existsErr := uploader.ObjectExists(ctx, network, spec, s3Filename)
+		exists, existsErr := uploader.ObjectExists(ctx, network, s3Filename)
 		if existsErr != nil {
 			ui.Warning(fmt.Sprintf("Could not check if file exists: %v", existsErr))
 		} else if exists {
-			existingURL := uploader.GetPublicURL(network, spec, s3Filename)
+			existingURL := uploader.GetPublicURL(network, s3Filename)
 			ui.Warning(fmt.Sprintf("File already exists: %s", existingURL))
 
 			overwrite, confirmErr := ui.Confirm("Overwrite existing file?")
@@ -252,7 +242,6 @@ func runGenerateSeedData(
 	result, err := gen.Generate(ctx, seeddata.GenerateOptions{
 		Model:       model,
 		Network:     network,
-		Spec:        spec,
 		RangeColumn: rangeColumn,
 		From:        from,
 		To:          to,
@@ -279,7 +268,7 @@ func runGenerateSeedData(
 	var publicURL string
 
 	if upload {
-		publicURL, err = uploadToS3(ctx, log, result.OutputPath, network, spec, model, s3Filename)
+		publicURL, err = uploadToS3(ctx, log, result.OutputPath, network, model, s3Filename)
 		if err != nil {
 			return err
 		}
@@ -292,8 +281,8 @@ func runGenerateSeedData(
 		}
 	} else {
 		// Use placeholder URL for template
-		publicURL = fmt.Sprintf("https://%s/%s/%s/%s/%s.parquet",
-			seeddata.DefaultS3PublicDomain, seeddata.DefaultS3Prefix, network, spec, model)
+		publicURL = fmt.Sprintf("https://%s/%s/tests/%s/%s.parquet",
+			seeddata.DefaultS3PublicDomain, seeddata.DefaultS3Prefix, network, model)
 	}
 
 	// Generate test YAML
@@ -305,9 +294,8 @@ func runGenerateSeedData(
 	yamlContent, err := seeddata.GenerateTestYAML(seeddata.TemplateData{
 		Model:    model,
 		Network:  network,
-		Spec:     spec,
 		URL:      publicURL,
-		RowCount: estimateRowCount(result.FileSize),
+		RowCount: result.RowCount,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to generate YAML template: %w", err)
@@ -320,8 +308,8 @@ func runGenerateSeedData(
 	}
 
 	if writeYAML {
-		yamlPath := fmt.Sprintf("%s/tests/%s/%s/models/%s.yaml",
-			labCfg.Repos.XatuCBT, network, spec, yamlFilename)
+		yamlPath := fmt.Sprintf("%s/tests/%s/models/%s.yaml",
+			labCfg.Repos.XatuCBT, network, yamlFilename)
 
 		if yamlWriteErr := writeTestYAML(yamlPath, yamlContent); yamlWriteErr != nil {
 			return yamlWriteErr
@@ -370,15 +358,6 @@ func promptForNetwork(labCfg *config.LabConfig) (string, error) {
 	}
 
 	return ui.Select("Select network", options)
-}
-
-func promptForSpec() (string, error) {
-	options := []ui.SelectOption{
-		{Label: "pectra", Value: "pectra"},
-		{Label: "fusaka", Value: "fusaka"},
-	}
-
-	return ui.Select("Select spec", options)
 }
 
 func promptForRange() (column, from, to string, err error) {
@@ -464,7 +443,7 @@ func promptForS3Filename(defaultName string) (string, error) {
 	return filename, nil
 }
 
-func uploadToS3(ctx context.Context, log logrus.FieldLogger, localPath, network, spec, model, filename string) (string, error) {
+func uploadToS3(ctx context.Context, log logrus.FieldLogger, localPath, network, model, filename string) (string, error) {
 	spinner := ui.NewSpinner("Uploading to S3")
 
 	uploader, err := seeddata.NewS3Uploader(ctx, log)
@@ -477,7 +456,6 @@ func uploadToS3(ctx context.Context, log logrus.FieldLogger, localPath, network,
 	result, err := uploader.Upload(ctx, seeddata.UploadOptions{
 		LocalPath: localPath,
 		Network:   network,
-		Spec:      spec,
 		Model:     model,
 		Filename:  filename,
 	})
@@ -506,12 +484,6 @@ func formatFileSize(bytes int64) string {
 	}
 
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
-}
-
-func estimateRowCount(fileSize int64) int64 {
-	// Rough estimate: average 100 bytes per row in compressed parquet
-	// This is a placeholder - in reality we'd need to read the parquet metadata
-	return fileSize / 100
 }
 
 // parseFilters parses filter strings into Filter structs.

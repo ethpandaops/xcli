@@ -10,6 +10,10 @@ import (
 	"github.com/ethpandaops/xcli/pkg/ai"
 )
 
+// redactedReplacement is the replacement string used to mask secret values
+// while preserving the matched key name.
+const redactedReplacement = "$1=[REDACTED]"
+
 // AIDiagnosis is a backward-compatible alias for the shared diagnosis report type.
 type AIDiagnosis = ai.DiagnosisReport
 
@@ -204,7 +208,7 @@ func extractCommands(text string) []string {
 
 	for _, match := range codeMatches {
 		if len(match) > 1 {
-			for _, line := range strings.Split(match[1], "\n") {
+			for line := range strings.SplitSeq(match[1], "\n") {
 				line = strings.TrimSpace(line)
 
 				line = strings.TrimPrefix(line, "$ ")
@@ -243,11 +247,11 @@ func sanitizeOutput(output string) string {
 		pattern *regexp.Regexp
 		replace string
 	}{
-		{regexp.MustCompile(`(?i)(API_KEY|APIKEY|API-KEY)\s*[=:]\s*[^\s]+`), "$1=[REDACTED]"},
-		{regexp.MustCompile(`(?i)(TOKEN|AUTH_TOKEN|ACCESS_TOKEN)\s*[=:]\s*[^\s]+`), "$1=[REDACTED]"},
-		{regexp.MustCompile(`(?i)(SECRET|SECRET_KEY|PRIVATE_KEY)\s*[=:]\s*[^\s]+`), "$1=[REDACTED]"},
-		{regexp.MustCompile(`(?i)(PASSWORD|PASSWD|PWD)\s*[=:]\s*[^\s]+`), "$1=[REDACTED]"},
-		{regexp.MustCompile(`(?i)(CREDENTIAL|CRED)\s*[=:]\s*[^\s]+`), "$1=[REDACTED]"},
+		{regexp.MustCompile(`(?i)(API_KEY|APIKEY|API-KEY)\s*[=:]\s*[^\s]+`), redactedReplacement},
+		{regexp.MustCompile(`(?i)(TOKEN|AUTH_TOKEN|ACCESS_TOKEN)\s*[=:]\s*[^\s]+`), redactedReplacement},
+		{regexp.MustCompile(`(?i)(SECRET|SECRET_KEY|PRIVATE_KEY)\s*[=:]\s*[^\s]+`), redactedReplacement},
+		{regexp.MustCompile(`(?i)(PASSWORD|PASSWD|PWD)\s*[=:]\s*[^\s]+`), redactedReplacement},
+		{regexp.MustCompile(`(?i)(CREDENTIAL|CRED)\s*[=:]\s*[^\s]+`), redactedReplacement},
 		{regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9._-]+`), "bearer [REDACTED]"},
 		{regexp.MustCompile(`(?i)authorization:\s*[^\n]+`), "authorization: [REDACTED]"},
 	}

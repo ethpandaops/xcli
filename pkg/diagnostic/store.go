@@ -18,6 +18,11 @@ const (
 
 	// defaultRetention is the default retention period for diagnostic reports.
 	defaultRetention = 7 * 24 * time.Hour // 7 days
+
+	// logFieldFile is the logrus field key for a file name.
+	logFieldFile = "file"
+	// logFieldError is the logrus field key for an error value.
+	logFieldError = "error"
 )
 
 // Store handles persistence of diagnostic reports.
@@ -58,8 +63,8 @@ func (s *Store) Save(report *RebuildReport) error {
 	}
 
 	s.log.WithFields(logrus.Fields{
-		"id":   report.ID,
-		"file": filename,
+		"id":         report.ID,
+		logFieldFile: filename,
 	}).Debug("saved diagnostic report")
 
 	// Automatically clean up old reports to prevent buildup
@@ -107,8 +112,8 @@ func (s *Store) Load(id string) (*RebuildReport, error) {
 			}
 
 			s.log.WithFields(logrus.Fields{
-				"id":   id,
-				"file": name,
+				"id":         id,
+				logFieldFile: name,
 			}).Debug("loaded diagnostic report")
 
 			return &report, nil
@@ -160,8 +165,8 @@ func (s *Store) List(limit int) ([]*RebuildReport, error) {
 		data, err := os.ReadFile(filePath)
 		if err != nil {
 			s.log.WithFields(logrus.Fields{
-				"file":  name,
-				"error": err,
+				logFieldFile:  name,
+				logFieldError: err,
 			}).Warn("failed to read report file, skipping")
 
 			continue
@@ -170,8 +175,8 @@ func (s *Store) List(limit int) ([]*RebuildReport, error) {
 		var report RebuildReport
 		if err := json.Unmarshal(data, &report); err != nil {
 			s.log.WithFields(logrus.Fields{
-				"file":  name,
-				"error": err,
+				logFieldFile:  name,
+				logFieldError: err,
 			}).Warn("failed to unmarshal report, skipping")
 
 			continue
@@ -235,8 +240,8 @@ func (s *Store) Cleanup(retention time.Duration) error {
 		fileTime, err := time.Parse(timestampFormat, timestampStr)
 		if err != nil {
 			s.log.WithFields(logrus.Fields{
-				"file":  name,
-				"error": err,
+				logFieldFile:  name,
+				logFieldError: err,
 			}).Warn("failed to parse timestamp from filename, skipping")
 
 			continue
@@ -248,8 +253,8 @@ func (s *Store) Cleanup(retention time.Duration) error {
 
 			if err := os.Remove(filePath); err != nil {
 				s.log.WithFields(logrus.Fields{
-					"file":  name,
-					"error": err,
+					logFieldFile:  name,
+					logFieldError: err,
 				}).Warn("failed to remove old report")
 
 				continue

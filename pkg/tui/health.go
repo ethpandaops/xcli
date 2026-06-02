@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"strings"
@@ -78,7 +79,7 @@ func (hm *HealthMonitor) checkAll() {
 	for _, svc := range services {
 		if svc.Status != statusRunning {
 			hm.services[svc.Name] = HealthStatus{
-				Status:    "unknown",
+				Status:    healthUnknown,
 				LastCheck: time.Now(),
 			}
 
@@ -91,9 +92,7 @@ func (hm *HealthMonitor) checkAll() {
 
 	// Send update
 	snapshot := make(map[string]HealthStatus, len(hm.services))
-	for k, v := range hm.services {
-		snapshot[k] = v
-	}
+	maps.Copy(snapshot, hm.services)
 
 	select {
 	case hm.output <- snapshot:
@@ -104,7 +103,7 @@ func (hm *HealthMonitor) checkAll() {
 func (hm *HealthMonitor) checkService(svc ServiceInfo) HealthStatus {
 	status := HealthStatus{
 		LastCheck: time.Now(),
-		Status:    "unknown",
+		Status:    healthUnknown,
 	}
 
 	// Determine check method based on service type
@@ -141,7 +140,7 @@ func checkHTTP(url string) error {
 		return err
 	}
 
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // URL is constructed from local service config
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}

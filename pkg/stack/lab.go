@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ethpandaops/xcli/pkg/builder"
 	"github.com/ethpandaops/xcli/pkg/config"
+	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/ethpandaops/xcli/pkg/diagnostic"
 	"github.com/ethpandaops/xcli/pkg/discovery"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
@@ -21,6 +23,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
+
+// repoLabFrontend is the repository/project name for the lab frontend. It has
+// no equivalent in the constants package, so it is defined locally.
+const repoLabFrontend = "lab-frontend"
 
 // labStack implements Stack for the lab development environment.
 type labStack struct {
@@ -38,12 +44,12 @@ func NewLabStack(log logrus.FieldLogger, configPath string) Stack {
 	return &labStack{log: log, configPath: configPath}
 }
 
-func (s *labStack) Name() string { return "lab" }
+func (s *labStack) Name() string { return constants.RepoLab }
 
 // ConfigureCommand adds lab-specific flags and descriptions to commands.
 func (s *labStack) ConfigureCommand(name string, cmd *cobra.Command) {
 	switch name {
-	case "init":
+	case cmdInit:
 		cmd.Long = `Initialize the xcli lab environment by discovering repositories,
 checking prerequisites, and ensuring everything is ready to start.
 
@@ -56,7 +62,7 @@ a new machine. It will:
 
 After 'xcli lab init' succeeds, you can start the stack with 'xcli lab up'.`
 
-	case "check":
+	case cmdCheck:
 		cmd.Long = `Perform health checks on the lab environment without starting services.
 
 Verifies:
@@ -80,7 +86,7 @@ Exit codes:
 Example:
   xcli lab check`
 
-	case "up":
+	case cmdUp:
 		cmd.Flags().StringVarP(&s.upMode, "mode", "m", "",
 			"Override mode (local or hybrid)")
 		cmd.Flags().BoolVarP(&s.upVerbose, "verbose", "v", false,
@@ -103,7 +109,7 @@ Examples:
   xcli lab up              # Start all services (always rebuilds)
   xcli lab up --verbose    # Startup with detailed output`
 
-	case "down":
+	case cmdDown:
 		cmd.Long = `Stop all running services and infrastructure in the xcli lab stack.
 
 This will:
@@ -116,7 +122,7 @@ The stack can be restarted with 'xcli lab up'.
 Example:
   xcli lab down`
 
-	case "clean":
+	case cmdClean:
 		cmd.Long = `Completely clean the lab workspace by removing all generated artifacts.
 
 This will:
@@ -145,7 +151,7 @@ Use cases:
 Examples:
   xcli lab clean                   # Remove all containers, volumes, and build artifacts`
 
-	case "build":
+	case cmdBuild:
 		cmd.Long = `Build all lab projects from source without starting services.
 
 Purpose:
@@ -175,7 +181,7 @@ Key difference from 'rebuild':
 Examples:
   xcli lab build         # Build all projects`
 
-	case "rebuild":
+	case cmdRebuild:
 		cmd.Use = "rebuild [project]"
 		cmd.Flags().BoolVarP(&s.rebuildVerbose, "verbose", "v", false,
 			"Enable verbose build output")
@@ -229,7 +235,7 @@ Examples:
 
 Note: All rebuild commands automatically restart their respective services if running.`
 
-	case "status":
+	case cmdStatus:
 		cmd.Long = `Display status of all lab services and infrastructure.
 
 Shows:
@@ -241,10 +247,10 @@ Shows:
 Example:
   xcli lab status`
 
-	case "logs":
+	case cmdLogs:
 		cmd.Long = `Show logs for all lab services or a specific service.`
 
-	case "start":
+	case cmdStart:
 		cmd.Long = `Start a specific lab service.
 
 Available services:
@@ -257,7 +263,7 @@ Example:
   xcli lab start lab-backend
   xcli lab start cbt-mainnet`
 
-	case "stop":
+	case cmdStop:
 		cmd.Long = `Stop a specific lab service.
 
 Available services:
@@ -270,7 +276,7 @@ Example:
   xcli lab stop lab-backend
   xcli lab stop cbt-mainnet`
 
-	case "restart":
+	case cmdRestart:
 		cmd.Long = `Restart a specific lab service.`
 	}
 }
@@ -307,12 +313,12 @@ func (s *labStack) CompleteRebuildTargets() ValidArgsFunc {
 		}
 
 		return []string{
-			"xatu-cbt",
+			constants.RepoXatuCBT,
 			"all",
-			"cbt",
-			"cbt-api",
-			"lab-backend",
-			"lab-frontend",
+			constants.RepoCBT,
+			constants.RepoCBTAPI,
+			constants.RepoLabBackend,
+			repoLabFrontend,
 			"prometheus",
 			"grafana",
 		}, cobra.ShellCompDirectiveNoFileComp
@@ -351,6 +357,8 @@ func (s *labStack) Init(ctx context.Context) error {
 		resolvedConfigPath = absPath
 	}
 
+	var existingXatu *config.ClickHouseClusterConfig
+
 	if rootCfg.Lab != nil {
 		s.log.Warn("lab configuration already exists")
 		fmt.Print("Overwrite existing lab configuration? (y/N): ")
@@ -364,6 +372,11 @@ func (s *labStack) Init(ctx context.Context) error {
 
 			return nil
 		}
+
+		// Preserve existing external ClickHouse credentials so the overwrite can
+		// offer them as defaults rather than silently discarding them.
+		xatu := rootCfg.Lab.Infrastructure.ClickHouse.Xatu
+		existingXatu = &xatu
 	}
 
 	cwd, err := os.Getwd()
@@ -390,11 +403,11 @@ func (s *labStack) Init(ctx context.Context) error {
 	prereqChecker := prerequisites.NewChecker(s.log)
 
 	repoMap := map[string]string{
-		"cbt":         repos.CBT,
-		"xatu-cbt":    repos.XatuCBT,
-		"cbt-api":     repos.CBTAPI,
-		"lab-backend": repos.LabBackend,
-		"lab":         repos.Lab,
+		constants.RepoCBT:        repos.CBT,
+		constants.RepoXatuCBT:    repos.XatuCBT,
+		constants.RepoCBTAPI:     repos.CBTAPI,
+		constants.RepoLabBackend: repos.LabBackend,
+		constants.RepoLab:        repos.Lab,
 	}
 
 	ui.Header("Checking prerequisites")
@@ -413,6 +426,10 @@ func (s *labStack) Init(ctx context.Context) error {
 
 	labCfg := config.DefaultLab()
 	labCfg.Repos = *repos
+
+	if err := promptXatuClickHouseCredentials(labCfg, existingXatu); err != nil {
+		return err
+	}
 
 	rootCfg.Lab = labCfg
 
@@ -434,11 +451,11 @@ func (s *labStack) Init(ctx context.Context) error {
 	ui.Header("Discovered repositories:")
 
 	rows := [][]string{
-		{"cbt", repos.CBT},
-		{"xatu-cbt", repos.XatuCBT},
-		{"cbt-api", repos.CBTAPI},
-		{"lab-backend", repos.LabBackend},
-		{"lab", repos.Lab},
+		{constants.RepoCBT, repos.CBT},
+		{constants.RepoXatuCBT, repos.XatuCBT},
+		{constants.RepoCBTAPI, repos.CBTAPI},
+		{constants.RepoLabBackend, repos.LabBackend},
+		{constants.RepoLab, repos.Lab},
 	}
 	ui.Table([]string{"Repository", "Path"}, rows)
 
@@ -448,6 +465,72 @@ func (s *labStack) Init(ctx context.Context) error {
 	ui.Header("Next steps:")
 	fmt.Println("  1. Review and edit the 'lab:' section in .xcli.yaml if needed")
 	fmt.Println("  2. Run 'xcli lab up' to start the lab stack")
+
+	return nil
+}
+
+// promptXatuClickHouseCredentials optionally collects username/password for the
+// external Xatu ClickHouse cluster. Both prompts may be left blank to skip,
+// which leaves credentials unset (e.g. for unauthenticated or in-URL access).
+// When prior is non-nil (overwriting an existing config), its credentials are
+// offered as defaults so an overwrite preserves them unless explicitly changed.
+func promptXatuClickHouseCredentials(labCfg *config.LabConfig, prior *config.ClickHouseClusterConfig) error {
+	xatu := &labCfg.Infrastructure.ClickHouse.Xatu
+	if xatu.Mode != constants.InfraModeExternal {
+		return nil
+	}
+
+	var priorUser, priorPass string
+	if prior != nil {
+		priorUser = prior.ExternalUsername
+		priorPass = prior.ExternalPassword
+	}
+
+	ui.Header("External Xatu ClickHouse credentials (optional)")
+	ui.Info(fmt.Sprintf("Connecting to: %s", xatu.ExternalURL))
+
+	if priorUser != "" {
+		fmt.Printf("Username [%s] (enter to keep, '-' to clear): ", priorUser)
+	} else {
+		ui.Info("Leave blank to skip (use an unauthenticated cluster or credentials in the URL).")
+		fmt.Print("Username: ")
+	}
+
+	var username string
+
+	_, _ = fmt.Scanln(&username)
+
+	username = strings.TrimSpace(username)
+
+	switch username {
+	case "":
+		// Empty keeps the existing username (or stays empty to skip entirely).
+		username = priorUser
+	case "-":
+		// Sentinel to remove previously-stored credentials.
+		xatu.ExternalUsername = ""
+		xatu.ExternalPassword = ""
+
+		return nil
+	}
+
+	if username == "" {
+		return nil
+	}
+
+	// Reuse the existing password when the username is unchanged and the user
+	// leaves the password blank; otherwise take the freshly entered value.
+	password, err := ui.PasswordInput("Password: ")
+	if err != nil {
+		return fmt.Errorf("failed to read ClickHouse password: %w", err)
+	}
+
+	if password == "" && username == priorUser {
+		password = priorPass
+	}
+
+	xatu.ExternalUsername = username
+	xatu.ExternalPassword = password
 
 	return nil
 }
@@ -484,11 +567,11 @@ func (s *labStack) Check(ctx context.Context) error {
 
 		repoCheckPassed := true
 		repos := map[string]string{
-			"cbt":         labCfg.Repos.CBT,
-			"xatu-cbt":    labCfg.Repos.XatuCBT,
-			"cbt-api":     labCfg.Repos.CBTAPI,
-			"lab-backend": labCfg.Repos.LabBackend,
-			"lab":         labCfg.Repos.Lab,
+			constants.RepoCBT:        labCfg.Repos.CBT,
+			constants.RepoXatuCBT:    labCfg.Repos.XatuCBT,
+			constants.RepoCBTAPI:     labCfg.Repos.CBTAPI,
+			constants.RepoLabBackend: labCfg.Repos.LabBackend,
+			constants.RepoLab:        labCfg.Repos.Lab,
 		}
 
 		missingRepos := []string{}
@@ -511,12 +594,14 @@ func (s *labStack) Check(ctx context.Context) error {
 		}
 
 		if !repoCheckPassed {
-			failMsg := "Missing repositories - Run: xcli lab init"
+			var failMsg strings.Builder
+			failMsg.WriteString("Missing repositories - Run: xcli lab init")
+
 			for _, repo := range missingRepos {
-				failMsg += fmt.Sprintf("\n    %s", repo)
+				fmt.Fprintf(&failMsg, "\n    %s", repo)
 			}
 
-			spinner.Fail(failMsg)
+			spinner.Fail(failMsg.String())
 
 			allPassed = false
 		} else {
@@ -545,12 +630,14 @@ func (s *labStack) Check(ctx context.Context) error {
 		}
 
 		if !prereqPassed {
-			failMsg := "Missing prerequisites - Run: xcli lab init"
+			var failMsg strings.Builder
+			failMsg.WriteString("Missing prerequisites - Run: xcli lab init")
+
 			for _, issue := range prereqIssues {
-				failMsg += fmt.Sprintf("\n    %s", issue)
+				fmt.Fprintf(&failMsg, "\n    %s", issue)
 			}
 
-			spinner.Fail(failMsg)
+			spinner.Fail(failMsg.String())
 
 			allPassed = false
 		} else {
@@ -713,10 +800,10 @@ func (s *labStack) Clean(ctx context.Context) error {
 	spinner = ui.NewSpinner("Removing build artifacts")
 
 	repos := map[string]string{
-		"cbt":         labCfg.Repos.CBT,
-		"xatu-cbt":    labCfg.Repos.XatuCBT,
-		"cbt-api":     labCfg.Repos.CBTAPI,
-		"lab-backend": labCfg.Repos.LabBackend,
+		constants.RepoCBT:        labCfg.Repos.CBT,
+		constants.RepoXatuCBT:    labCfg.Repos.XatuCBT,
+		constants.RepoCBTAPI:     labCfg.Repos.CBTAPI,
+		constants.RepoLabBackend: labCfg.Repos.LabBackend,
 	}
 
 	totalRemoved := 0
@@ -815,10 +902,10 @@ func (s *labStack) Rebuild(ctx context.Context, project string) error {
 	orch.SetVerbose(s.rebuildVerbose)
 
 	switch project {
-	case "xatu-cbt", "all":
+	case constants.RepoXatuCBT, "all":
 		return s.runFullRebuild(ctx, orch, stateDir)
 
-	case "cbt":
+	case constants.RepoCBT:
 		spinner := ui.NewSpinner("Rebuilding CBT")
 
 		if err := orch.Builder().BuildCBT(ctx, true); err != nil {
@@ -841,7 +928,7 @@ func (s *labStack) Rebuild(ctx context.Context, project string) error {
 			}
 		}
 
-	case "cbt-api":
+	case constants.RepoCBTAPI:
 		spinner := ui.NewSpinner("Regenerating protos and rebuilding cbt-api")
 
 		if err := orch.Builder().BuildCBTAPI(ctx, true); err != nil {
@@ -868,7 +955,7 @@ func (s *labStack) Rebuild(ctx context.Context, project string) error {
 		ui.Info("Note: If you added models in xatu-cbt, use " +
 			"'xcli lab rebuild xatu-cbt' for full workflow")
 
-	case "lab-backend":
+	case constants.RepoLabBackend:
 		spinner := ui.NewSpinner("Rebuilding lab-backend")
 
 		if err := orch.Builder().BuildLabBackend(ctx, true); err != nil {
@@ -881,7 +968,7 @@ func (s *labStack) Rebuild(ctx context.Context, project string) error {
 
 		spinner = ui.NewSpinner("Restarting lab-backend")
 
-		if err := orch.Restart(ctx, "lab-backend"); err != nil {
+		if err := orch.Restart(ctx, constants.RepoLabBackend); err != nil {
 			spinner.Fail("Could not restart lab-backend")
 			ui.Info("If lab-backend is running, restart it manually:")
 			ui.Info("  xcli lab restart lab-backend")
@@ -889,7 +976,7 @@ func (s *labStack) Rebuild(ctx context.Context, project string) error {
 			spinner.Success("lab-backend restarted successfully")
 		}
 
-	case "lab-frontend":
+	case repoLabFrontend:
 		spinner := ui.NewSpinner("Regenerating lab-frontend API types from cbt-api")
 
 		if err := orch.Builder().BuildLabFrontend(ctx); err != nil {
@@ -902,7 +989,7 @@ func (s *labStack) Rebuild(ctx context.Context, project string) error {
 
 		spinner = ui.NewSpinner("Restarting lab-frontend")
 
-		if err := orch.Restart(ctx, "lab-frontend"); err != nil {
+		if err := orch.Restart(ctx, repoLabFrontend); err != nil {
 			spinner.Fail("Could not restart lab-frontend")
 			ui.Info("If lab-frontend is running, restart it manually:")
 			ui.Info("  xcli lab restart lab-frontend")
@@ -1132,7 +1219,7 @@ func (s *labStack) runFullRebuild(
 		now := time.Now()
 		report.AddResult(diagnostic.BuildResult{
 			Phase:     diagnostic.PhaseBuild,
-			Service:   "xatu-cbt",
+			Service:   constants.RepoXatuCBT,
 			Success:   false,
 			ErrorMsg:  "skipped due to proto generation failure",
 			StartTime: now,
@@ -1160,7 +1247,7 @@ func (s *labStack) runFullRebuild(
 		now := time.Now()
 		report.AddResult(diagnostic.BuildResult{
 			Phase:     diagnostic.PhaseBuild,
-			Service:   "cbt-api",
+			Service:   constants.RepoCBTAPI,
 			Success:   false,
 			ErrorMsg:  "skipped due to xatu-cbt build failure",
 			StartTime: now,
@@ -1315,7 +1402,7 @@ func (s *labStack) runFullRebuild(
 
 		report.AddResult(diagnostic.BuildResult{
 			Phase:     diagnostic.PhaseFrontendGen,
-			Service:   "lab-frontend",
+			Service:   repoLabFrontend,
 			Success:   false,
 			ErrorMsg:  skipReason,
 			StartTime: now,
@@ -1335,7 +1422,7 @@ func (s *labStack) runFullRebuild(
 			waitEnd := time.Now()
 			report.AddResult(diagnostic.BuildResult{
 				Phase:   diagnostic.PhaseFrontendGen,
-				Service: "lab-frontend",
+				Service: repoLabFrontend,
 				Success: false,
 				Error:   waitErr,
 				ErrorMsg: fmt.Sprintf(
@@ -1355,7 +1442,7 @@ func (s *labStack) runFullRebuild(
 			} else {
 				spinner.UpdateText("[7/7] Restarting lab-frontend")
 
-				if err := orch.Restart(ctx, "lab-frontend"); err != nil {
+				if err := orch.Restart(ctx, repoLabFrontend); err != nil {
 					spinner.Fail("Could not restart lab-frontend")
 					ui.Warning(fmt.Sprintf(
 						"Could not restart lab-frontend: %v", err))

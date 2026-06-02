@@ -141,18 +141,14 @@ func (c *Checker) CheckRepositories(ctx context.Context, repos map[string]string
 	)
 
 	for name, path := range repos {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			status := c.CheckRepository(ctx, path, name)
 
 			mu.Lock()
 
 			results = append(results, result{name: name, status: status})
 			mu.Unlock()
-		}()
+		})
 	}
 
 	wg.Wait()

@@ -237,8 +237,8 @@ func writeModelConfig(sb *strings.Builder, existingOverrides *CBTOverrides, name
 		return
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(configYAML)), "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(strings.TrimSpace(string(configYAML)), "\n")
+	for line := range lines {
 		fmt.Fprintf(sb, "      %s\n", line)
 	}
 }

@@ -17,6 +17,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Version bump types and release action values.
+const (
+	bumpPatch  = "patch"
+	bumpMinor  = "minor"
+	bumpMajor  = "major"
+	actionSkip = "skip"
+)
+
 // NewLabReleaseCommand creates the lab release command.
 func NewLabReleaseCommand(log logrus.FieldLogger, _ string) *cobra.Command {
 	var (
@@ -317,7 +325,7 @@ func promptMissingDependencies(
 		{
 			Label:       fmt.Sprintf("No, use existing %s %s", missingDeps[0], depVersion),
 			Description: fmt.Sprintf("%s will import the current %s version", project, missingDeps[0]),
-			Value:       "skip",
+			Value:       actionSkip,
 		},
 		{
 			Label:       fmt.Sprintf("Yes, release %s first", missingDeps[0]),
@@ -593,11 +601,12 @@ func displayReleaseSummary(report *release.ReleaseReport) {
 	ui.Blank()
 
 	// Build table data
-	tableData := pterm.TableData{
-		{"", "Project", "Version", "Duration", "Status"},
-	}
+	entries := report.Entries()
 
-	for _, entry := range report.Entries() {
+	tableData := make(pterm.TableData, 0, 1+len(entries))
+	tableData = append(tableData, pterm.TableData{{"", "Project", "Version", "Duration", "Status"}}...)
+
+	for _, entry := range entries {
 		var symbol, status, version string
 
 		// Determine the version to display
@@ -716,14 +725,14 @@ func selectProjectsInteractive(projectInfos []release.ProjectInfo) ([]string, er
 
 func selectBumpType(project, currentVersion string) (release.BumpType, error) {
 	options := []ui.SelectOption{
-		{Label: "patch", Description: "Bug fixes (0.0.X)", Value: "patch"},
-		{Label: "minor", Description: "New features (0.X.0)", Value: "minor"},
-		{Label: "major", Description: "Breaking changes (X.0.0)", Value: "major"},
+		{Label: bumpPatch, Description: "Bug fixes (0.0.X)", Value: bumpPatch},
+		{Label: bumpMinor, Description: "New features (0.X.0)", Value: bumpMinor},
+		{Label: bumpMajor, Description: "Breaking changes (X.0.0)", Value: bumpMajor},
 	}
 
 	title := fmt.Sprintf("Version bump for %s (current: %s)", project, currentVersion)
 
-	selected, err := ui.SelectWithDefault(title, options, "patch")
+	selected, err := ui.SelectWithDefault(title, options, bumpPatch)
 	if err != nil {
 		return "", fmt.Errorf("bump selection cancelled: %w", err)
 	}
@@ -753,11 +762,11 @@ func handleSemverRelease(
 
 	if bumpFlag != "" {
 		switch bumpFlag {
-		case "patch":
+		case bumpPatch:
 			bumpType = release.BumpPatch
-		case "minor":
+		case bumpMinor:
 			bumpType = release.BumpMinor
-		case "major":
+		case bumpMajor:
 			bumpType = release.BumpMajor
 		default:
 			return nil, fmt.Errorf("invalid bump type: %s (valid: patch, minor, major)", bumpFlag)
@@ -765,22 +774,22 @@ func handleSemverRelease(
 	} else {
 		// Interactive bump selection
 		options := []ui.SelectOption{
-			{Label: "patch", Description: "Bug fixes (0.0.X)", Value: "patch"},
-			{Label: "minor", Description: "New features (0.X.0)", Value: "minor"},
-			{Label: "major", Description: "Breaking changes (X.0.0)", Value: "major"},
+			{Label: bumpPatch, Description: "Bug fixes (0.0.X)", Value: bumpPatch},
+			{Label: bumpMinor, Description: "New features (0.X.0)", Value: bumpMinor},
+			{Label: bumpMajor, Description: "Breaking changes (X.0.0)", Value: bumpMajor},
 		}
 
-		selected, err := ui.SelectWithDefault("Select version bump type", options, "patch")
+		selected, err := ui.SelectWithDefault("Select version bump type", options, bumpPatch)
 		if err != nil {
 			return nil, fmt.Errorf("bump selection cancelled: %w", err)
 		}
 
 		switch selected {
-		case "patch":
+		case bumpPatch:
 			bumpType = release.BumpPatch
-		case "minor":
+		case bumpMinor:
 			bumpType = release.BumpMinor
-		case "major":
+		case bumpMajor:
 			bumpType = release.BumpMajor
 		}
 	}
@@ -1055,7 +1064,7 @@ func promptDependencyConfirmation(
 				{
 					Label:       fmt.Sprintf("No, use existing %s %s", dep, depVersion),
 					Description: fmt.Sprintf("%s will import the current %s version", project, dep),
-					Value:       "skip",
+					Value:       actionSkip,
 				},
 			}
 
@@ -1067,7 +1076,7 @@ func promptDependencyConfirmation(
 				return nil, selectErr
 			}
 
-			if selected == "skip" {
+			if selected == actionSkip {
 				projectsToRemove[dep] = true
 			}
 		}

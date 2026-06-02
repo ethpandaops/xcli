@@ -212,12 +212,12 @@ func (b *xatuBackend) LogSource(name string) LogSourceInfo {
 	if err == nil {
 		for _, svc := range statuses {
 			if svc.Service == name && svc.Name != "" {
-				return LogSourceInfo{Type: "docker", Container: svc.Name}
+				return LogSourceInfo{Type: cmdDocker, Container: svc.Name}
 			}
 		}
 	}
 
-	return LogSourceInfo{Type: "docker", Container: name}
+	return LogSourceInfo{Type: cmdDocker, Container: name}
 }
 
 // LogFilePath returns empty — Xatu uses docker logs, not file-based logs.

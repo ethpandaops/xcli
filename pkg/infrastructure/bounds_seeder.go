@@ -25,6 +25,13 @@ const (
 	// luaDumpExternalBounds is a Lua script that fetches all external bounds keys and values
 	// in a single Redis round trip. Returns alternating key/value pairs.
 	luaDumpExternalBounds = `local keys = redis.call('KEYS', ARGV[1]) local result = {} for i, key in ipairs(keys) do result[#result + 1] = key result[#result + 1] = redis.call('GET', key) end return result`
+
+	// cmdExec is the docker/kubectl exec subcommand.
+	cmdExec = "exec"
+	// cmdRedisCLI is the redis-cli command name.
+	cmdRedisCLI = "redis-cli"
+	// flagN is the "-n" flag (redis-cli database number / kubectl namespace).
+	flagN = "-n"
 )
 
 // BoundsSeeder handles seeding CBT external bounds from production Redis.
@@ -95,9 +102,9 @@ func (s *BoundsSeeder) SeedFromProduction(ctx context.Context, network string, r
 // CheckNeedsSeeding checks if local Redis has any external bounds for the given network.
 func (s *BoundsSeeder) CheckNeedsSeeding(ctx context.Context, redisDB int) (bool, error) {
 	args := []string{
-		"exec", localRedisContainer,
-		"redis-cli",
-		"-n", fmt.Sprintf("%d", redisDB),
+		cmdExec, localRedisContainer,
+		cmdRedisCLI,
+		flagN, fmt.Sprintf("%d", redisDB),
 		"KEYS", redisBoundsKeyPrefix + "*",
 	}
 
@@ -128,7 +135,7 @@ func (s *BoundsSeeder) checkKubectl(ctx context.Context) error {
 func (s *BoundsSeeder) getRedisPassword(ctx context.Context, secretName string) (string, error) {
 	args := []string{
 		"--context", prodK8sContext,
-		"-n", prodNamespace,
+		flagN, prodNamespace,
 		"get", "secret", secretName,
 		"-o", "jsonpath={.data.redis-password}",
 	}
@@ -156,11 +163,11 @@ func (s *BoundsSeeder) fetchAllBounds(ctx context.Context, network, password str
 
 	args := []string{
 		"--context", prodK8sContext,
-		"-n", prodNamespace,
-		"exec", podName,
+		flagN, prodNamespace,
+		cmdExec, podName,
 		"-c", "redis",
 		"--",
-		"redis-cli",
+		cmdRedisCLI,
 		"-a", password,
 		"--no-auth-warning",
 		"EVAL", luaDumpExternalBounds,
@@ -230,9 +237,9 @@ func (s *BoundsSeeder) bulkInsertLocal(ctx context.Context, redisDB int, bounds 
 	}
 
 	args := []string{
-		"exec", "-i", localRedisContainer,
-		"redis-cli",
-		"-n", fmt.Sprintf("%d", redisDB),
+		cmdExec, "-i", localRedisContainer,
+		cmdRedisCLI,
+		flagN, fmt.Sprintf("%d", redisDB),
 		"--pipe",
 	}
 

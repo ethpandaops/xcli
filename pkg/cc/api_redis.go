@@ -146,8 +146,8 @@ func (a *apiHandler) handlePostRedisKey(w http.ResponseWriter, r *http.Request) 
 		var conflict *redisConflictError
 		if errors.As(err, &conflict) {
 			writeJSON(w, http.StatusConflict, map[string]any{
-				"error": "key already exists",
-				"code":  "already_exists",
+				keyError: "key already exists",
+				"code":   "already_exists",
 			})
 
 			return
@@ -187,7 +187,7 @@ func (a *apiHandler) handlePutRedisKey(w http.ResponseWriter, r *http.Request) {
 		var conflict *redisConflictError
 		if errors.As(err, &conflict) {
 			payload := map[string]any{
-				"error":          "key changed since it was loaded",
+				keyError:         "key changed since it was loaded",
 				"code":           "conflict",
 				"reloadRequired": true,
 			}
@@ -339,7 +339,7 @@ func validateRedisWriteBody(req redisWriteRequest) error {
 
 func writeRedisError(w http.ResponseWriter, status int, message string, err error) {
 	payload := map[string]any{
-		"error": message,
+		keyError: message,
 	}
 
 	if err != nil {

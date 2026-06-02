@@ -2,7 +2,10 @@
 // modes, and configuration across the xcli application.
 package constants
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 // Stack modes.
 const (
@@ -171,12 +174,8 @@ func GetDependents(project string) []string {
 	dependents := make([]string, 0, len(ProjectDependencies))
 
 	for dependent, deps := range ProjectDependencies {
-		for _, dep := range deps {
-			if dep == project {
-				dependents = append(dependents, dependent)
-
-				break
-			}
+		if slices.Contains(deps, project) {
+			dependents = append(dependents, dependent)
 		}
 	}
 
@@ -186,13 +185,8 @@ func GetDependents(project string) []string {
 // HasDependency returns true if 'dependent' depends on 'dependency'.
 func HasDependency(dependent, dependency string) bool {
 	deps := GetDependencies(dependent)
-	for _, d := range deps {
-		if d == dependency {
-			return true
-		}
-	}
 
-	return false
+	return slices.Contains(deps, dependency)
 }
 
 // GetRepoConfigKey returns the config key for a project's repo path.

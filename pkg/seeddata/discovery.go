@@ -2,25 +2,31 @@
 package seeddata
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/ethpandaops/xcli/pkg/ai"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
 
 // ExpandWindowMultiplier defines how much to expand the window on each retry.
 const ExpandWindowMultiplier = 2
+
+// Field keys used in log fields and template metadata maps.
+const (
+	fieldKeyModel   = "model"
+	fieldKeyNetwork = "network"
+)
 
 // RangeColumnType identifies the semantic type of a range column.
 type RangeColumnType string
@@ -128,25 +134,20 @@ type ValidationResult struct {
 
 // ClaudeDiscoveryClient handles AI-assisted range discovery.
 type ClaudeDiscoveryClient struct {
-	log        logrus.FieldLogger
-	claudePath string
-	timeout    time.Duration
-	gen        *Generator
+	log     logrus.FieldLogger
+	engine  ai.Engine
+	timeout time.Duration
+	gen     *Generator
 }
 
-// NewClaudeDiscoveryClient creates a new discovery client.
-func NewClaudeDiscoveryClient(log logrus.FieldLogger, gen *Generator) (*ClaudeDiscoveryClient, error) {
-	claudePath, err := findClaudeBinaryPath()
-	if err != nil {
-		return nil, fmt.Errorf("claude CLI not found: %w", err)
-	}
-
+// NewClaudeDiscoveryClient creates a new discovery client using an ai.Engine.
+func NewClaudeDiscoveryClient(log logrus.FieldLogger, gen *Generator, engine ai.Engine) *ClaudeDiscoveryClient {
 	return &ClaudeDiscoveryClient{
-		log:        log.WithField("component", "claude-discovery"),
-		claudePath: claudePath,
-		timeout:    5 * time.Minute, // Discovery can take longer than assertions
-		gen:        gen,
-	}, nil
+		log:     log.WithField("component", "claude-discovery"),
+		engine:  engine,
+		timeout: 5 * time.Minute, // Discovery can take longer than assertions
+		gen:     gen,
+	}
 }
 
 // GetStrategy returns the strategy for a specific model.
@@ -164,18 +165,9 @@ func (d *DiscoveryResult) GetStrategy(model string) *TableRangeStrategy {
 	return nil
 }
 
-// IsAvailable checks if Claude CLI is accessible.
+// IsAvailable checks if the AI engine is accessible.
 func (c *ClaudeDiscoveryClient) IsAvailable() bool {
-	if c.claudePath == "" {
-		return false
-	}
-
-	info, err := os.Stat(c.claudePath)
-	if err != nil {
-		return false
-	}
-
-	return !info.IsDir() && info.Mode()&0111 != 0
+	return c.engine != nil && c.engine.IsAvailable()
 }
 
 // GatherSchemaInfo collects schema information for all external models.
@@ -190,12 +182,12 @@ func (c *ClaudeDiscoveryClient) GatherSchemaInfo(
 	schemas := make([]TableSchemaInfo, 0, len(models))
 
 	for _, model := range models {
-		c.log.WithField("model", model).Debug("gathering schema info")
+		c.log.WithField(fieldKeyModel, model).Debug("gathering schema info")
 
 		// Get interval type from model frontmatter (informational context for Claude)
 		intervalType, err := GetExternalModelIntervalType(model, xatuCBTPath)
 		if err != nil {
-			c.log.WithError(err).WithField("model", model).Warn("failed to get interval type")
+			c.log.WithError(err).WithField(fieldKeyModel, model).Warn("failed to get interval type")
 
 			intervalType = IntervalTypeSlot // Default to slot
 		}
@@ -215,7 +207,7 @@ func (c *ClaudeDiscoveryClient) GatherSchemaInfo(
 		// Try to detect range column from SQL file
 		rangeCol, detectErr := DetectRangeColumnForModel(model, xatuCBTPath)
 		if detectErr != nil {
-			c.log.WithError(detectErr).WithField("model", model).Debug("failed to detect range column from SQL")
+			c.log.WithError(detectErr).WithField(fieldKeyModel, model).Debug("failed to detect range column from SQL")
 
 			// For tables without a detected range column, find any time column in schema
 			// This handles entity tables and other tables without explicit range definitions
@@ -228,21 +220,32 @@ func (c *ClaudeDiscoveryClient) GatherSchemaInfo(
 		// Classify the range column type
 		colType := ClassifyRangeColumn(rangeCol, columns)
 
-		// Query the range for this model
+		// Query the range for this model - use raw queries for numeric columns
 		var minVal, maxVal string
 
-		modelRange, rangeErr := c.gen.QueryModelRange(ctx, model, network, rangeCol)
-		if rangeErr != nil {
-			c.log.WithError(rangeErr).WithField("model", model).Warn("failed to query model range")
-		} else {
-			minVal = modelRange.MinRaw
-			maxVal = modelRange.MaxRaw
+		switch colType {
+		case RangeColumnTypeBlock, RangeColumnTypeSlot, RangeColumnTypeEpoch:
+			rawRange, rangeErr := c.gen.QueryModelRangeRaw(ctx, model, network, rangeCol)
+			if rangeErr != nil {
+				c.log.WithError(rangeErr).WithField(fieldKeyModel, model).Warn("failed to query model range")
+			} else {
+				minVal = rawRange.MinRaw
+				maxVal = rawRange.MaxRaw
+			}
+		default:
+			modelRange, rangeErr := c.gen.QueryModelRange(ctx, model, network, rangeCol)
+			if rangeErr != nil {
+				c.log.WithError(rangeErr).WithField(fieldKeyModel, model).Warn("failed to query model range")
+			} else {
+				minVal = modelRange.MinRaw
+				maxVal = modelRange.MaxRaw
+			}
 		}
 
 		// Get sample data (limited to 3 rows for prompt size)
 		sampleData, sampleErr := c.gen.QueryTableSample(ctx, model, network, 3)
 		if sampleErr != nil {
-			c.log.WithError(sampleErr).WithField("model", model).Warn("failed to query sample data")
+			c.log.WithError(sampleErr).WithField(fieldKeyModel, model).Warn("failed to query sample data")
 			// Continue without sample data - not critical
 		}
 
@@ -261,48 +264,35 @@ func (c *ClaudeDiscoveryClient) GatherSchemaInfo(
 	return schemas, nil
 }
 
-// AnalyzeRanges invokes Claude to analyze range strategies.
+// AnalyzeRanges invokes the AI engine to analyze range strategies.
 func (c *ClaudeDiscoveryClient) AnalyzeRanges(
 	ctx context.Context,
 	input DiscoveryInput,
 ) (*DiscoveryResult, error) {
 	if !c.IsAvailable() {
-		return nil, fmt.Errorf("claude CLI is not available")
+		return nil, fmt.Errorf("AI engine is not available")
 	}
 
 	prompt := c.buildDiscoveryPrompt(input)
 
+	c.log.WithFields(logrus.Fields{
+		"timeout":     c.timeout,
+		fieldKeyModel: input.TransformationModel,
+	}).Debug("invoking AI engine for range discovery")
+
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	//nolint:gosec // claudePath is validated in findClaudeBinaryPath
-	cmd := exec.CommandContext(ctx, c.claudePath, "--print")
-	cmd.Stdin = strings.NewReader(prompt)
-
-	var stdout, stderr bytes.Buffer
-
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	c.log.WithFields(logrus.Fields{
-		"timeout": c.timeout,
-		"model":   input.TransformationModel,
-	}).Debug("invoking Claude CLI for range discovery")
-
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("claude discovery timed out after %s", c.timeout)
-		}
-
-		return nil, fmt.Errorf("claude CLI failed: %w (stderr: %s)", err, stderr.String())
+	response, err := c.engine.Ask(ctx, prompt)
+	if err != nil {
+		return nil, fmt.Errorf("AI engine failed: %w", err)
 	}
 
-	response := stdout.String()
 	if response == "" {
-		return nil, fmt.Errorf("claude returned empty response")
+		return nil, fmt.Errorf("AI engine returned empty response")
 	}
 
-	c.log.WithField("response_length", len(response)).Debug("received Claude response")
+	c.log.WithField("response_length", len(response)).Debug("received AI response")
 
 	return c.parseDiscoveryResponse(response)
 }
@@ -424,10 +414,10 @@ func (g *Generator) QueryRowCount(
 	}
 
 	g.log.WithFields(logrus.Fields{
-		"model":   model,
-		"network": network,
-		"from":    fromValue,
-		"to":      toValue,
+		fieldKeyModel:   model,
+		fieldKeyNetwork: network,
+		"from":          fromValue,
+		"to":            toValue,
 	}).Debug("querying row count")
 
 	chURL, err := g.buildClickHouseHTTPURL()
@@ -446,7 +436,7 @@ func (g *Generator) QueryRowCount(
 		Timeout: 2 * time.Minute, // Row count queries on large tables can take time
 	}
 
-	resp, err := client.Do(req) //nolint:gosec // URL is from trusted config
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -516,9 +506,9 @@ func (g *Generator) QueryTableSample(
 	`, tableRef, network, limit)
 
 	g.log.WithFields(logrus.Fields{
-		"model":   model,
-		"network": network,
-		"limit":   limit,
+		fieldKeyModel:   model,
+		fieldKeyNetwork: network,
+		"limit":         limit,
 	}).Debug("querying table sample")
 
 	chURL, err := g.buildClickHouseHTTPURL()
@@ -537,7 +527,7 @@ func (g *Generator) QueryTableSample(
 		Timeout: 30 * time.Second,
 	}
 
-	resp, err := client.Do(req) //nolint:gosec // URL is from trusted config
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -668,7 +658,7 @@ func FallbackRangeDiscovery(
 		// For entity models, they typically don't have time-based ranges
 		// Mark them as "none" type - they'll get all data or use correlation
 		if isEntity {
-			gen.log.WithField("model", model).Info("entity/dimension table - will query without range filter")
+			gen.log.WithField(fieldKeyModel, model).Info("entity/dimension table - will query without range filter")
 
 			strategies = append(strategies, TableRangeStrategy{
 				Model:      model,
@@ -702,7 +692,7 @@ func FallbackRangeDiscovery(
 
 		modelRange, queryErr := gen.QueryModelRange(ctx, model, network, rangeCol)
 		if queryErr != nil {
-			gen.log.WithError(queryErr).WithField("model", model).Warn("range query failed")
+			gen.log.WithError(queryErr).WithField(fieldKeyModel, model).Warn("range query failed")
 
 			strategies = append(strategies, TableRangeStrategy{
 				Model:       model,
@@ -721,13 +711,13 @@ func FallbackRangeDiscovery(
 			var minBlock, maxBlock int64
 
 			if _, scanErr := fmt.Sscanf(modelRange.MinRaw, "%d", &minBlock); scanErr != nil {
-				gen.log.WithError(scanErr).WithField("model", model).Warn("failed to parse min block number")
+				gen.log.WithError(scanErr).WithField(fieldKeyModel, model).Warn("failed to parse min block number")
 
 				continue
 			}
 
 			if _, scanErr := fmt.Sscanf(modelRange.MaxRaw, "%d", &maxBlock); scanErr != nil {
-				gen.log.WithError(scanErr).WithField("model", model).Warn("failed to parse max block number")
+				gen.log.WithError(scanErr).WithField(fieldKeyModel, model).Warn("failed to parse max block number")
 
 				continue
 			}
@@ -819,17 +809,14 @@ func FallbackRangeDiscovery(
 			rangeDuration = 5 * time.Minute
 		}
 
-		blocksPerDuration := int64(rangeDuration.Seconds() / 12) // ~12 second block time
-		if blocksPerDuration < 100 {
-			blocksPerDuration = 100 // Minimum 100 blocks
-		}
+		blocksPerDuration := max(
+			// ~12 second block time
+			int64(rangeDuration.Seconds()/12),
+			// Minimum 100 blocks
+			100)
 
 		effectiveMax := earliestBlockMax - 10 // Account for reorgs
-		effectiveMin := effectiveMax - blocksPerDuration
-
-		if effectiveMin < latestBlockMin {
-			effectiveMin = latestBlockMin
-		}
+		effectiveMin := max(effectiveMax-blocksPerDuration, latestBlockMin)
 
 		blockFromValue = fmt.Sprintf("%d", effectiveMin)
 		blockToValue = fmt.Sprintf("%d", effectiveMax)
@@ -1077,7 +1064,7 @@ func (c *ClaudeDiscoveryClient) buildDiscoveryPrompt(input DiscoveryInput) strin
 	sb.WriteString("IMPORTANT:\n")
 	sb.WriteString("- Use actual values from the available ranges shown above\n")
 	sb.WriteString("- Pick a recent time window (last hour or so) within the intersection of all available ranges\n")
-	sb.WriteString("- For block_number tables, estimate block numbers that correspond to the chosen time window\n")
+	sb.WriteString("- For block_number/slot/epoch tables, use the actual 'Available Range' values provided above - pick values near the END of the available range (most recent data). NEVER estimate or guess block numbers.\n")
 	sb.WriteString("- Include ALL external models in the strategies list\n")
 	sb.WriteString("- **ANALYZE ALL WHERE CLAUSES** in transformation and intermediate SQL - missing filters will cause empty test output!\n")
 	sb.WriteString("- Include `filterSql` for each model (empty string if no additional filters needed)\n\n")
@@ -1188,57 +1175,57 @@ func (c *ClaudeDiscoveryClient) validateDiscoveryResult(result *DiscoveryResult)
 
 // normalizeDiscoveryYAMLFields converts common field name variations to expected camelCase
 // and fixes common YAML formatting issues in Claude's output.
+// Uses case-insensitive matching so any casing variant Claude produces is handled.
 func normalizeDiscoveryYAMLFields(yamlContent string) string {
-	// Map of various field name formats to expected camelCase
-	// Includes snake_case, PascalCase, typos, and other variations Claude might output
-	replacements := map[string]string{
-		// snake_case variations
-		"primary_range_type:":   "primaryRangeType:",
-		"primary_range_column:": "primaryRangeColumn:",
-		// Common typos (missing capital letters)
-		"primaryrangeType:":   "primaryRangeType:",
-		"primaryrangeColumn:": "primaryRangeColumn:",
-		"primaryRangetype:":   "primaryRangeType:",
-		"primaryRangecolumn:": "primaryRangeColumn:",
-		"from_value:":         "fromValue:",
-		"to_value:":           "toValue:",
-		"range_column:":       "rangeColumn:",
-		"column_type:":        "columnType:",
-		"filter_sql:":         "filterSql:",
-		"correlation_filter:": "correlationFilter:",
-		"requires_bridge:":    "requiresBridge:",
-		"bridge_table:":       "bridgeTable:",
-		"bridge_join_sql:":    "bridgeJoinSql:",
-		"overall_confidence:": "overallConfidence:",
-		// PascalCase variations
-		"PrimaryRangeType:":   "primaryRangeType:",
-		"PrimaryRangeColumn:": "primaryRangeColumn:",
-		"FromValue:":          "fromValue:",
-		"ToValue:":            "toValue:",
-		"RangeColumn:":        "rangeColumn:",
-		"ColumnType:":         "columnType:",
-		"FilterSql:":          "filterSql:",
-		"FilterSQL:":          "filterSql:",
-		"CorrelationFilter:":  "correlationFilter:",
-		"RequiresBridge:":     "requiresBridge:",
-		"BridgeTable:":        "bridgeTable:",
-		"BridgeJoinSql:":      "bridgeJoinSql:",
-		"BridgeJoinSQL:":      "bridgeJoinSql:",
-		"OverallConfidence:":  "overallConfidence:",
-		// Common typos/variations
-		"filterSql:": "filterSql:",
-		"filter:":    "filterSql:", // Claude might shorten this
+	// Map of lowercase canonical name -> expected camelCase YAML key.
+	// Matching is done case-insensitively against the YAML key portion of each line.
+	canonicalFields := map[string]string{
+		"primaryrangetype":   "primaryRangeType",
+		"primaryrangecolumn": "primaryRangeColumn",
+		"fromvalue":          "fromValue",
+		"tovalue":            "toValue",
+		"rangecolumn":        "rangeColumn",
+		"columntype":         "columnType",
+		"filtersql":          "filterSql",
+		"correlationfilter":  "correlationFilter",
+		"requiresbridge":     "requiresBridge",
+		"bridgetable":        "bridgeTable",
+		"bridgejoinsql":      "bridgeJoinSql",
+		"overallconfidence":  "overallConfidence",
 	}
 
-	result := yamlContent
-	for variant, camel := range replacements {
-		result = strings.ReplaceAll(result, variant, camel)
+	// Also handle snake_case by stripping underscores before lookup
+	// e.g. "primary_range_column" -> "primaryrangecolumn" -> found in map
+
+	// Regex to match a YAML key at the start of a line (with optional leading whitespace)
+	keyPattern := regexp.MustCompile(`^(\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:.*)$`)
+
+	lines := strings.Split(yamlContent, "\n")
+	result := make([]string, 0, len(lines))
+
+	for _, line := range lines {
+		matches := keyPattern.FindStringSubmatch(line)
+		if matches != nil {
+			indent := matches[1]
+			key := matches[2]
+			rest := matches[3]
+
+			// Normalize: strip underscores and lowercase for lookup
+			normalized := strings.ToLower(strings.ReplaceAll(key, "_", ""))
+			if camel, ok := canonicalFields[normalized]; ok {
+				line = indent + camel + rest
+			}
+		}
+
+		result = append(result, line)
 	}
+
+	normalized := strings.Join(result, "\n")
 
 	// Fix unquoted datetime values (e.g., "fromValue: 2025-01-01 00:00:00" -> "fromValue: \"2025-01-01 00:00:00\"")
-	result = fixUnquotedDatetimes(result)
+	normalized = fixUnquotedDatetimes(normalized)
 
-	return result
+	return normalized
 }
 
 // fixUnquotedDatetimes finds unquoted datetime values and adds quotes.
@@ -1305,13 +1292,7 @@ func findTimeColumnInSchema(columns []ColumnInfo) string {
 
 // contains checks if a string slice contains a value.
 func contains(slice []string, value string) bool {
-	for _, v := range slice {
-		if v == value {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(slice, value)
 }
 
 // categorizeModelsByType groups models into time, block, entity, and unknown categories.

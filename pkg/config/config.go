@@ -4,6 +4,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,6 +79,60 @@ type ClickHouseClusterConfig struct {
 	ExternalDatabase string `yaml:"externalDatabase,omitempty"`
 	ExternalUsername string `yaml:"externalUsername,omitempty"`
 	ExternalPassword string `yaml:"externalPassword,omitempty"`
+}
+
+// ExternalURLWithCredentials returns ExternalURL with ExternalUsername and
+// ExternalPassword injected into the URL's userinfo. Consumers such as
+// xatu-cbt read credentials only from the URL, so the separately-configured
+// fields must be embedded before the URL is handed off. Credentials already
+// present in ExternalURL are preserved unless overridden by the explicit fields.
+func (c ClickHouseClusterConfig) ExternalURLWithCredentials() (string, error) {
+	if c.ExternalURL == "" {
+		return "", nil
+	}
+
+	if c.ExternalUsername == "" && c.ExternalPassword == "" {
+		return c.ExternalURL, nil
+	}
+
+	parsed, err := url.Parse(c.ExternalURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse external ClickHouse URL: %w", err)
+	}
+
+	// Seed from any credentials already embedded in the URL, then let the
+	// explicit fields take precedence.
+	username := ""
+	password := ""
+
+	if parsed.User != nil {
+		username = parsed.User.Username()
+		password, _ = parsed.User.Password()
+	}
+
+	if c.ExternalUsername != "" {
+		username = c.ExternalUsername
+	}
+
+	if c.ExternalPassword != "" {
+		password = c.ExternalPassword
+	}
+
+	// A password with no username is unusable by ClickHouse (it would produce a
+	// ":password@host" userinfo). Fall back to the "default" user, which is what
+	// a password-only configuration implies.
+	if password != "" && username == "" {
+		username = "default"
+	}
+
+	switch {
+	case password != "":
+		parsed.User = url.UserPassword(username, password)
+	case username != "":
+		parsed.User = url.User(username)
+	}
+
+	return parsed.String(), nil
 }
 
 // RedisConfig contains Redis configuration.
@@ -373,7 +428,7 @@ func DefaultLab() *LabConfig {
 			ClickHouse: ClickHouseConfig{
 				Xatu: ClickHouseClusterConfig{
 					Mode:             constants.InfraModeExternal,
-					ExternalURL:      "http://chendpoint-xatu-clickhouse.analytics.production.ethpandaops:9000",
+					ExternalURL:      "http://chendpoint-clickhouse-raw.analytics.production.ethpandaops:9000",
 					ExternalDatabase: "default",
 				},
 				CBT: ClickHouseClusterConfig{Mode: constants.InfraModeLocal},

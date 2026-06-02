@@ -2,6 +2,7 @@ package configtui
 
 import (
 	"fmt"
+	"strings"
 	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -237,20 +238,20 @@ func (m Model) handleEnvInput(msg tea.KeyMsg) (bool, tea.Model, tea.Cmd) {
 	}
 
 	// Handle digit input - collect all digits from the input (supports paste).
-	var digits string
+	var digits strings.Builder
 
 	for _, r := range key {
 		if unicode.IsDigit(r) {
-			digits += string(r)
+			digits.WriteString(string(r))
 		}
 	}
 
-	if digits != "" {
+	if digits.String() != "" {
 		if m.selectedIndex == 0 {
-			m.envMinTimestamp += digits
+			m.envMinTimestamp += digits.String()
 			m.envTimestampEnabled = true
 		} else {
-			m.envMinBlock += digits
+			m.envMinBlock += digits.String()
 			m.envBlockEnabled = true
 		}
 

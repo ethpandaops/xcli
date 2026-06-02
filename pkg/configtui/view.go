@@ -174,10 +174,9 @@ func (m Model) renderModelPanels() string {
 	// Calculate panel width (roughly half the terminal, or a reasonable default).
 	panelWidth := 40
 	if m.width > 0 {
-		panelWidth = (m.width - 6) / 2 // Account for borders and spacing
-		if panelWidth < 30 {
-			panelWidth = 30
-		}
+		panelWidth = max(
+			// Account for borders and spacing
+			(m.width-6)/2, 30)
 	}
 
 	// Determine visible height for model lists - stretch to fill available space.
@@ -186,10 +185,7 @@ func (m Model) renderModelPanels() string {
 	visibleHeight := 15 // Default if no height info
 
 	if m.height > 0 {
-		visibleHeight = m.height - reservedHeight
-		if visibleHeight < 5 {
-			visibleHeight = 5
-		}
+		visibleHeight = max(m.height-reservedHeight, 5)
 	}
 
 	// Render external models panel.
@@ -233,11 +229,7 @@ func (m Model) renderModelList(models []ModelEntry, scroll, visibleHeight int, i
 
 	// Determine visible range.
 	start := scroll
-	end := scroll + visibleHeight
-
-	if end > len(models) {
-		end = len(models)
-	}
+	end := min(scroll+visibleHeight, len(models))
 
 	for i := start; i < end; i++ {
 		model := models[i]
@@ -333,10 +325,7 @@ func (m Model) renderHelp() string {
 		}
 	}
 
-	width := m.width
-	if width < 80 {
-		width = 80
-	}
+	width := max(m.width, 80)
 
 	return styleHelp.Width(width).Render(help)
 }
@@ -353,10 +342,7 @@ func (m Model) renderStatusBar() string {
 		status += "  " + m.statusMsg
 	}
 
-	width := m.width
-	if width < 80 {
-		width = 80
-	}
+	width := max(m.width, 80)
 
 	return styleStatusBar.Width(width).Render(status)
 }
@@ -415,11 +401,7 @@ func (m Model) renderTransformationList(visibleHeight int, isActive bool, width 
 
 	// Determine visible range.
 	start := m.transformScroll
-	end := m.transformScroll + visibleHeight
-
-	if end > len(models) {
-		end = len(models)
-	}
+	end := min(m.transformScroll+visibleHeight, len(models))
 
 	for i := start; i < end; i++ {
 		model := models[i]

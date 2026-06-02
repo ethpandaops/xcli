@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ethpandaops/xcli/pkg/ai"
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/ethpandaops/xcli/pkg/seeddata"
@@ -16,12 +17,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// defaultTransformationDuration is the default duration for transformation tests.
+const defaultTransformationDuration = "5m"
+
 // generateTransformationTestOptions holds all options for the generate-transformation-test command.
 type generateTransformationTestOptions struct {
 	model           string
 	models          []string
 	network         string
-	spec            string
 	rangeColumn     string
 	from            string
 	to              string
@@ -49,7 +52,6 @@ func NewLabXatuCBTGenerateTransformationTestCommand(log logrus.FieldLogger, conf
 		model           string
 		models          []string
 		network         string
-		spec            string
 		rangeColumn     string
 		from            string
 		to              string
@@ -87,7 +89,6 @@ Scripted mode:
   xcli lab xatu-cbt generate-transformation-test \
     --model fct_data_column_availability_by_slot \
     --network sepolia \
-    --spec fusaka \
     --range-column slot_start_date_time \
     --from "2025-10-27 00:26:00" \
     --to "2025-10-27 00:30:00" \
@@ -104,7 +105,6 @@ S3 Upload Configuration (defaults to Cloudflare R2):
 				model:           model,
 				models:          models,
 				network:         network,
-				spec:            spec,
 				rangeColumn:     rangeColumn,
 				from:            from,
 				to:              to,
@@ -126,7 +126,6 @@ S3 Upload Configuration (defaults to Cloudflare R2):
 	cmd.Flags().StringVar(&model, "model", "", "Transformation model name (single model)")
 	cmd.Flags().StringSliceVar(&models, "models", nil, "Comma-separated list of models to process (batch mode)")
 	cmd.Flags().StringVar(&network, "network", "", "Network name (mainnet, sepolia, etc.)")
-	cmd.Flags().StringVar(&spec, "spec", "", "Fork spec (pectra, fusaka, etc.)")
 	cmd.Flags().StringVar(&rangeColumn, "range-column", "", "Override detected range column")
 	cmd.Flags().StringVar(&from, "from", "", "Range start value")
 	cmd.Flags().StringVar(&to, "to", "", "Range end value")
@@ -153,7 +152,6 @@ func runGenerateTransformationTest(
 	// Extract options for easier access
 	model := opts.model
 	network := opts.network
-	spec := opts.spec
 	duration := opts.duration
 	upload := opts.upload
 	aiAssertions := opts.aiAssertions
@@ -188,12 +186,8 @@ func runGenerateTransformationTest(
 			return fmt.Errorf("--network is required in non-interactive mode (--yes)")
 		}
 
-		if spec == "" {
-			return fmt.Errorf("--spec is required in non-interactive mode (--yes)")
-		}
-
 		if duration == "" {
-			duration = "5m" // Default duration in non-interactive mode
+			duration = defaultTransformationDuration // Default duration in non-interactive mode
 		}
 	}
 
@@ -257,14 +251,6 @@ func runGenerateTransformationTest(
 		}
 	}
 
-	// Prompt for spec
-	if spec == "" {
-		spec, promptErr = promptForSpec()
-		if promptErr != nil {
-			return promptErr
-		}
-	}
-
 	// AI-assisted range discovery
 	ui.Blank()
 	ui.Header("Analyzing range strategies")
@@ -272,12 +258,16 @@ func runGenerateTransformationTest(
 	// Prompt for duration if not specified
 	if duration == "" {
 		durationOpts := []ui.SelectOption{
-			{Label: "5m", Description: "recommended", Value: "5m"},
+			{Label: "10m", Description: "recommended", Value: "10m"},
 			{Label: "30s", Description: "minimal test", Value: "30s"},
 			{Label: "1m", Description: "quick test", Value: "1m"},
-			{Label: "10m", Description: "", Value: "10m"},
+			{Label: defaultTransformationDuration, Description: "", Value: defaultTransformationDuration},
 			{Label: "30m", Description: "", Value: "30m"},
 			{Label: "1h", Description: "large dataset", Value: "1h"},
+			{Label: "6h", Description: "", Value: "6h"},
+			{Label: "12h", Description: "", Value: "12h"},
+			{Label: "24h", Description: "", Value: "24h"},
+			{Label: "48h", Description: "", Value: "48h"},
 		}
 
 		selectedDuration, durationErr := ui.Select("Time range duration", durationOpts)
@@ -311,100 +301,20 @@ func runGenerateTransformationTest(
 		if err != nil {
 			return fmt.Errorf("fallback range discovery failed: %w", err)
 		}
-	} else if discoveryClient, discoveryErr := seeddata.NewClaudeDiscoveryClient(log, gen); discoveryErr != nil {
-		ui.Warning(fmt.Sprintf("Claude CLI not available: %v", discoveryErr))
-		ui.Info("Falling back to heuristic range detection")
-
-		// Fallback to heuristic detection
-		var rangeInfos map[string]*seeddata.RangeColumnInfo
-
-		rangeInfos, err = seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
-		if err != nil {
-			return fmt.Errorf("failed to detect range columns: %w", err)
-		}
-
-		discoveryResult, err = seeddata.FallbackRangeDiscovery(ctx, gen, externalModels, network, rangeInfos, duration, labCfg.Repos.XatuCBT)
-		if err != nil {
-			return fmt.Errorf("fallback range discovery failed: %w", err)
-		}
 	} else {
-		// Gather schema information
-		schemaSpinner := ui.NewSpinner("Gathering schema information")
+		engine, engineErr := ai.NewEngine(ai.DefaultProvider, log)
 
-		schemaInfo, schemaErr := discoveryClient.GatherSchemaInfo(ctx, externalModels, network, labCfg.Repos.XatuCBT)
-		if schemaErr != nil {
-			schemaSpinner.Fail("Failed to gather schema info")
-
-			return fmt.Errorf("failed to gather schema info: %w", schemaErr)
-		}
-
-		schemaSpinner.Success(fmt.Sprintf("Schema info gathered for %d models", len(schemaInfo)))
-
-		// Display detected range info
-		for _, schema := range schemaInfo {
-			if schema.RangeInfo != nil {
-				status := "detected"
-				if !schema.RangeInfo.Detected {
-					status = "default"
-				}
-
-				rangeStr := ""
-				if schema.RangeInfo.MinValue != "" && schema.RangeInfo.MaxValue != "" {
-					rangeStr = fmt.Sprintf(" [%s → %s]", schema.RangeInfo.MinValue, schema.RangeInfo.MaxValue)
-				}
-
-				ui.Info(fmt.Sprintf("  • %s: %s (%s)%s", schema.Model, schema.RangeInfo.Column, status, rangeStr))
-			}
-		}
-
-		// Read transformation SQL
-		transformationSQL, sqlErr := seeddata.ReadTransformationSQL(model, labCfg.Repos.XatuCBT)
-		if sqlErr != nil {
-			return fmt.Errorf("failed to read transformation SQL: %w", sqlErr)
-		}
-
-		// Read intermediate dependency SQL (for WHERE clause analysis)
-		intermediateSQL, intErr := seeddata.ReadIntermediateSQL(tree, labCfg.Repos.XatuCBT)
-		if intErr != nil {
-			ui.Warning(fmt.Sprintf("Could not read intermediate SQL: %v", intErr))
-			// Continue without intermediate SQL - not critical
-		}
-
-		// Convert to IntermediateSQL slice
-		var intermediateModels []seeddata.IntermediateSQL
-		for modelName, sql := range intermediateSQL {
-			intermediateModels = append(intermediateModels, seeddata.IntermediateSQL{
-				Model: modelName,
-				SQL:   sql,
-			})
-		}
-
-		if len(intermediateModels) > 0 {
-			ui.Info(fmt.Sprintf("Including %d intermediate model(s) for WHERE clause analysis", len(intermediateModels)))
-		}
-
-		// Invoke Claude for analysis
-		ui.Blank()
-
-		analysisSpinner := ui.NewSpinner("Analyzing correlation strategy with Claude")
-
-		discoveryResult, err = discoveryClient.AnalyzeRanges(ctx, seeddata.DiscoveryInput{
-			TransformationModel: model,
-			TransformationSQL:   transformationSQL,
-			IntermediateModels:  intermediateModels,
-			Network:             network,
-			Duration:            duration,
-			ExternalModels:      schemaInfo,
-		})
-		if err != nil {
-			analysisSpinner.Fail("AI analysis failed")
-			ui.Warning(fmt.Sprintf("Claude analysis failed: %v", err))
+		discoveryClient := seeddata.NewClaudeDiscoveryClient(log, gen, engine)
+		if engineErr != nil || !discoveryClient.IsAvailable() {
+			ui.Warning("AI engine not available")
 			ui.Info("Falling back to heuristic range detection")
 
 			// Fallback to heuristic detection
-			rangeInfos, rangeErr := seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
-			if rangeErr != nil {
-				return fmt.Errorf("failed to detect range columns: %w", rangeErr)
+			var rangeInfos map[string]*seeddata.RangeColumnInfo
+
+			rangeInfos, err = seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
+			if err != nil {
+				return fmt.Errorf("failed to detect range columns: %w", err)
 			}
 
 			discoveryResult, err = seeddata.FallbackRangeDiscovery(ctx, gen, externalModels, network, rangeInfos, duration, labCfg.Repos.XatuCBT)
@@ -412,7 +322,92 @@ func runGenerateTransformationTest(
 				return fmt.Errorf("fallback range discovery failed: %w", err)
 			}
 		} else {
-			analysisSpinner.Success(fmt.Sprintf("Strategy generated (confidence: %.0f%%)", discoveryResult.OverallConfidence*100))
+			// Gather schema information
+			schemaSpinner := ui.NewSpinner("Gathering schema information")
+
+			schemaInfo, schemaErr := discoveryClient.GatherSchemaInfo(ctx, externalModels, network, labCfg.Repos.XatuCBT)
+			if schemaErr != nil {
+				schemaSpinner.Fail("Failed to gather schema info")
+
+				return fmt.Errorf("failed to gather schema info: %w", schemaErr)
+			}
+
+			schemaSpinner.Success(fmt.Sprintf("Schema info gathered for %d models", len(schemaInfo)))
+
+			// Display detected range info
+			for _, schema := range schemaInfo {
+				if schema.RangeInfo != nil {
+					status := "detected"
+					if !schema.RangeInfo.Detected {
+						status = "default"
+					}
+
+					rangeStr := ""
+					if schema.RangeInfo.MinValue != "" && schema.RangeInfo.MaxValue != "" {
+						rangeStr = fmt.Sprintf(" [%s → %s]", schema.RangeInfo.MinValue, schema.RangeInfo.MaxValue)
+					}
+
+					ui.Info(fmt.Sprintf("  • %s: %s (%s)%s", schema.Model, schema.RangeInfo.Column, status, rangeStr))
+				}
+			}
+
+			// Read transformation SQL
+			transformationSQL, sqlErr := seeddata.ReadTransformationSQL(model, labCfg.Repos.XatuCBT)
+			if sqlErr != nil {
+				return fmt.Errorf("failed to read transformation SQL: %w", sqlErr)
+			}
+
+			// Read intermediate dependency SQL (for WHERE clause analysis)
+			intermediateSQL, intErr := seeddata.ReadIntermediateSQL(tree, labCfg.Repos.XatuCBT)
+			if intErr != nil {
+				ui.Warning(fmt.Sprintf("Could not read intermediate SQL: %v", intErr))
+				// Continue without intermediate SQL - not critical
+			}
+
+			// Convert to IntermediateSQL slice
+			var intermediateModels []seeddata.IntermediateSQL
+			for modelName, sql := range intermediateSQL {
+				intermediateModels = append(intermediateModels, seeddata.IntermediateSQL{
+					Model: modelName,
+					SQL:   sql,
+				})
+			}
+
+			if len(intermediateModels) > 0 {
+				ui.Info(fmt.Sprintf("Including %d intermediate model(s) for WHERE clause analysis", len(intermediateModels)))
+			}
+
+			// Invoke Claude for analysis
+			ui.Blank()
+
+			analysisSpinner := ui.NewSpinner("Analyzing correlation strategy with Claude")
+
+			discoveryResult, err = discoveryClient.AnalyzeRanges(ctx, seeddata.DiscoveryInput{
+				TransformationModel: model,
+				TransformationSQL:   transformationSQL,
+				IntermediateModels:  intermediateModels,
+				Network:             network,
+				Duration:            duration,
+				ExternalModels:      schemaInfo,
+			})
+			if err != nil {
+				analysisSpinner.Fail("AI analysis failed")
+				ui.Warning(fmt.Sprintf("Claude analysis failed: %v", err))
+				ui.Info("Falling back to heuristic range detection")
+
+				// Fallback to heuristic detection
+				rangeInfos, rangeErr := seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
+				if rangeErr != nil {
+					return fmt.Errorf("failed to detect range columns: %w", rangeErr)
+				}
+
+				discoveryResult, err = seeddata.FallbackRangeDiscovery(ctx, gen, externalModels, network, rangeInfos, duration, labCfg.Repos.XatuCBT)
+				if err != nil {
+					return fmt.Errorf("fallback range discovery failed: %w", err)
+				}
+			} else {
+				analysisSpinner.Success(fmt.Sprintf("Strategy generated (confidence: %.0f%%)", discoveryResult.OverallConfidence*100))
+			}
 		}
 	}
 
@@ -772,11 +767,11 @@ func runGenerateTransformationTest(
 
 		// Check if we should skip existing
 		if upload && skipExisting && uploader != nil {
-			exists, existsErr := uploader.ObjectExists(ctx, network, spec, filename[:len(filename)-8]) // Remove .parquet
+			exists, existsErr := uploader.ObjectExists(ctx, network, filename[:len(filename)-8]) // Remove .parquet
 			if existsErr == nil && exists {
 				ui.Info(fmt.Sprintf("  ⏭ Skipping %s (already exists)", extModel))
 
-				urls[extModel] = uploader.GetPublicURL(network, spec, filename[:len(filename)-8])
+				urls[extModel] = uploader.GetPublicURL(network, filename[:len(filename)-8])
 
 				continue
 			}
@@ -814,7 +809,6 @@ func runGenerateTransformationTest(
 		result, genErr := gen.Generate(ctx, seeddata.GenerateOptions{
 			Model:             extModel,
 			Network:           network,
-			Spec:              spec,
 			RangeColumn:       strategy.RangeColumn,
 			From:              strategy.FromValue,
 			To:                strategy.ToValue,
@@ -857,7 +851,6 @@ func runGenerateTransformationTest(
 			uploadResult, uploadErr := uploader.Upload(ctx, seeddata.UploadOptions{
 				LocalPath: outputPath,
 				Network:   network,
-				Spec:      spec,
 				Model:     extModel,
 				Filename:  filename[:len(filename)-8], // Remove .parquet extension
 			})
@@ -878,8 +871,8 @@ func runGenerateTransformationTest(
 			}
 		} else {
 			// Use placeholder URL
-			urls[extModel] = fmt.Sprintf("https://%s/%s/%s/%s/%s",
-				seeddata.DefaultS3PublicDomain, seeddata.DefaultS3Prefix, network, spec, filename)
+			urls[extModel] = fmt.Sprintf("https://%s/%s/tests/%s/%s",
+				seeddata.DefaultS3PublicDomain, seeddata.DefaultS3Prefix, network, filename)
 		}
 	}
 
@@ -923,7 +916,6 @@ func runGenerateTransformationTest(
 	yamlContent, err := seeddata.GenerateTransformationTestYAML(seeddata.TransformationTemplateData{
 		Model:          model,
 		Network:        network,
-		Spec:           spec,
 		ExternalModels: externalModels,
 		URLs:           urls,
 		Assertions:     assertions,
@@ -945,7 +937,7 @@ func runGenerateTransformationTest(
 	}
 
 	if writeYAML {
-		yamlPath := filepath.Join(labCfg.Repos.XatuCBT, "tests", network, spec, "models", model+".yaml")
+		yamlPath := filepath.Join(labCfg.Repos.XatuCBT, "tests", network, "models", model+".yaml")
 
 		if yamlWriteErr := writeTestYAML(yamlPath, yamlContent); yamlWriteErr != nil {
 			return yamlWriteErr
@@ -956,8 +948,8 @@ func runGenerateTransformationTest(
 	ui.Blank()
 	ui.Header("Test Command")
 
-	testCmd := fmt.Sprintf("./bin/xatu-cbt test models %s --spec %s --network %s --verbose --force-rebuild",
-		model, spec, network)
+	testCmd := fmt.Sprintf("./bin/xatu-cbt test models %s --network %s --verbose --force-rebuild",
+		model, network)
 	fmt.Println(testCmd)
 
 	// Display test YAML
@@ -995,11 +987,18 @@ func promptForTransformationModel(xatuCBTPath string) (string, error) {
 func generateAIAssertions(ctx context.Context, log logrus.FieldLogger, model string, externalModels []string, xatuCBTPath string) ([]seeddata.Assertion, error) {
 	aiSpinner := ui.NewSpinner("Analyzing transformation SQL with Claude")
 
-	client, err := seeddata.NewClaudeAssertionClient(log)
-	if err != nil {
-		aiSpinner.Fail("Claude CLI not available")
+	engine, engineErr := ai.NewEngine(ai.DefaultProvider, log)
+	if engineErr != nil {
+		aiSpinner.Fail("AI engine not available")
 
-		return nil, fmt.Errorf("claude CLI not available: %w", err)
+		return nil, fmt.Errorf("AI engine not available: %w", engineErr)
+	}
+
+	client := seeddata.NewClaudeAssertionClient(log, engine)
+	if !client.IsAvailable() {
+		aiSpinner.Fail("AI engine not available")
+
+		return nil, fmt.Errorf("AI engine is not available")
 	}
 
 	// Read transformation SQL
@@ -1034,24 +1033,16 @@ func runBatchGenerateTransformationTest(
 	opts generateTransformationTestOptions,
 ) error {
 	models := opts.models
-	parallel := opts.parallel
-
-	if parallel < 1 {
-		parallel = 1
-	}
+	parallel := max(opts.parallel, 1)
 
 	// Validate required options for batch mode
 	if opts.network == "" {
 		return fmt.Errorf("--network is required in batch mode")
 	}
 
-	if opts.spec == "" {
-		return fmt.Errorf("--spec is required in batch mode")
-	}
-
 	// Set defaults for batch mode
 	if opts.duration == "" {
-		opts.duration = "5m"
+		opts.duration = defaultTransformationDuration
 	}
 
 	// Force non-interactive mode for batch
@@ -1143,7 +1134,6 @@ func runSingleModelGeneration(
 ) error {
 	model := opts.model
 	network := opts.network
-	spec := opts.spec
 	duration := opts.duration
 	upload := opts.upload
 	aiAssertions := opts.aiAssertions
@@ -1189,54 +1179,13 @@ func runSingleModelGeneration(
 		if err != nil {
 			return fmt.Errorf("fallback range discovery failed: %w", err)
 		}
-	} else if discoveryClient, discoveryErr := seeddata.NewClaudeDiscoveryClient(log, gen); discoveryErr != nil {
-		// Claude not available, use heuristics
-		logInfo("Claude unavailable, using heuristic range detection")
-
-		rangeInfos, rangeErr := seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
-		if rangeErr != nil {
-			return fmt.Errorf("failed to detect range columns: %w", rangeErr)
-		}
-
-		discoveryResult, err = seeddata.FallbackRangeDiscovery(ctx, gen, externalModels, network, rangeInfos, duration, labCfg.Repos.XatuCBT)
-		if err != nil {
-			return fmt.Errorf("fallback range discovery failed: %w", err)
-		}
 	} else {
-		// Use Claude for analysis
-		logInfo("Analyzing with Claude AI")
+		engine, engineErr := ai.NewEngine(ai.DefaultProvider, log)
 
-		schemaInfo, schemaErr := discoveryClient.GatherSchemaInfo(ctx, externalModels, network, labCfg.Repos.XatuCBT)
-		if schemaErr != nil {
-			return fmt.Errorf("failed to gather schema info: %w", schemaErr)
-		}
-
-		transformationSQL, sqlErr := seeddata.ReadTransformationSQL(model, labCfg.Repos.XatuCBT)
-		if sqlErr != nil {
-			return fmt.Errorf("failed to read transformation SQL: %w", sqlErr)
-		}
-
-		intermediateSQL, _ := seeddata.ReadIntermediateSQL(tree, labCfg.Repos.XatuCBT)
-
-		var intermediateModels []seeddata.IntermediateSQL
-		for modelName, sql := range intermediateSQL {
-			intermediateModels = append(intermediateModels, seeddata.IntermediateSQL{
-				Model: modelName,
-				SQL:   sql,
-			})
-		}
-
-		discoveryResult, err = discoveryClient.AnalyzeRanges(ctx, seeddata.DiscoveryInput{
-			TransformationModel: model,
-			TransformationSQL:   transformationSQL,
-			IntermediateModels:  intermediateModels,
-			Network:             network,
-			Duration:            duration,
-			ExternalModels:      schemaInfo,
-		})
-		if err != nil {
-			// Fallback to heuristics
-			logInfo("Claude analysis failed, falling back to heuristics")
+		discoveryClient := seeddata.NewClaudeDiscoveryClient(log, gen, engine)
+		if engineErr != nil || !discoveryClient.IsAvailable() {
+			// AI not available, use heuristics
+			logInfo("AI engine unavailable, using heuristic range detection")
 
 			rangeInfos, rangeErr := seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
 			if rangeErr != nil {
@@ -1248,7 +1197,53 @@ func runSingleModelGeneration(
 				return fmt.Errorf("fallback range discovery failed: %w", err)
 			}
 		} else {
-			logInfo(fmt.Sprintf("Claude strategy generated (confidence: %.0f%%)", discoveryResult.OverallConfidence*100))
+			// Use AI for analysis
+			logInfo("Analyzing with Claude AI")
+
+			schemaInfo, schemaErr := discoveryClient.GatherSchemaInfo(ctx, externalModels, network, labCfg.Repos.XatuCBT)
+			if schemaErr != nil {
+				return fmt.Errorf("failed to gather schema info: %w", schemaErr)
+			}
+
+			transformationSQL, sqlErr := seeddata.ReadTransformationSQL(model, labCfg.Repos.XatuCBT)
+			if sqlErr != nil {
+				return fmt.Errorf("failed to read transformation SQL: %w", sqlErr)
+			}
+
+			intermediateSQL, _ := seeddata.ReadIntermediateSQL(tree, labCfg.Repos.XatuCBT)
+
+			var intermediateModels []seeddata.IntermediateSQL
+			for modelName, sql := range intermediateSQL {
+				intermediateModels = append(intermediateModels, seeddata.IntermediateSQL{
+					Model: modelName,
+					SQL:   sql,
+				})
+			}
+
+			discoveryResult, err = discoveryClient.AnalyzeRanges(ctx, seeddata.DiscoveryInput{
+				TransformationModel: model,
+				TransformationSQL:   transformationSQL,
+				IntermediateModels:  intermediateModels,
+				Network:             network,
+				Duration:            duration,
+				ExternalModels:      schemaInfo,
+			})
+			if err != nil {
+				// Fallback to heuristics
+				logInfo("Claude analysis failed, falling back to heuristics")
+
+				rangeInfos, rangeErr := seeddata.DetectRangeColumnsForModels(externalModels, labCfg.Repos.XatuCBT)
+				if rangeErr != nil {
+					return fmt.Errorf("failed to detect range columns: %w", rangeErr)
+				}
+
+				discoveryResult, err = seeddata.FallbackRangeDiscovery(ctx, gen, externalModels, network, rangeInfos, duration, labCfg.Repos.XatuCBT)
+				if err != nil {
+					return fmt.Errorf("fallback range discovery failed: %w", err)
+				}
+			} else {
+				logInfo(fmt.Sprintf("Claude strategy generated (confidence: %.0f%%)", discoveryResult.OverallConfidence*100))
+			}
 		}
 	}
 
@@ -1328,11 +1323,11 @@ func runSingleModelGeneration(
 
 		// Check if we should skip existing
 		if upload && skipExisting && uploader != nil {
-			exists, existsErr := uploader.ObjectExists(ctx, network, spec, filename[:len(filename)-8])
+			exists, existsErr := uploader.ObjectExists(ctx, network, filename[:len(filename)-8])
 			if existsErr == nil && exists {
 				logInfo(fmt.Sprintf("Skipping %s (already exists)", extModel))
 
-				urls[extModel] = uploader.GetPublicURL(network, spec, filename[:len(filename)-8])
+				urls[extModel] = uploader.GetPublicURL(network, filename[:len(filename)-8])
 
 				continue
 			}
@@ -1343,7 +1338,6 @@ func runSingleModelGeneration(
 		result, genErr := gen.Generate(ctx, seeddata.GenerateOptions{
 			Model:             extModel,
 			Network:           network,
-			Spec:              spec,
 			RangeColumn:       strategy.RangeColumn,
 			From:              strategy.FromValue,
 			To:                strategy.ToValue,
@@ -1365,7 +1359,6 @@ func runSingleModelGeneration(
 			uploadResult, uploadErr := uploader.Upload(ctx, seeddata.UploadOptions{
 				LocalPath: outputPath,
 				Network:   network,
-				Spec:      spec,
 				Model:     extModel,
 				Filename:  filename[:len(filename)-8],
 			})
@@ -1378,8 +1371,8 @@ func runSingleModelGeneration(
 			// Clean up local file
 			_ = os.Remove(outputPath)
 		} else {
-			urls[extModel] = fmt.Sprintf("https://%s/%s/%s/%s/%s",
-				seeddata.DefaultS3PublicDomain, seeddata.DefaultS3Prefix, network, spec, filename)
+			urls[extModel] = fmt.Sprintf("https://%s/%s/tests/%s/%s",
+				seeddata.DefaultS3PublicDomain, seeddata.DefaultS3Prefix, network, filename)
 		}
 
 		_ = result // Silence unused warning
@@ -1401,7 +1394,6 @@ func runSingleModelGeneration(
 	yamlContent, err := seeddata.GenerateTransformationTestYAML(seeddata.TransformationTemplateData{
 		Model:          model,
 		Network:        network,
-		Spec:           spec,
 		ExternalModels: externalModels,
 		URLs:           urls,
 		Assertions:     assertions,
@@ -1411,7 +1403,7 @@ func runSingleModelGeneration(
 	}
 
 	// Write YAML
-	yamlPath := filepath.Join(labCfg.Repos.XatuCBT, "tests", network, spec, "models", model+".yaml")
+	yamlPath := filepath.Join(labCfg.Repos.XatuCBT, "tests", network, "models", model+".yaml")
 
 	logInfo(fmt.Sprintf("Writing test YAML to %s", yamlPath))
 

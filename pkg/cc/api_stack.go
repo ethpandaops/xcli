@@ -36,7 +36,7 @@ func (a *apiHandler) handlePostStackUp(w http.ResponseWriter, _ *http.Request) {
 		a.stack.mu.Unlock()
 
 		writeJSON(w, http.StatusConflict, map[string]string{
-			"error": "stack is currently " + current,
+			keyError: "stack is currently " + current,
 		})
 
 		return
@@ -73,8 +73,8 @@ func (a *apiHandler) handlePostStackUp(w http.ResponseWriter, _ *http.Request) {
 			a.stack.mu.Unlock()
 
 			a.sseHub.Broadcast("stack_progress", map[string]string{
-				"phase":   phase,
-				"message": message,
+				keyPhase:   phase,
+				keyMessage: message,
 			})
 		}
 
@@ -94,7 +94,7 @@ func (a *apiHandler) handlePostStackUp(w http.ResponseWriter, _ *http.Request) {
 		if err != nil {
 			a.log.WithError(err).Error("stack boot failed")
 			a.sseHub.Broadcast("stack_error", map[string]string{
-				"error": err.Error(),
+				keyError: err.Error(),
 			})
 
 			return
@@ -105,7 +105,7 @@ func (a *apiHandler) handlePostStackUp(w http.ResponseWriter, _ *http.Request) {
 	}()
 
 	writeJSON(w, http.StatusOK, map[string]string{
-		"status": stackStatusStarting,
+		keyStatus: stackStatusStarting,
 	})
 }
 
@@ -121,7 +121,7 @@ func (a *apiHandler) handlePostStackDown(
 		a.stack.mu.Unlock()
 
 		writeJSON(w, http.StatusConflict, map[string]string{
-			"error": "stack is currently " + current,
+			keyError: "stack is currently " + current,
 		})
 
 		return
@@ -148,8 +148,8 @@ func (a *apiHandler) handlePostStackDown(
 			a.stack.mu.Unlock()
 
 			a.sseHub.Broadcast("stack_progress", map[string]string{
-				"phase":   phase,
-				"message": message,
+				keyPhase:   phase,
+				keyMessage: message,
 			})
 		}
 
@@ -167,7 +167,7 @@ func (a *apiHandler) handlePostStackDown(
 		if err != nil {
 			a.log.WithError(err).Error("stack teardown failed")
 			a.sseHub.Broadcast("stack_error", map[string]string{
-				"error": err.Error(),
+				keyError: err.Error(),
 			})
 
 			return
@@ -178,7 +178,7 @@ func (a *apiHandler) handlePostStackDown(
 	}()
 
 	writeJSON(w, http.StatusOK, map[string]string{
-		"status": stackStatusStopping,
+		keyStatus: stackStatusStopping,
 	})
 }
 
@@ -194,7 +194,7 @@ func (a *apiHandler) handlePostStackRestart(
 		a.stack.mu.Unlock()
 
 		writeJSON(w, http.StatusConflict, map[string]string{
-			"error": "stack is currently " + current,
+			keyError: "stack is currently " + current,
 		})
 
 		return
@@ -216,8 +216,8 @@ func (a *apiHandler) handlePostStackRestart(
 			a.stack.mu.Unlock()
 
 			a.sseHub.Broadcast("stack_progress", map[string]string{
-				"phase":   phase,
-				"message": message,
+				keyPhase:   phase,
+				keyMessage: message,
 			})
 		}
 
@@ -236,7 +236,7 @@ func (a *apiHandler) handlePostStackRestart(
 			a.stack.mu.Unlock()
 
 			a.sseHub.Broadcast("stack_error", map[string]string{
-				"error": err.Error(),
+				keyError: err.Error(),
 			})
 
 			return
@@ -274,7 +274,7 @@ func (a *apiHandler) handlePostStackRestart(
 			a.stack.mu.Unlock()
 
 			a.sseHub.Broadcast("stack_error", map[string]string{
-				"error": err.Error(),
+				keyError: err.Error(),
 			})
 
 			return
@@ -289,7 +289,7 @@ func (a *apiHandler) handlePostStackRestart(
 	}()
 
 	writeJSON(w, http.StatusOK, map[string]string{
-		"status": stackStatusStopping,
+		keyStatus: stackStatusStopping,
 	})
 }
 
@@ -360,7 +360,7 @@ func (a *apiHandler) handlePostStackCancel(
 		a.stack.mu.Unlock()
 
 		writeJSON(w, http.StatusConflict, map[string]string{
-			"error": "stack is not currently starting",
+			keyError: "stack is not currently starting",
 		})
 
 		return
@@ -393,8 +393,8 @@ func (a *apiHandler) handlePostStackCancel(
 			a.stack.mu.Unlock()
 
 			a.sseHub.Broadcast("stack_progress", map[string]string{
-				"phase":   phase,
-				"message": message,
+				keyPhase:   phase,
+				keyMessage: message,
 			})
 		}
 
@@ -407,7 +407,7 @@ func (a *apiHandler) handlePostStackCancel(
 			a.stack.mu.Unlock()
 
 			a.sseHub.Broadcast("stack_error", map[string]string{
-				"error": err.Error(),
+				keyError: err.Error(),
 			})
 
 			return
@@ -423,6 +423,6 @@ func (a *apiHandler) handlePostStackCancel(
 	}()
 
 	writeJSON(w, http.StatusOK, map[string]string{
-		"status": stackStatusStopping,
+		keyStatus: stackStatusStopping,
 	})
 }
