@@ -20,7 +20,7 @@ assertions:
     - name: total count
       sql: |
         SELECT COUNT(*) AS count
-        FROM cluster('{remote_cluster}', default.{{ .Model }})
+        FROM cluster('{raw}', default.{{ .Model }})
       expected:
         count: {{ .RowCount }}
 `
