@@ -311,7 +311,9 @@ func (a *apiHandler) handleGetServiceLogs(
 		return
 	}
 
-	logPath := filepath.Clean(a.backend.LogFilePath(name))
+	// filepath.Base strips any traversal so a service name can only resolve a
+	// file inside the stack's logs directory.
+	logPath := filepath.Clean(a.backend.LogFilePath(filepath.Base(name)))
 
 	f, err := os.Open(logPath)
 	if err != nil {

@@ -38,7 +38,7 @@ func ServiceTable(services []Service) {
 
 	for _, svc := range services {
 		var status string
-		if svc.Status == "running" {
+		if svc.Status == statusRunning {
 			status = pterm.Green(svc.Status)
 		} else {
 			status = pterm.Red(svc.Status)

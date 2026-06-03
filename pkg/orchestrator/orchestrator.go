@@ -48,6 +48,7 @@ type Orchestrator struct {
 	builder  *builder.Manager
 	stateDir string
 	verbose  bool
+	render   ui.Renderer
 }
 
 // NewOrchestrator creates a new Orchestrator instance.
@@ -90,7 +91,18 @@ func NewOrchestrator(
 		builder:  builder.NewManager(log, cfg, stateDir),
 		stateDir: stateDir,
 		verbose:  false,
+		render:   ui.NewPlainRenderer(),
 	}, nil
+}
+
+// SetRenderer overrides the renderer used for the Up flow's progress output.
+// Callers pass ui.NewRenderer() to pick a live or plain renderer based on the
+// environment. The orchestrator defaults to a plain renderer.
+func (o *Orchestrator) SetRenderer(r ui.Renderer) {
+	if r != nil {
+		o.render = r
+		o.builder.SetRenderer(r)
+	}
 }
 
 // StateDir returns the state directory path for reading config files.
@@ -152,7 +164,7 @@ func (o *Orchestrator) Up(
 	progress ProgressFunc,
 ) error {
 	// Display startup banner
-	ui.Banner("Starting Lab Stack")
+	o.render.Banner("Starting Lab Stack")
 
 	o.log.Info("starting lab stack")
 
@@ -185,13 +197,15 @@ func (o *Orchestrator) Up(
 			"testing external ClickHouse connection",
 		)
 
-		spinner := ui.NewSpinner("Testing external ClickHouse DSN")
+		task := o.render.Task("Testing external ClickHouse DSN")
 
 		if err := o.infra.TestExternalConnection(ctx); err != nil {
+			task.Fail("Failed to connect to external ClickHouse")
+
 			return fmt.Errorf("failed to connect to external ClickHouse: %w", err)
 		}
 
-		spinner.Success("External ClickHouse connection established")
+		task.Success("External ClickHouse connection established")
 
 		o.log.Info("external ClickHouse connection verified")
 	}
@@ -211,19 +225,23 @@ func (o *Orchestrator) Up(
 	portConflicts := o.checkPortConflicts()
 
 	if len(runningProcesses) > 0 || len(portConflicts) > 0 {
-		ui.Warning("Stack is already running (or ports are in use)")
+		o.render.Warning("Stack is already running (or ports are in use)")
 
 		if len(runningProcesses) > 0 {
-			ui.Header("Running services:")
+			o.render.Header("Running services:")
 
 			for _, p := range runningProcesses {
-				fmt.Printf("  - %s (PID %d)\n", p.Name, p.PID)
+				o.render.Info(fmt.Sprintf("%s (PID %d)", p.Name, p.PID))
 			}
 		}
 
 		if len(portConflicts) > 0 {
-			fmt.Println("\nPort conflicts detected:")
-			fmt.Print(portutil.FormatConflicts(portConflicts))
+			o.render.Header("Port conflicts detected:")
+
+			for line := range strings.SplitSeq(
+				strings.TrimRight(portutil.FormatConflicts(portConflicts), "\n"), "\n") {
+				o.render.Info(line)
+			}
 		}
 
 		return fmt.Errorf(
@@ -244,18 +262,18 @@ func (o *Orchestrator) Up(
 	// This ensures xatu-cbt is ready before starting infrastructure in Phase 1
 	if !skipBuild {
 		reportProgress(progress, "build_xatu_cbt", "Building Xatu-CBT...")
-		ui.Header("Phase 1: Building Xatu-CBT")
+		o.render.Phase("Phase 1: Building Xatu-CBT")
 		o.log.Info("building xatu-cbt")
 
-		spinner := ui.NewSpinner("Building xatu-cbt")
+		task := o.render.Task("Building xatu-cbt")
 
 		if err := o.builder.BuildXatuCBT(ctx, forceBuild); err != nil {
-			spinner.Fail("Failed to build xatu-cbt")
+			task.Fail("Failed to build xatu-cbt")
 
 			return fmt.Errorf("failed to build xatu-cbt: %w", err)
 		}
 
-		spinner.Success("Xatu-CBT built successfully")
+		task.Success("Xatu-CBT built successfully")
 
 		o.log.Info("xatu-cbt built successfully")
 	} else {
@@ -272,12 +290,18 @@ func (o *Orchestrator) Up(
 
 	// Phase 1: Start infrastructure
 	reportProgress(progress, "infrastructure", "Starting infrastructure...")
-	ui.Header("Phase 2: Starting Infrastructure")
+	o.render.Phase("Phase 2: Starting Infrastructure")
 	o.log.WithField("mode", o.mode.Name()).Info("starting infrastructure")
 
+	infraTask := o.render.Task("Starting infrastructure services")
+
 	if err := o.infra.Start(ctx); err != nil {
+		infraTask.Fail("Failed to start infrastructure")
+
 		return fmt.Errorf("failed to start infrastructure: %w", err)
 	}
+
+	infraTask.Success("Infrastructure services ready")
 
 	o.log.WithField("mode", o.mode.Name()).Info("infrastructure ready")
 
@@ -291,9 +315,11 @@ func (o *Orchestrator) Up(
 	// BuildAll now runs: CBT || lab-backend || lab (parallel execution)
 	if !skipBuild {
 		reportProgress(progress, "build_services", "Building services...")
-		ui.Header("Phase 3: Building Services")
+		o.render.Phase("Phase 3: Building Services")
 		o.log.Info("building repositories")
 
+		// BuildAll runs cbt, lab-backend and lab-frontend in parallel, each
+		// emitting its own task into the live tree under this phase.
 		if err := o.builder.BuildAll(ctx, forceBuild); err != nil {
 			return fmt.Errorf("failed to build repositories: %w", err)
 		}
@@ -316,26 +342,26 @@ func (o *Orchestrator) Up(
 
 	// Phase 3: Setup networks (run migrations)
 	reportProgress(progress, "network_setup", "Setting up networks...")
-	ui.Blank()
-	ui.Header("Phase 4: Network Setup")
+	o.render.Blank()
+	o.render.Phase("Phase 4: Network Setup")
 
-	spinner := ui.NewSpinner("Setting up networks")
+	task := o.render.Task("Setting up networks")
 
 	for _, network := range o.cfg.EnabledNetworks() {
-		spinner.UpdateText(fmt.Sprintf("Setting up %s network", network.Name))
+		task.UpdateText(fmt.Sprintf("Setting up %s network", network.Name))
 
 		if err := o.infra.SetupNetwork(ctx, network.Name); err != nil {
 			o.log.WithError(err).Warnf("Failed to setup network %s (may already be setup)", network.Name)
 		}
 	}
 
-	spinner.Success("Networks configured")
+	task.Success("Networks configured")
 
 	// Seed bounds from production after networks are configured (admin tables now exist)
-	boundsSpinner := ui.NewSpinner("Checking bounds tables")
+	boundsSpinner := o.render.Task("Checking bounds tables")
 
 	if err := o.infra.AutoSeedBoundsIfNeeded(ctx, boundsSpinner); err != nil {
-		boundsSpinner.Fail("Failed to seed bounds from production")
+		boundsSpinner.Warning("Bounds seeding skipped (CBT will run full scans)")
 		o.log.WithError(err).Warn("Failed to seed bounds from production, CBT will run full scans")
 	} else {
 		boundsSpinner.Success("Bounds seeding complete")
@@ -348,10 +374,10 @@ func (o *Orchestrator) Up(
 
 	// Phase 4: Generate configs (needed for proto generation)
 	reportProgress(progress, "generate_configs", "Generating configurations...")
-	ui.Header("Phase 5: Generating Configurations")
+	o.render.Phase("Phase 5: Generating Configurations")
 	o.log.Info("generating service configurations")
 
-	configSpinner := ui.NewSpinner("Generating service configurations")
+	configSpinner := o.render.Task("Generating service configurations")
 
 	if err := o.GenerateConfigs(ctx); err != nil {
 		configSpinner.Fail("Failed to generate configurations")
@@ -370,7 +396,7 @@ func (o *Orchestrator) Up(
 	if !skipBuild {
 		reportProgress(progress, "build_cbt_api", "Building cbt-api...")
 
-		buildSpinner := ui.NewSpinner("Building cbt-api")
+		buildSpinner := o.render.Task("Building cbt-api")
 
 		if err := o.builder.BuildCBTAPI(ctx, forceBuild); err != nil {
 			buildSpinner.Fail("Failed to build cbt-api")
@@ -390,7 +416,7 @@ func (o *Orchestrator) Up(
 	o.log.Info("checking for port conflicts")
 
 	if conflicts := o.checkPortConflicts(); len(conflicts) > 0 {
-		ui.Warning("Port conflicts detected!")
+		o.render.Warning("Port conflicts detected!")
 		fmt.Print(portutil.FormatConflicts(conflicts))
 
 		return fmt.Errorf("port conflicts prevent starting services")
@@ -398,9 +424,9 @@ func (o *Orchestrator) Up(
 
 	// Start services
 	reportProgress(progress, "start_services", "Starting all services...")
-	ui.Header("Phase 6: Starting Services")
+	o.render.Phase("Phase 6: Starting Services")
 
-	serviceSpinner := ui.NewSpinner("Starting all services")
+	serviceSpinner := o.render.Task("Starting all services")
 
 	if err := o.startServices(ctx); err != nil {
 		serviceSpinner.Fail("Failed to start services")
@@ -412,8 +438,8 @@ func (o *Orchestrator) Up(
 
 	reportProgress(progress, "complete", "Stack is running!")
 
-	ui.Blank()
-	ui.Success("Stack is running!")
+	o.render.Blank()
+	o.render.Success("Stack is running!")
 
 	// Build services list
 	services := []ui.Service{
@@ -456,9 +482,8 @@ func (o *Orchestrator) Up(
 		})
 	}
 
-	ui.Header("Services")
-	ui.ServiceTable(services)
-	ui.Blank()
+	o.render.ServiceTable("Services", services)
+	o.render.Blank()
 
 	return nil
 }
@@ -472,7 +497,7 @@ func (o *Orchestrator) Down(ctx context.Context, progress ProgressFunc) error {
 	// Stop services first
 	reportProgress(progress, "stop_services", "Stopping services...")
 
-	spinner := ui.NewSpinner("Stopping services")
+	spinner := o.render.Task("Stopping services")
 
 	o.log.Info("stopping services")
 
@@ -486,7 +511,7 @@ func (o *Orchestrator) Down(ctx context.Context, progress ProgressFunc) error {
 	// Check for and clean up orphaned processes
 	reportProgress(progress, "cleanup_orphans", "Cleaning up orphaned processes...")
 
-	spinner = ui.NewSpinner("Cleaning up orphaned processes")
+	spinner = o.render.Task("Cleaning up orphaned processes")
 
 	o.log.Info("checking for orphaned processes")
 
@@ -501,7 +526,7 @@ func (o *Orchestrator) Down(ctx context.Context, progress ProgressFunc) error {
 	// Clean log files
 	reportProgress(progress, "clean_logs", "Cleaning log files...")
 
-	spinner = ui.NewSpinner("Cleaning log files")
+	spinner = o.render.Task("Cleaning log files")
 
 	o.log.Info("cleaning log files")
 
@@ -532,7 +557,7 @@ func (o *Orchestrator) Down(ctx context.Context, progress ProgressFunc) error {
 	// Reset infrastructure (stops containers and removes volumes)
 	reportProgress(progress, "stop_infrastructure", "Stopping infrastructure...")
 
-	spinner = ui.NewSpinner("Stopping infrastructure and removing volumes")
+	spinner = o.render.Task("Stopping infrastructure and removing volumes")
 
 	o.log.Info("resetting infrastructure")
 
@@ -547,10 +572,6 @@ func (o *Orchestrator) Down(ctx context.Context, progress ProgressFunc) error {
 	reportProgress(progress, "complete", "Stack stopped")
 
 	o.log.Info("teardown complete")
-	ui.Blank()
-	ui.Success("Stack torn down successfully")
-	fmt.Println("\nAll services stopped, logs cleaned, and volumes removed.")
-	fmt.Println("Run 'xcli lab up' to start fresh.")
 
 	return nil
 }
@@ -769,8 +790,6 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 	ui.Blank()
 
 	// Show infrastructure status
-	ui.Header("Infrastructure")
-
 	infraStatus := o.infra.Status(ctx)
 
 	// Use mode interface to determine if external ClickHouse is used
@@ -806,15 +825,15 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 		})
 	}
 
-	ui.ServiceTable(infraServices)
+	ui.StatusPanel("Infrastructure", infraServices)
 
 	// Show observability status if enabled
 	if o.cfg.Infrastructure.Observability.Enabled {
 		ui.Blank()
-		ui.Header("Observability")
 
 		obsStatus, obsErr := o.infra.GetObservabilityStatus(ctx)
 		if obsErr != nil {
+			ui.Header("Observability")
 			fmt.Printf("  Error getting observability status: %v\n", obsErr)
 		} else if len(obsStatus) > 0 {
 			obsServices := make([]ui.Service, 0, len(obsStatus))
@@ -834,17 +853,17 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 				})
 			}
 
-			ui.ServiceTable(obsServices)
+			ui.StatusPanel("Observability", obsServices)
 		}
 	}
 
 	// Show services
 	ui.Blank()
-	ui.Header("Services")
 
 	processes := o.proc.List()
 
 	if len(processes) == 0 {
+		ui.Header("Services")
 		fmt.Println("  No services running")
 	} else {
 		services := make([]ui.Service, 0, len(processes))
@@ -859,7 +878,7 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 			})
 		}
 
-		ui.ServiceTable(services)
+		ui.StatusPanel("Services", services)
 	}
 
 	// Check for orphaned processes
@@ -1144,7 +1163,7 @@ func (o *Orchestrator) RestartAllServices(ctx context.Context, verbose bool) err
 // checkGitStatus checks if all repositories are up to date with their remotes.
 // This is non-blocking - it only shows warnings if repositories are out of date.
 func (o *Orchestrator) checkGitStatus(ctx context.Context) {
-	spinner := ui.NewSpinner("Checking git status for all repositories")
+	spinner := o.render.Task("Checking git status for all repositories")
 
 	checker := git.NewChecker(o.log)
 
@@ -1176,7 +1195,6 @@ func (o *Orchestrator) checkGitStatus(ctx context.Context) {
 	// Complete spinner based on results
 	if hasOutOfDateRepos {
 		spinner.Warning("Some repositories are not up to date")
-		ui.Blank()
 
 		// Build table data
 		gitStatuses := make([]ui.GitStatus, 0, len(outOfDateRepos))
@@ -1218,10 +1236,9 @@ func (o *Orchestrator) checkGitStatus(ctx context.Context) {
 			}
 		}
 
-		ui.GitStatusTable(gitStatuses)
-		ui.Blank()
-		fmt.Println("Consider running 'git pull' in the affected repositories.")
-		ui.Blank()
+		o.render.GitStatusTable(gitStatuses)
+		o.render.Info("Consider running 'git pull' in the affected repositories.")
+		o.render.Blank()
 	} else {
 		spinner.Success("All repositories are up to date")
 		o.log.Info("all repositories are up to date")

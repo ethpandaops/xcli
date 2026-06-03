@@ -206,7 +206,8 @@ func (a *apiHandler) handlePostDiagnoseStart(w http.ResponseWriter, r *http.Requ
 	})
 
 	prompt := buildDiagnosePrompt(name, status, health, logLines)
-	go a.runDiagnoseTurn(s, requestID, prompt) //nolint:gosec // G118: intentionally detached from request context; goroutine outlives the HTTP handler
+	//nolint:gosec // G118: the diagnose turn is deliberately fire-and-forget and must outlive the HTTP request; it runs under its own timeout (see runDiagnoseTurn).
+	go a.runDiagnoseTurn(s, requestID, prompt)
 }
 
 func (a *apiHandler) handlePostDiagnoseMessage(w http.ResponseWriter, r *http.Request) {
@@ -552,7 +553,9 @@ func normalizeRequestID(requestID string) string {
 // collectServiceLogs gathers recent log lines for a service from disk
 // (last ~300 lines) with a fallback to the in-memory ring buffer.
 func (a *apiHandler) collectServiceLogs(name string) []string {
-	logPath := filepath.Clean(a.backend.LogFilePath(name))
+	// filepath.Base strips any traversal so a service name can only resolve a
+	// file inside the stack's logs directory.
+	logPath := filepath.Clean(a.backend.LogFilePath(filepath.Base(name)))
 
 	lines := readLastLines(logPath, 300)
 	if len(lines) > 0 {

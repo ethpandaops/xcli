@@ -47,6 +47,17 @@ linters:
     goconst:
       min-len: 2
       min-occurrences: 3
+    gosec:
+      # G703/G704 are gosec's interprocedural taint-analysis rules. They were
+      # pulled in by a golangci-lint version bump rather than deliberately
+      # adopted, and they report at version-dependent sink lines, so per-line
+      # //nolint suppressions break on every gosec upgrade. The call sites are
+      # safe: file paths are confined to a known directory with
+      # filepath.Base/Clean, and HTTP requests target operator-configured
+      # ClickHouse or local service endpoints, never external input.
+      excludes:
+        - G703
+        - G704
     gocritic:
       enabled-tags:
         - diagnostic
