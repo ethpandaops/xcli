@@ -351,7 +351,7 @@ func (g *Generator) queryGeneratedRowCount(ctx context.Context, opts GenerateOpt
 		Timeout: 2 * time.Minute,
 	}
 
-	resp, err := client.Do(req) //nolint:gosec // G704: targets the operator-configured ClickHouse endpoint, not external input.
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -421,7 +421,7 @@ func (g *Generator) executeQueryToFile(ctx context.Context, query, outputPath st
 	}
 
 	// Execute request
-	resp, err := client.Do(req) //nolint:gosec // G704: targets the operator-configured ClickHouse endpoint, not external input.
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute request: %w", err)
 	}

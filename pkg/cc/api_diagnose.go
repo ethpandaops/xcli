@@ -206,6 +206,7 @@ func (a *apiHandler) handlePostDiagnoseStart(w http.ResponseWriter, r *http.Requ
 	})
 
 	prompt := buildDiagnosePrompt(name, status, health, logLines)
+	//nolint:gosec // G118: the diagnose turn is deliberately fire-and-forget and must outlive the HTTP request; it runs under its own timeout (see runDiagnoseTurn).
 	go a.runDiagnoseTurn(s, requestID, prompt)
 }
 
@@ -613,7 +614,7 @@ func promptMarkdownField(value string) string {
 
 // readLastLines reads the last n lines from a file.
 func readLastLines(path string, n int) []string {
-	f, err := os.Open(path) //nolint:gosec // G703: callers pass a base-sanitized service log path under the state dir.
+	f, err := os.Open(path)
 	if err != nil {
 		return nil
 	}

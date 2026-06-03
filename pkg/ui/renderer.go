@@ -103,6 +103,5 @@ func isInteractive() bool {
 		return false
 	}
 
-	//nolint:gosec // stdout's file descriptor is always a small, in-range int.
 	return term.IsTerminal(int(os.Stdout.Fd()))
 }
