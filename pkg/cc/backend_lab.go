@@ -16,6 +16,7 @@ import (
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
 	"github.com/ethpandaops/xcli/pkg/seeddata"
 	"github.com/ethpandaops/xcli/pkg/tui"
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 )
 
@@ -547,6 +548,9 @@ func (b *labBackend) RecreateOrchestrator() error {
 	if err != nil {
 		return fmt.Errorf("failed to recreate orchestrator: %w", err)
 	}
+
+	// Stack progress is streamed to the web UI; keep the cc terminal quiet.
+	newOrch.SetRenderer(ui.NewSilentRenderer())
 
 	b.orch = newOrch
 	b.wrapper.SetOrchestrator(newOrch)

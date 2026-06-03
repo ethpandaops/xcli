@@ -92,6 +92,10 @@ func main() {
 		// Enable log writer based on verbose flag
 		logWriter.SetEnabled(verbose)
 
+		// Verbose logs stream to stdout, so live renderers must fall back to
+		// plain output to avoid corrupting their frame.
+		ui.SetLogsVisible(verbose)
+
 		return nil
 	}
 

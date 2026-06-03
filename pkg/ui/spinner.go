@@ -7,10 +7,35 @@ import (
 	"github.com/pterm/pterm"
 )
 
+// Clean terminal printers for spinners: a single glyph + coloured message,
+// replacing pterm's boxed SUCCESS/WARNING/ERROR labels for a modern look that
+// matches the live task tree and the ui.Success/Warning/Error helpers.
+var (
+	spinnerSuccessPrinter = &pterm.PrefixPrinter{
+		MessageStyle: pterm.NewStyle(pterm.FgGreen),
+		Prefix:       pterm.Prefix{Text: "✓", Style: pterm.NewStyle(pterm.FgGreen)},
+	}
+	spinnerFailPrinter = &pterm.PrefixPrinter{
+		MessageStyle: pterm.NewStyle(pterm.FgRed),
+		Prefix:       pterm.Prefix{Text: "✗", Style: pterm.NewStyle(pterm.FgRed)},
+	}
+	spinnerWarningPrinter = &pterm.PrefixPrinter{
+		MessageStyle: pterm.NewStyle(pterm.FgYellow),
+		Prefix:       pterm.Prefix{Text: "⚠", Style: pterm.NewStyle(pterm.FgYellow)},
+	}
+)
+
 // Spinner wraps pterm spinner with convenience methods.
 type Spinner struct {
 	spinner *pterm.SpinnerPrinter
 	message string
+}
+
+// applyCleanPrinters swaps a spinner's terminal printers for the glyph style.
+func applyCleanPrinters(s *pterm.SpinnerPrinter) {
+	s.SuccessPrinter = spinnerSuccessPrinter
+	s.FailPrinter = spinnerFailPrinter
+	s.WarningPrinter = spinnerWarningPrinter
 }
 
 // NewSpinner creates and starts a new spinner with the given message.
@@ -26,6 +51,8 @@ func NewSpinner(message string) *Spinner {
 	s, _ := pterm.DefaultSpinner.
 		WithRemoveWhenDone(false). // Keep spinner result, don't remove
 		Start(message)
+
+	applyCleanPrinters(s)
 
 	return &Spinner{
 		spinner: s,
@@ -47,6 +74,8 @@ func NewSilentSpinner(message string) *Spinner {
 	s, _ := pterm.DefaultSpinner.
 		WithRemoveWhenDone(true). // Remove completely when stopped
 		Start(message)
+
+	applyCleanPrinters(s)
 
 	return &Spinner{
 		spinner: s,

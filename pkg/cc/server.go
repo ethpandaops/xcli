@@ -13,6 +13,7 @@ import (
 	"github.com/ethpandaops/xcli/pkg/git"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
 	"github.com/ethpandaops/xcli/pkg/tui"
+	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
 )
 
@@ -59,6 +60,9 @@ func NewServer(
 				"failed to create lab orchestrator: %w", err,
 			)
 		}
+
+		// Stack progress is streamed to the web UI; keep the cc terminal quiet.
+		orch.SetRenderer(ui.NewSilentRenderer())
 
 		backend := newLabBackend(l, orch, cfg.Lab, cfgPath, gitChk)
 		wrapper := tui.NewOrchestratorWrapper(orch)

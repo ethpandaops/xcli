@@ -537,11 +537,14 @@ func promptXatuClickHouseCredentials(labCfg *config.LabConfig, prior *config.Cli
 
 // Check verifies the lab environment is ready.
 func (s *labStack) Check(ctx context.Context) error {
-	ui.Header("Running lab environment health checks...")
+	renderer := ui.NewRenderer(nil)
+	defer renderer.Close()
+
+	renderer.Banner("Lab Environment Health Checks")
 
 	allPassed := true
 
-	spinner := ui.NewSpinner("Checking configuration file")
+	spinner := renderer.Task("Checking configuration file")
 
 	labCfg, _, err := config.LoadLabConfig(s.configPath)
 	if err != nil {
@@ -553,7 +556,7 @@ func (s *labStack) Check(ctx context.Context) error {
 	}
 
 	if labCfg != nil {
-		spinner = ui.NewSpinner("Validating configuration")
+		spinner = renderer.Task("Validating configuration")
 
 		if err := labCfg.Validate(); err != nil {
 			spinner.Fail(fmt.Sprintf("Configuration validation failed: %v", err))
@@ -563,7 +566,7 @@ func (s *labStack) Check(ctx context.Context) error {
 			spinner.Success("Configuration valid")
 		}
 
-		spinner = ui.NewSpinner("Checking repository paths")
+		spinner = renderer.Task("Checking repository paths")
 
 		repoCheckPassed := true
 		repos := map[string]string{
@@ -608,7 +611,7 @@ func (s *labStack) Check(ctx context.Context) error {
 			spinner.Success("All repository paths valid")
 		}
 
-		spinner = ui.NewSpinner("Checking prerequisites")
+		spinner = renderer.Task("Checking prerequisites")
 
 		prereqPassed := true
 		prereqIssues := []string{}
@@ -645,7 +648,7 @@ func (s *labStack) Check(ctx context.Context) error {
 		}
 	}
 
-	spinner = ui.NewSpinner("Checking Docker daemon")
+	spinner = renderer.Task("Checking Docker daemon")
 
 	cmd := exec.CommandContext(ctx, "docker", "info")
 	if err := cmd.Run(); err != nil {
@@ -656,7 +659,7 @@ func (s *labStack) Check(ctx context.Context) error {
 		spinner.Success("Docker daemon accessible")
 	}
 
-	spinner = ui.NewSpinner("Checking Docker Compose")
+	spinner = renderer.Task("Checking Docker Compose")
 
 	cmd = exec.CommandContext(ctx, "docker", "compose", "version")
 	if err := cmd.Run(); err != nil {
@@ -667,18 +670,16 @@ func (s *labStack) Check(ctx context.Context) error {
 		spinner.Success("Docker compose available")
 	}
 
-	ui.Blank()
+	renderer.Blank()
 
 	if allPassed {
-		ui.Success("All checks passed! Environment is ready.")
-		ui.Header("Next steps:")
-		fmt.Println("  xcli lab up              # Start the lab stack")
-		fmt.Println("  xcli lab up --no-build   # Start without building (if already built)")
+		renderer.Success("All checks passed! Environment is ready.")
+		renderer.Info("Next: xcli lab up")
 
 		return nil
 	}
 
-	ui.Error("Some checks failed. Please resolve the issues above.")
+	renderer.Error("Some checks failed. Please resolve the issues above.")
 
 	return fmt.Errorf("environment checks failed")
 }
@@ -705,17 +706,38 @@ func (s *labStack) Up(ctx context.Context) error {
 
 	orch.SetVerbose(s.upVerbose)
 
+	// Derive a cancelable context so the live renderer can translate ctrl+c
+	// (which raw-mode swallows from the process signal handler) into a graceful
+	// shutdown. Verbose mode streams logs to stdout, which would corrupt a live
+	// frame, so it always uses the plain renderer.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var renderer ui.Renderer
+	if s.upVerbose {
+		renderer = ui.NewPlainRenderer()
+	} else {
+		renderer = ui.NewRenderer(cancel)
+	}
+
+	defer renderer.Close()
+
+	orch.SetRenderer(renderer)
+
 	err = orch.Up(ctx, false, true, nil)
 
 	if err != nil && errors.Is(err, context.Canceled) {
-		ui.Warning("Interrupt received, shutting down gracefully...")
+		// Finalize the live frame before emitting plain cleanup output.
+		renderer.Close()
 
 		cleanupCtx := context.Background()
+		stopSpinner := ui.NewSpinner("Stopping services")
 
 		if stopErr := orch.StopServices(cleanupCtx, nil); stopErr != nil {
+			stopSpinner.Fail("Failed to stop services gracefully")
 			s.log.WithError(stopErr).Error("failed to stop services gracefully")
 		} else {
-			ui.Success("All services stopped")
+			stopSpinner.Success("All services stopped")
 		}
 
 		return nil
@@ -736,7 +758,22 @@ func (s *labStack) Down(ctx context.Context) error {
 		return fmt.Errorf("failed to create orchestrator: %w", err)
 	}
 
-	return orch.Down(ctx, nil)
+	renderer := ui.NewRenderer(nil)
+	defer renderer.Close()
+
+	orch.SetRenderer(renderer)
+	renderer.Banner("Tearing Down Lab Stack")
+
+	if err := orch.Down(ctx, nil); err != nil {
+		return err
+	}
+
+	renderer.Blank()
+	renderer.Success("Stack torn down successfully")
+	renderer.Info("All services stopped, logs cleaned, and volumes removed.")
+	renderer.Info("Run 'xcli lab up' to start fresh.")
+
+	return nil
 }
 
 // Clean removes all lab containers, volumes, and build artifacts.
@@ -764,26 +801,30 @@ func (s *labStack) Clean(ctx context.Context) error {
 		return nil
 	}
 
-	ui.Header("Cleaning lab workspace...")
-
-	ui.Header("[1/3] Stopping and removing Docker containers and volumes...")
-
 	orch, err := orchestrator.NewOrchestrator(s.log, labCfg, cfgPath)
 	if err != nil {
 		return fmt.Errorf("failed to create orchestrator: %w", err)
 	}
 
+	renderer := ui.NewRenderer(nil)
+	defer renderer.Close()
+
+	orch.SetRenderer(renderer)
+	renderer.Banner("Cleaning Lab Workspace")
+
+	renderer.Phase("[1/3] Stopping and removing Docker containers and volumes")
+
 	if err := orch.Down(ctx, nil); err != nil {
-		ui.Warning(fmt.Sprintf("Failed to stop services: %v", err))
-		ui.Info("Continuing with cleanup...")
+		renderer.Warning(fmt.Sprintf("Failed to stop services: %v", err))
+		renderer.Info("Continuing with cleanup...")
 	}
 
-	ui.Header("[2/3] Removing generated configuration files...")
+	renderer.Phase("[2/3] Removing generated configuration files")
 
 	configDir := filepath.Dir(cfgPath)
 	stateDir := filepath.Join(configDir, ".xcli")
 
-	spinner := ui.NewSpinner("Removing generated configuration files")
+	spinner := renderer.Task("Removing generated configuration files")
 
 	if _, err := os.Stat(stateDir); err == nil {
 		if err := os.RemoveAll(stateDir); err != nil {
@@ -795,9 +836,9 @@ func (s *labStack) Clean(ctx context.Context) error {
 		spinner.Success("No generated files found")
 	}
 
-	ui.Header("[3/3] Removing build artifacts...")
+	renderer.Phase("[3/3] Removing build artifacts")
 
-	spinner = ui.NewSpinner("Removing build artifacts")
+	spinner = renderer.Task("Removing build artifacts")
 
 	repos := map[string]string{
 		constants.RepoCBT:        labCfg.Repos.CBT,
@@ -837,9 +878,9 @@ func (s *labStack) Clean(ctx context.Context) error {
 		spinner.Success("No build artifacts found")
 	}
 
-	ui.Success("Lab workspace cleaned successfully!")
-	ui.Header("Next step:")
-	fmt.Println("  xcli lab up            # Build and start the stack")
+	renderer.Blank()
+	renderer.Success("Lab workspace cleaned successfully!")
+	renderer.Info("Next step: xcli lab up")
 
 	return nil
 }
@@ -865,12 +906,18 @@ func (s *labStack) Build(ctx context.Context, _ []string) error {
 
 	buildMgr := builder.NewManager(s.log, labCfg, stateDir)
 
-	ui.Header("Building all lab repositories")
-	ui.Blank()
+	renderer := ui.NewRenderer(nil)
+	buildMgr.SetRenderer(renderer)
+
+	renderer.Banner("Building all lab repositories")
 
 	if err := buildMgr.BuildAll(ctx, true); err != nil {
+		renderer.Close()
+
 		return fmt.Errorf("build failed: %w", err)
 	}
+
+	renderer.Close()
 
 	ui.Success("Build complete!")
 	ui.Info("Note: cbt-api protos not generated (requires infrastructure).")
@@ -1187,21 +1234,26 @@ func (s *labStack) runFullRebuild(
 	report := diagnostic.NewRebuildReport()
 	store := diagnostic.NewStore(s.log, filepath.Join(stateDir, "errors"))
 
-	ui.Header("Starting full rebuild and restart workflow")
-	fmt.Println("This will:")
-	fmt.Println("  - Regenerate all protos (xatu-cbt, cbt-api)")
-	fmt.Println("  - Rebuild all binaries (xatu-cbt, cbt, cbt-api, lab-backend)")
-	fmt.Println("  - Regenerate configs")
-	fmt.Println("  - Restart all services")
-	fmt.Println("  - Regenerate lab-frontend types")
-	ui.Blank()
+	// Verbose mode streams build output to stdout, which would corrupt a live
+	// frame, so it uses the plain renderer.
+	var renderer ui.Renderer
+	if s.rebuildVerbose {
+		renderer = ui.NewPlainRenderer()
+	} else {
+		renderer = ui.NewRenderer(nil)
+	}
+
+	defer renderer.Close()
+
+	orch.SetRenderer(renderer)
+	renderer.Banner("Full Rebuild & Restart")
 
 	protoGenFailed := false
 	xatuCBTBuildFailed := false
 	cbtAPIFailed := false
 
 	// Step 1: Regenerate xatu-cbt protos
-	spinner := ui.NewSpinner("[1/7] Regenerating xatu-cbt protos")
+	spinner := renderer.Task("[1/7] Regenerating xatu-cbt protos")
 
 	result := orch.Builder().GenerateXatuCBTProtosWithResult(ctx)
 	report.AddResult(*result)
@@ -1228,7 +1280,7 @@ func (s *labStack) runFullRebuild(
 
 		xatuCBTBuildFailed = true
 	} else {
-		spinner = ui.NewSpinner("[2/7] Rebuilding xatu-cbt")
+		spinner = renderer.Task("[2/7] Rebuilding xatu-cbt")
 
 		result = orch.Builder().BuildXatuCBTWithResult(ctx, true)
 		report.AddResult(*result)
@@ -1256,7 +1308,7 @@ func (s *labStack) runFullRebuild(
 
 		cbtAPIFailed = true
 	} else {
-		spinner = ui.NewSpinner(
+		spinner = renderer.Task(
 			"[3/7] Regenerating cbt-api protos and rebuilding cbt-api")
 
 		result = orch.Builder().BuildCBTAPIWithResult(ctx, true)
@@ -1272,7 +1324,7 @@ func (s *labStack) runFullRebuild(
 	}
 
 	// Step 4: Rebuild remaining binaries (cbt, lab-backend)
-	spinner = ui.NewSpinner(
+	spinner = renderer.Task(
 		"[4/7] Rebuilding remaining binaries (cbt, lab-backend)")
 
 	result = orch.Builder().BuildCBTWithResult(ctx, true)
@@ -1296,7 +1348,7 @@ func (s *labStack) runFullRebuild(
 	}
 
 	// Step 5: Regenerate configs
-	spinner = ui.NewSpinner("[5/7] Regenerating configs")
+	spinner = renderer.Task("[5/7] Regenerating configs")
 
 	configStart := time.Now()
 	configErr := orch.GenerateConfigs(ctx)
@@ -1324,7 +1376,7 @@ func (s *labStack) runFullRebuild(
 	}
 
 	// Step 6: Restart ALL services
-	spinner = ui.NewSpinner(
+	spinner = renderer.Task(
 		"[6/7] Restarting all services (cbt-api + CBT engines + lab-backend)")
 
 	if !orch.AreServicesRunning() {
@@ -1341,6 +1393,9 @@ func (s *labStack) runFullRebuild(
 		})
 
 		report.Finalize()
+
+		// Finalize the live frame before emitting the pterm summary table.
+		renderer.Close()
 		ui.Blank()
 		ui.DisplayBuildSummary(report)
 
@@ -1409,7 +1464,7 @@ func (s *labStack) runFullRebuild(
 			EndTime:   now,
 		})
 	} else {
-		spinner = ui.NewSpinner("[7/7] Regenerating lab-frontend API types")
+		spinner = renderer.Task("[7/7] Regenerating lab-frontend API types")
 
 		spinner.UpdateText("[7/7] Waiting for cbt-api to be ready")
 
@@ -1444,10 +1499,8 @@ func (s *labStack) runFullRebuild(
 
 				if err := orch.Restart(ctx, repoLabFrontend); err != nil {
 					spinner.Fail("Could not restart lab-frontend")
-					ui.Warning(fmt.Sprintf(
-						"Could not restart lab-frontend: %v", err))
-					ui.Info("If lab-frontend is running, restart it manually:")
-					ui.Info("  xcli lab restart lab-frontend")
+					renderer.Info(fmt.Sprintf(
+						"Restart lab-frontend manually: xcli lab restart lab-frontend (%v)", err))
 				} else {
 					spinner.Success(
 						"Lab-frontend API types regenerated and service restarted")
@@ -1457,6 +1510,9 @@ func (s *labStack) runFullRebuild(
 	}
 
 	report.Finalize()
+
+	// Finalize the live frame before emitting the pterm summary table.
+	renderer.Close()
 	ui.Blank()
 	ui.DisplayBuildSummary(report)
 

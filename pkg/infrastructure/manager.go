@@ -512,7 +512,7 @@ func (m *Manager) StopObservabilityService(ctx context.Context, service string) 
 // AutoSeedBoundsIfNeeded checks if local Redis has external model bounds and seeds them
 // from production if missing. External bounds tell CBT the min/max range of data available
 // on the external ClickHouse, avoiding slow initial full scans.
-func (m *Manager) AutoSeedBoundsIfNeeded(ctx context.Context, spinner *ui.Spinner) error {
+func (m *Manager) AutoSeedBoundsIfNeeded(ctx context.Context, spinner ui.Task) error {
 	// Only seed in hybrid mode (external xatu + local xatu-cbt)
 	if !m.mode.NeedsExternalClickHouse() {
 		return nil

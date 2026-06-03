@@ -4,9 +4,13 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/pterm/pterm"
 )
+
+// bannerRuleWidth caps the dim rule under a plain banner heading.
+const bannerRuleWidth = 48
 
 // Success prints a success message with green checkmark.
 func Success(message string) {
@@ -39,9 +43,12 @@ func Section(message string) {
 	fmt.Printf("\n%s\n%s\n", separator, HeaderStyle.Sprint(message))
 }
 
-// Banner prints a prominent banner.
+// Banner prints a prominent heading: a bold title over a dim rule. This
+// matches the live task tree's banner and replaces the older full-width
+// inverse-video header.
 func Banner(message string) {
-	fmt.Printf("\n%s\n", pterm.DefaultHeader.WithFullWidth().Sprint(message))
+	rule := pterm.Gray(strings.Repeat("─", bannerRuleWidth))
+	fmt.Printf("\n%s\n%s\n", pterm.NewStyle(pterm.Bold).Sprint(message), rule)
 }
 
 // Blank prints a blank line for spacing.

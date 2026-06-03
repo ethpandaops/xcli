@@ -25,6 +25,7 @@ type Manager struct {
 	cfg      *config.LabConfig
 	stateDir string
 	verbose  bool
+	render   ui.Renderer
 }
 
 // NewManager creates a new build manager.
@@ -35,12 +36,21 @@ func NewManager(log logrus.FieldLogger, cfg *config.LabConfig, stateDir string) 
 		cfg:      cfg,
 		stateDir: stateDir,
 		verbose:  false,
+		render:   ui.NewPlainRenderer(),
 	}
 }
 
 // SetVerbose sets verbose mode for build commands.
 func (m *Manager) SetVerbose(verbose bool) {
 	m.verbose = verbose
+}
+
+// SetRenderer overrides the renderer used for parallel build progress so the
+// build tasks appear in the caller's live task tree. Defaults to plain output.
+func (m *Manager) SetRenderer(r ui.Renderer) {
+	if r != nil {
+		m.render = r
+	}
 }
 
 // CheckBinariesExist checks if all required binaries exist.
@@ -59,55 +69,35 @@ func (m *Manager) CheckBinariesExist() map[string]bool {
 func (m *Manager) BuildAll(ctx context.Context, force bool) error {
 	m.log.Info("building all repositories")
 
-	// Create progress bar if not in verbose mode
-	var progressBar *ui.ProgressBar
-	if !m.verbose {
-		progressBar = ui.NewProgressBar("Building repositories", 3)
-	}
-
 	g, ctx := errgroup.WithContext(ctx)
 
-	// Build CBT in parallel
+	// Each build runs in parallel with its own task, so the live tree shows the
+	// three rows building concurrently.
 	g.Go(func() error {
-		spinner := m.startBuildSpinner(constants.RepoCBT)
+		task := m.startBuildSpinner(constants.RepoCBT)
 		err := m.BuildCBT(ctx, force)
-		m.finishBuildSpinner(spinner, constants.RepoCBT, err, progressBar)
+		m.finishBuildSpinner(task, constants.RepoCBT, err)
 
 		return err
 	})
 
-	// Build lab-backend in parallel
 	g.Go(func() error {
-		spinner := m.startBuildSpinner("lab-backend")
+		task := m.startBuildSpinner("lab-backend")
 		err := m.BuildLabBackend(ctx, force)
-		m.finishBuildSpinner(spinner, "lab-backend", err, progressBar)
+		m.finishBuildSpinner(task, "lab-backend", err)
 
 		return err
 	})
 
-	// Install lab dependencies in parallel
 	g.Go(func() error {
-		spinner := m.startBuildSpinner("lab")
+		task := m.startBuildSpinner("lab-frontend")
 		err := m.installLabDeps(ctx, force)
-		m.finishBuildSpinner(spinner, "lab", err, progressBar)
+		m.finishBuildSpinner(task, "lab-frontend", err)
 
 		return err
 	})
 
-	// Wait for all builds to complete
-	if err := g.Wait(); err != nil {
-		if progressBar != nil {
-			_ = progressBar.Stop()
-		}
-
-		return err
-	}
-
-	if progressBar != nil {
-		_ = progressBar.Stop()
-	}
-
-	return nil
+	return g.Wait()
 }
 
 // BuildXatuCBT builds only the xatu-cbt binary (needed for infrastructure startup).
@@ -530,36 +520,29 @@ func (m *Manager) buildCBTFrontend(ctx context.Context, force bool) error {
 	return nil
 }
 
-// startBuildSpinner creates a spinner for a build task if not in verbose mode.
-func (m *Manager) startBuildSpinner(name string) *ui.Spinner {
+// startBuildSpinner starts a build task unless in verbose mode, where the
+// build command streams its own output to stdout instead.
+func (m *Manager) startBuildSpinner(name string) ui.Task {
 	if m.verbose {
 		return nil
 	}
 
-	return ui.NewSilentSpinner(fmt.Sprintf("Building %s", name))
+	return m.render.Task(fmt.Sprintf("Building %s", name))
 }
 
-// finishBuildSpinner updates spinner based on build result.
-func (m *Manager) finishBuildSpinner(spinner *ui.Spinner, name string, err error, progressBar *ui.ProgressBar) {
-	if m.verbose {
-		return
-	}
-
-	if spinner == nil {
+// finishBuildSpinner resolves a build task based on the build result.
+func (m *Manager) finishBuildSpinner(task ui.Task, name string, err error) {
+	if task == nil {
 		return
 	}
 
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to build %s", name))
+		task.Fail(fmt.Sprintf("Failed to build %s", name))
 
 		return
 	}
 
-	_ = spinner.Stop()
-
-	if progressBar != nil {
-		progressBar.Increment()
-	}
+	task.Success(fmt.Sprintf("Built %s", name))
 }
 
 // installLabDeps installs lab frontend dependencies.
