@@ -140,7 +140,7 @@ func checkHTTP(url string) error {
 		return err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req) //nolint:gosec // G704: health-checks a local service URL derived from config, not external input.
 	if err != nil {
 		return err
 	}

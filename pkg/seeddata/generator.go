@@ -421,7 +421,7 @@ func (g *Generator) executeQueryToFile(ctx context.Context, query, outputPath st
 	}
 
 	// Execute request
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // G704: targets the operator-configured ClickHouse endpoint, not external input.
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute request: %w", err)
 	}

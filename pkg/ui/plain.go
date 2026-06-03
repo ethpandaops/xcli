@@ -42,8 +42,11 @@ func (*PlainRenderer) Info(message string) { Info(message) }
 // Blank renders vertical spacing.
 func (*PlainRenderer) Blank() { Blank() }
 
-// ServiceTable renders the final services/URLs table.
-func (*PlainRenderer) ServiceTable(services []Service) { ServiceTable(services) }
+// ServiceTable renders the final services/URLs table under a section header.
+func (*PlainRenderer) ServiceTable(title string, services []Service) {
+	Header(title)
+	ServiceTable(services)
+}
 
 // GitStatusTable renders the table of out-of-date repositories.
 func (*PlainRenderer) GitStatusTable(statuses []GitStatus) { GitStatusTable(statuses) }

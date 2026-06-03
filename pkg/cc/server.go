@@ -61,8 +61,10 @@ func NewServer(
 			)
 		}
 
-		// Stack progress is streamed to the web UI; keep the cc terminal quiet.
-		orch.SetRenderer(ui.NewSilentRenderer())
+		// Mirror stack progress as plain line output in the cc terminal. The
+		// web UI is the primary interface, so avoid a live (redrawing) frame,
+		// which would seize raw mode/stdin in this long-lived server process.
+		orch.SetRenderer(ui.NewPlainRenderer())
 
 		backend := newLabBackend(l, orch, cfg.Lab, cfgPath, gitChk)
 		wrapper := tui.NewOrchestratorWrapper(orch)

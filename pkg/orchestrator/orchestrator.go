@@ -482,8 +482,7 @@ func (o *Orchestrator) Up(
 		})
 	}
 
-	o.render.Header("Services")
-	o.render.ServiceTable(services)
+	o.render.ServiceTable("Services", services)
 	o.render.Blank()
 
 	return nil
@@ -791,8 +790,6 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 	ui.Blank()
 
 	// Show infrastructure status
-	ui.Header("Infrastructure")
-
 	infraStatus := o.infra.Status(ctx)
 
 	// Use mode interface to determine if external ClickHouse is used
@@ -828,15 +825,15 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 		})
 	}
 
-	ui.ServiceTable(infraServices)
+	ui.StatusPanel("Infrastructure", infraServices)
 
 	// Show observability status if enabled
 	if o.cfg.Infrastructure.Observability.Enabled {
 		ui.Blank()
-		ui.Header("Observability")
 
 		obsStatus, obsErr := o.infra.GetObservabilityStatus(ctx)
 		if obsErr != nil {
+			ui.Header("Observability")
 			fmt.Printf("  Error getting observability status: %v\n", obsErr)
 		} else if len(obsStatus) > 0 {
 			obsServices := make([]ui.Service, 0, len(obsStatus))
@@ -856,17 +853,17 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 				})
 			}
 
-			ui.ServiceTable(obsServices)
+			ui.StatusPanel("Observability", obsServices)
 		}
 	}
 
 	// Show services
 	ui.Blank()
-	ui.Header("Services")
 
 	processes := o.proc.List()
 
 	if len(processes) == 0 {
+		ui.Header("Services")
 		fmt.Println("  No services running")
 	} else {
 		services := make([]ui.Service, 0, len(processes))
@@ -881,7 +878,7 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 			})
 		}
 
-		ui.ServiceTable(services)
+		ui.StatusPanel("Services", services)
 	}
 
 	// Check for orphaned processes

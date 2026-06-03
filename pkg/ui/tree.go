@@ -26,6 +26,7 @@ var (
 
 var (
 	styleTreeTitle   = lipgloss.NewStyle().Bold(true)
+	styleTreeMark    = lipgloss.NewStyle().Foreground(treeCyan).Bold(true)
 	styleTreeRule    = lipgloss.NewStyle().Foreground(treeGray)
 	styleTreePhase   = lipgloss.NewStyle().Bold(true).Foreground(treeCyan)
 	styleTreeAccent  = lipgloss.NewStyle().Foreground(treeCyan)
@@ -37,6 +38,13 @@ var (
 	styleTreeHeader  = lipgloss.NewStyle().Bold(true).Foreground(treeCyan)
 	styleTreeSuccess = lipgloss.NewStyle().Foreground(treeGreen).Bold(true)
 )
+
+// heatThreshold is the elapsed time at which a step's duration tints amber so
+// slow work draws the eye instead of hiding in the uniform dim column.
+const heatThreshold = 10 * time.Second
+
+// brandMark is the accent glyph that opens a branded banner.
+const brandMark = "◆"
 
 // Compile-time guarantees.
 var (
@@ -119,6 +127,7 @@ type treeModel struct {
 	width       int
 	frame       int
 	now         time.Time
+	startedAt   time.Time
 	interrupted bool
 	onInterrupt func()
 }
@@ -144,8 +153,11 @@ type (
 		kind lineKind
 		text string
 	}
-	blankMsg    struct{}
-	tableMsg    struct{ services []Service }
+	blankMsg struct{}
+	tableMsg struct {
+		title    string
+		services []Service
+	}
 	gitTableMsg struct{ repos []GitStatus }
 	tickMsg     time.Time
 )
@@ -219,9 +231,9 @@ func (r *TTYRenderer) Info(message string) {
 // Blank posts vertical spacing.
 func (r *TTYRenderer) Blank() { r.prog.Send(blankMsg{}) }
 
-// ServiceTable posts the final services/URLs table.
-func (r *TTYRenderer) ServiceTable(services []Service) {
-	r.prog.Send(tableMsg{services: services})
+// ServiceTable posts the final services/URLs table under the given title.
+func (r *TTYRenderer) ServiceTable(title string, services []Service) {
+	r.prog.Send(tableMsg{title: title, services: services})
 }
 
 // GitStatusTable posts the out-of-date repositories table.
@@ -296,6 +308,10 @@ func (m *treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case phaseMsg:
 		m.blocks = append(m.blocks, treeBlock{kind: blockPhase, text: msg.title})
 	case addTaskMsg:
+		if m.startedAt.IsZero() {
+			m.startedAt = m.clock()
+		}
+
 		phase := m.currentPhase()
 		phase.tasks = append(phase.tasks, &treeTask{
 			id:        msg.id,
@@ -321,7 +337,7 @@ func (m *treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case blankMsg:
 		m.blocks = append(m.blocks, treeBlock{kind: blockBlank})
 	case tableMsg:
-		m.blocks = append(m.blocks, treeBlock{kind: blockTable, services: msg.services})
+		m.blocks = append(m.blocks, treeBlock{kind: blockTable, text: msg.title, services: msg.services})
 	case gitTableMsg:
 		m.blocks = append(m.blocks, treeBlock{kind: blockGitTable, gitRepos: msg.repos})
 	}
@@ -333,22 +349,28 @@ func (m *treeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *treeModel) View() string {
 	var b strings.Builder
 
-	for _, block := range m.blocks {
+	activePhase := m.activePhaseIndex()
+
+	for i, block := range m.blocks {
 		switch block.kind {
 		case blockBanner:
 			b.WriteString(m.renderBanner(block.text))
 		case blockPhase:
-			b.WriteString(m.renderPhase(block))
+			b.WriteString(m.renderPhase(block, i == activePhase))
 		case blockLine:
 			b.WriteString(renderLine(block.lineKind, block.text))
 			b.WriteByte('\n')
 		case blockBlank:
 			b.WriteByte('\n')
 		case blockTable:
-			b.WriteString(m.renderTable(block.services))
+			b.WriteString(m.renderTable(block.text, block.services))
 		case blockGitTable:
 			b.WriteString(m.renderGitTable(block.gitRepos))
 		}
+	}
+
+	if footer := m.renderFooter(); footer != "" {
+		b.WriteString(footer)
 	}
 
 	if m.interrupted {
@@ -357,6 +379,21 @@ func (m *treeModel) View() string {
 	}
 
 	return b.String()
+}
+
+// activePhaseIndex returns the block index of the phase that currently has
+// focus — the last phase declared. Earlier phases are rendered dimmed so the
+// eye lands on the work in flight. Returns -1 when no phase exists yet.
+func (m *treeModel) activePhaseIndex() int {
+	active := -1
+
+	for i := range m.blocks {
+		if m.blocks[i].kind == blockPhase {
+			active = i
+		}
+	}
+
+	return active
 }
 
 // currentPhase returns the phase tasks attach to, creating an implicit
@@ -393,19 +430,30 @@ func (m *treeModel) clock() time.Time {
 	return m.now
 }
 
-// renderBanner renders the opening heading and a dim rule.
+// renderBanner renders the branded opening heading and a dim rule.
 func (m *treeModel) renderBanner(text string) string {
 	rule := strings.Repeat("─", m.ruleWidth())
+	title := styleTreeMark.Render(brandMark) + " " + styleTreeTitle.Render(text)
 
-	return styleTreeTitle.Render(text) + "\n" + styleTreeRule.Render(rule) + "\n"
+	return title + "\n" + styleTreeRule.Render(rule) + "\n"
 }
 
-// renderPhase renders a phase header (if titled) and its task tree.
-func (m *treeModel) renderPhase(block treeBlock) string {
+// renderPhase renders a phase header (if titled) and its task tree. A phase
+// that no longer has focus is dimmed so completed work recedes; failures and
+// warnings inside it stay prominent regardless.
+func (m *treeModel) renderPhase(block treeBlock, active bool) string {
 	var b strings.Builder
 
 	if block.text != "" {
-		b.WriteString(styleTreeAccent.Render("▌ ") + styleTreePhase.Render(block.text))
+		marker := styleTreeAccent.Render("▌ ")
+		title := styleTreePhase.Render(block.text)
+
+		if !active {
+			marker = styleTreeDim.Render("▌ ")
+			title = styleTreeDim.Render(block.text)
+		}
+
+		b.WriteString(marker + title)
 		b.WriteByte('\n')
 	}
 
@@ -415,7 +463,7 @@ func (m *treeModel) renderPhase(block treeBlock) string {
 			connector = "└─"
 		}
 
-		b.WriteString(m.renderTask(t, connector))
+		b.WriteString(m.renderTask(t, connector, !active))
 		b.WriteByte('\n')
 	}
 
@@ -423,8 +471,11 @@ func (m *treeModel) renderPhase(block treeBlock) string {
 }
 
 // renderTask renders one task line: connector, status glyph, label, duration.
-func (m *treeModel) renderTask(t *treeTask, connector string) string {
+// When dim is set the row recedes into gray, except failed/warned tasks and a
+// slow duration, which stay coloured so nothing important is hidden.
+func (m *treeModel) renderTask(t *treeTask, connector string, dim bool) string {
 	glyph := styleTreeAccent.Render(spinnerFrames[m.frame%len(spinnerFrames)])
+	textStyle := lipgloss.NewStyle()
 
 	switch t.status {
 	case taskOK:
@@ -436,13 +487,19 @@ func (m *treeModel) renderTask(t *treeTask, connector string) string {
 	case taskRunning:
 	}
 
+	// Recede a completed-phase row, but never hide a failure or warning.
+	if dim && (t.status == taskOK || t.status == taskRunning) {
+		glyph = styleTreeDim.Render(glyphRune(t.status, m.frame))
+		textStyle = styleTreeDim
+	}
+
 	// A task message may carry detail lines (e.g. a failed check listing repos);
 	// only the first line shares the row with the glyph and duration, the rest
 	// are indented beneath it.
 	headline, detail, hasDetail := strings.Cut(t.name, "\n")
 
-	left := fmt.Sprintf("  %s %s %s", styleTreeDim.Render(connector), glyph, headline)
-	dur := styleTreeDim.Render(m.taskDuration(t))
+	left := fmt.Sprintf("  %s %s %s", styleTreeDim.Render(connector), glyph, textStyle.Render(headline))
+	dur := m.renderDuration(t)
 
 	row := left + "  " + dur
 	if m.width > 0 {
@@ -465,24 +522,128 @@ func (m *treeModel) renderTask(t *treeTask, connector string) string {
 	return b.String()
 }
 
-// renderTable renders the final services list with clickable URLs.
-func (m *treeModel) renderTable(services []Service) string {
-	width := 0
+// glyphRune returns the bare status glyph (no styling) for a dimmed row.
+func glyphRune(status taskStatus, frame int) string {
+	if status == taskOK {
+		return "✓"
+	}
+
+	return spinnerFrames[frame%len(spinnerFrames)]
+}
+
+// renderTable renders the run summary stats followed by the services in a
+// titled, rounded panel with a status dot per service. This is the payoff
+// frame, so service names render at full brightness rather than dimmed.
+func (m *treeModel) renderTable(title string, services []Service) string {
+	var b strings.Builder
+
+	if stats := m.renderStats(); stats != "" {
+		b.WriteString(stats)
+		b.WriteString("\n\n")
+	}
+
+	nameWidth, urlWidth := 0, 0
+
 	for _, s := range services {
-		if w := lipgloss.Width(s.Name); w > width {
-			width = w
+		if w := lipgloss.Width(s.Name); w > nameWidth {
+			nameWidth = w
+		}
+
+		if w := lipgloss.Width(s.URL); w > urlWidth {
+			urlWidth = w
 		}
 	}
 
-	var b strings.Builder
+	// Build the inner rows and track the widest so the panel hugs its content.
+	rows := make([]string, 0, len(services))
+	innerWidth := 0
 
 	for _, s := range services {
-		name := s.Name + strings.Repeat(" ", width-lipgloss.Width(s.Name))
-		b.WriteString("  " + styleTreeDim.Render(name) + "  " + styleTreeURL.Render(s.URL))
+		content := statusRow(s, nameWidth, urlWidth)
+		rows = append(rows, content)
+
+		if w := lipgloss.Width(content); w > innerWidth {
+			innerWidth = w
+		}
+	}
+
+	if title == "" {
+		title = "Services"
+	}
+
+	return b.String() + renderPanel(title, rows, innerWidth)
+}
+
+// renderStats renders a dim one-line summary of the run: phases, steps and
+// total wall-clock time. It returns "" until at least one task has run.
+func (m *treeModel) renderStats() string {
+	phases, steps := 0, 0
+
+	var last time.Time
+
+	for i := range m.blocks {
+		if m.blocks[i].kind != blockPhase || len(m.blocks[i].tasks) == 0 {
+			continue
+		}
+
+		phases++
+
+		for _, t := range m.blocks[i].tasks {
+			steps++
+
+			if t.doneAt.After(last) {
+				last = t.doneAt
+			}
+		}
+	}
+
+	if steps == 0 {
+		return ""
+	}
+
+	total := max(last.Sub(m.startedAt), 0)
+
+	return styleTreeDim.Render(fmt.Sprintf("%s · %s · %s",
+		pluralize(phases, "phase"), pluralize(steps, "step"), formatTreeDuration(total)))
+}
+
+// renderPanel draws content rows inside a rounded box with an inline title.
+func renderPanel(title string, rows []string, innerWidth int) string {
+	titleSeg := " " + title + " "
+	if w := lipgloss.Width(titleSeg); w > innerWidth+2 {
+		innerWidth = w - 2
+	}
+
+	top := styleTreeRule.Render("╭") + styleTreeDim.Render(titleSeg) +
+		styleTreeRule.Render(strings.Repeat("─", innerWidth+2-lipgloss.Width(titleSeg))+"╮")
+	bottom := styleTreeRule.Render("╰" + strings.Repeat("─", innerWidth+2) + "╯")
+
+	var b strings.Builder
+
+	b.WriteString(top)
+	b.WriteByte('\n')
+
+	bar := styleTreeRule.Render("│")
+
+	for _, row := range rows {
+		pad := strings.Repeat(" ", max(innerWidth-lipgloss.Width(row), 0))
+		b.WriteString(bar + " " + row + pad + " " + bar)
 		b.WriteByte('\n')
 	}
 
+	b.WriteString(bottom)
+	b.WriteByte('\n')
+
 	return b.String()
+}
+
+// pluralize renders a count with its noun, adding an "s" for non-unit counts.
+func pluralize(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("1 %s", noun)
+	}
+
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 // renderGitTable renders the out-of-date repositories as an aligned table.
@@ -518,16 +679,63 @@ func (m *treeModel) renderGitTable(repos []GitStatus) string {
 	return b.String()
 }
 
-// taskDuration formats a task's elapsed or total time.
-func (m *treeModel) taskDuration(t *treeTask) string {
+// taskElapsed returns a task's elapsed or final duration.
+func (m *treeModel) taskElapsed(t *treeTask) time.Duration {
 	end := t.doneAt
 	if t.status == taskRunning {
 		end = m.clock()
 	}
 
-	d := max(end.Sub(t.startedAt), 0)
+	return max(end.Sub(t.startedAt), 0)
+}
 
-	return formatTreeDuration(d)
+// renderDuration formats and styles a task's duration. A slow step tints amber
+// (heat) so it stands out from the dim column; everything else stays dim.
+func (m *treeModel) renderDuration(t *treeTask) string {
+	d := m.taskElapsed(t)
+
+	style := styleTreeDim
+	if d >= heatThreshold {
+		style = styleTreeYellow
+	}
+
+	return style.Render(formatTreeDuration(d))
+}
+
+// renderFooter renders the transient bottom status line: a liveness pulse and
+// total elapsed time, plus a running count during parallel work. The elapsed
+// total is the one fact not shown anywhere else in the tree, so the footer
+// adds information rather than echoing the active phase header above it. It is
+// shown only while work is in flight, so it self-clears from the final frame.
+func (m *treeModel) renderFooter() string {
+	running := m.runningCount()
+	if running == 0 {
+		return ""
+	}
+
+	spinner := styleTreeAccent.Render(spinnerFrames[m.frame%len(spinnerFrames)])
+	status := formatTreeDuration(max(m.clock().Sub(m.startedAt), 0)) + " elapsed"
+
+	if running > 1 {
+		status += fmt.Sprintf(" · %d running", running)
+	}
+
+	return spinner + "  " + styleTreeDim.Render(status) + "\n"
+}
+
+// runningCount returns how many tasks are currently in progress.
+func (m *treeModel) runningCount() int {
+	n := 0
+
+	for i := range m.blocks {
+		for _, t := range m.blocks[i].tasks {
+			if t.status == taskRunning {
+				n++
+			}
+		}
+	}
+
+	return n
 }
 
 // ruleWidth returns the width of the banner rule, capped for tidiness.

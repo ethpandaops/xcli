@@ -62,8 +62,8 @@ type Renderer interface {
 	Info(message string)
 	// Blank renders vertical spacing.
 	Blank()
-	// ServiceTable renders the final services/URLs table.
-	ServiceTable(services []Service)
+	// ServiceTable renders the final services/URLs table under the given title.
+	ServiceTable(title string, services []Service)
 	// GitStatusTable renders the table of out-of-date repositories.
 	GitStatusTable(statuses []GitStatus)
 	// Close flushes and tears down any live rendering. Idempotent.
