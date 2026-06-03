@@ -34,6 +34,7 @@ func TextInput(prompt string, defaultValue string) (string, error) {
 func PasswordInput(prompt string) (string, error) {
 	fmt.Print(prompt)
 
+	//nolint:gosec // stdin's file descriptor is always a small, in-range int.
 	fd := int(os.Stdin.Fd())
 	if term.IsTerminal(fd) {
 		b, err := term.ReadPassword(fd)

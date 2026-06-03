@@ -436,7 +436,7 @@ func (g *Generator) QueryRowCount(
 		Timeout: 2 * time.Minute, // Row count queries on large tables can take time
 	}
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // G704: targets the operator-configured ClickHouse endpoint, not external input.
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute request: %w", err)
 	}
@@ -527,7 +527,7 @@ func (g *Generator) QueryTableSample(
 		Timeout: 30 * time.Second,
 	}
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // G704: targets the operator-configured ClickHouse endpoint, not external input.
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}

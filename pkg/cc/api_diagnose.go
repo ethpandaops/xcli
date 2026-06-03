@@ -206,7 +206,7 @@ func (a *apiHandler) handlePostDiagnoseStart(w http.ResponseWriter, r *http.Requ
 	})
 
 	prompt := buildDiagnosePrompt(name, status, health, logLines)
-	go a.runDiagnoseTurn(s, requestID, prompt) //nolint:gosec // G118: intentionally detached from request context; goroutine outlives the HTTP handler
+	go a.runDiagnoseTurn(s, requestID, prompt)
 }
 
 func (a *apiHandler) handlePostDiagnoseMessage(w http.ResponseWriter, r *http.Request) {
@@ -552,7 +552,9 @@ func normalizeRequestID(requestID string) string {
 // collectServiceLogs gathers recent log lines for a service from disk
 // (last ~300 lines) with a fallback to the in-memory ring buffer.
 func (a *apiHandler) collectServiceLogs(name string) []string {
-	logPath := filepath.Clean(a.backend.LogFilePath(name))
+	// filepath.Base strips any traversal so a service name can only resolve a
+	// file inside the stack's logs directory.
+	logPath := filepath.Clean(a.backend.LogFilePath(filepath.Base(name)))
 
 	lines := readLastLines(logPath, 300)
 	if len(lines) > 0 {
@@ -611,7 +613,7 @@ func promptMarkdownField(value string) string {
 
 // readLastLines reads the last n lines from a file.
 func readLastLines(path string, n int) []string {
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // G703: callers pass a base-sanitized service log path under the state dir.
 	if err != nil {
 		return nil
 	}

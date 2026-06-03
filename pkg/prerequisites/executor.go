@@ -158,7 +158,7 @@ func (c *checker) executeFileCopy(ctx context.Context, repoPath string, prereq P
 	}
 
 	// Write to destination
-	if err := os.WriteFile(destPath, content, 0600); err != nil { //nolint:gosec // G703: destPath is constructed from trusted repoPath + prereq config
+	if err := os.WriteFile(destPath, content, 0600); err != nil {
 		return fmt.Errorf("failed to write destination file %s: %w", prereq.DestinationPath, err)
 	}
 

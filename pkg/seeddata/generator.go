@@ -351,7 +351,7 @@ func (g *Generator) queryGeneratedRowCount(ctx context.Context, opts GenerateOpt
 		Timeout: 2 * time.Minute,
 	}
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) //nolint:gosec // G704: targets the operator-configured ClickHouse endpoint, not external input.
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute request: %w", err)
 	}

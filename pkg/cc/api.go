@@ -311,9 +311,11 @@ func (a *apiHandler) handleGetServiceLogs(
 		return
 	}
 
-	logPath := filepath.Clean(a.backend.LogFilePath(name))
+	// filepath.Base strips any traversal so a service name can only resolve a
+	// file inside the stack's logs directory.
+	logPath := filepath.Clean(a.backend.LogFilePath(filepath.Base(name)))
 
-	f, err := os.Open(logPath)
+	f, err := os.Open(logPath) //nolint:gosec // G703: logPath is confined to the logs dir (name is base-sanitized).
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{
 			keyError: "log file not found",
