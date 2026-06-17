@@ -5,7 +5,6 @@ package infrastructure
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -15,17 +14,12 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/ClickHouse/clickhouse-go/v2" // clickhouse database driver
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/configgen"
 	"github.com/ethpandaops/xcli/pkg/constants"
 	executil "github.com/ethpandaops/xcli/pkg/exec"
 	"github.com/ethpandaops/xcli/pkg/mode"
 	"github.com/ethpandaops/xcli/pkg/ui"
-	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/clickhouse" // migrate clickhouse driver
-	_ "github.com/golang-migrate/migrate/v4/source/file"         // migrate file source driver
-	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
 )
 
@@ -155,11 +149,12 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	spinner.Success("Infrastructure services are healthy")
 
-	// Run xatu migrations if in local mode (external Xatu already has schema)
+	// Run xatu migrations if in local mode (external Xatu already has schema).
+	// Delegated to the xatu-cbt binary, which owns the xatu migration logic.
 	if xatuSource == constants.InfraModeLocal {
 		m.log.Info("running xatu migrations against local cluster")
 
-		if err := m.runXatuMigrations(ctx); err != nil {
+		if err := m.migrateXatu(ctx); err != nil {
 			return fmt.Errorf("failed to run xatu migrations: %w", err)
 		}
 
@@ -648,122 +643,24 @@ func (m *Manager) checkClusterShardDNS(ctx context.Context, host string) error {
 	return nil
 }
 
-// parseXatuCBTEnv parses the xatu-cbt .env file and returns key-value pairs.
-func (m *Manager) parseXatuCBTEnv() (map[string]string, error) {
-	envPath := filepath.Join(m.cfg.Repos.XatuCBT, ".env")
-
-	env, err := godotenv.Read(envPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read xatu-cbt .env file: %w", err)
+// migrateXatu runs xatu schema migrations against the local xatu-clickhouse cluster
+// by delegating to the xatu-cbt binary, which owns the xatu migration logic
+// (database-agnostic per-schema sets applied per target database). This creates the
+// external source tables (beacon_api_*, canonical_*, mev_relay_*, etc.) that CBT
+// transformations depend on. Only invoked in local mode; an external/remote xatu
+// already has its schema.
+func (m *Manager) migrateXatu(ctx context.Context) error {
+	args := []string{"infra", "migrate-xatu"}
+	if m.cfg.Dev.XatuRef != "" {
+		args = append(args, "--xatu-ref", m.cfg.Dev.XatuRef)
 	}
 
-	return env, nil
-}
+	//nolint:gosec // xatuCBTPath is from config and validated during discovery
+	cmd := exec.CommandContext(ctx, m.xatuCBTPath, args...)
+	cmd.Dir = m.cfg.Repos.XatuCBT
 
-// runXatuMigrations runs xatu schema migrations against the local xatu-clickhouse cluster.
-// This creates the external source tables (beacon_api_*, canonical_*, mev_relay_*, etc.)
-// that CBT transformations depend on.
-func (m *Manager) runXatuMigrations(ctx context.Context) error {
-	spinner := ui.NewSilentSpinner("Running database migrations")
-
-	// Path to xatu migrations (cloned by xatu-cbt infra start)
-	migrationsPath := filepath.Join(m.cfg.Repos.XatuCBT, "xatu", "deploy", "migrations", "clickhouse")
-
-	// Check if migrations directory exists
-	if _, err := os.Stat(migrationsPath); os.IsNotExist(err) {
-		spinner.Fail("Database migrations failed")
-
-		return fmt.Errorf("xatu migrations not found at %s - xatu repo may not be cloned", migrationsPath)
-	}
-
-	// Parse xatu-cbt .env to get ClickHouse credentials
-	env, err := m.parseXatuCBTEnv()
-	if err != nil {
-		spinner.Fail("Database migrations failed")
-
-		return fmt.Errorf("failed to parse xatu-cbt .env: %w", err)
-	}
-
-	// Extract connection parameters from .env
-	host := env["CLICKHOUSE_HOST"]
-	if host == "" {
-		host = "localhost" // fallback default
-	}
-
-	port := env["CLICKHOUSE_XATU_01_NATIVE_PORT"]
-	if port == "" {
-		port = "9002" // fallback default
-	}
-
-	username := env["CLICKHOUSE_USERNAME"]
-	if username == "" {
-		username = "default" // fallback default
-	}
-
-	password := env["CLICKHOUSE_PASSWORD"]
-	if password == "" {
-		password = "" // no fallback for security
-	}
-
-	// Build connection string for xatu-clickhouse cluster
-	// Using native port (from CLICKHOUSE_XATU_01_NATIVE_PORT) for golang-migrate (more reliable than HTTP)
-	hostPort := net.JoinHostPort(host, port)
-	connStr := fmt.Sprintf(
-		"clickhouse://%s?username=%s&password=%s&database=default&x-multi-statement=true&compress=true",
-		hostPort, username, password,
-	)
-
-	m.log.WithField("migrations_path", migrationsPath).Debug("initializing xatu migrations")
-
-	// Create migration instance
-	migration, err := migrate.New(
-		fmt.Sprintf("file://%s", migrationsPath),
-		connStr,
-	)
-	if err != nil {
-		spinner.Fail("Database migrations failed")
-
-		return fmt.Errorf("failed to create migration instance: %w", err)
-	}
-
-	defer func() {
-		if _, closeErr := migration.Close(); closeErr != nil {
-			m.log.WithError(closeErr).Warn("failed to close migration instance")
-		}
-	}()
-
-	// Run migrations
-	spinner.UpdateText("Applying database migrations")
-
-	err = migration.Up()
-	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		spinner.Fail("Database migrations failed")
-
-		return fmt.Errorf("failed to apply migrations: %w", err)
-	}
-
-	if errors.Is(err, migrate.ErrNoChange) {
-		m.log.Debug("no new xatu migrations to apply")
-		// Stop silently - parent Start() spinner shows overall success
-		_ = spinner.Stop()
-	} else {
-		// Get version to log what was applied
-		version, dirty, vErr := migration.Version()
-		if vErr != nil && !errors.Is(vErr, migrate.ErrNilVersion) {
-			spinner.Fail("Database migrations failed")
-
-			return fmt.Errorf("failed to get migration version: %w", vErr)
-		}
-
-		if dirty {
-			spinner.Fail("Database migrations failed")
-
-			return fmt.Errorf("migration left database in dirty state")
-		}
-
-		m.log.WithField("version", version).Info("xatu migrations applied")
-		// Stop silently - parent Start() spinner shows overall success
-		_ = spinner.Stop()
+	if err := executil.RunCmd(cmd, m.verbose); err != nil {
+		return fmt.Errorf("failed to run xatu migrations: %w", err)
 	}
 
 	return nil
