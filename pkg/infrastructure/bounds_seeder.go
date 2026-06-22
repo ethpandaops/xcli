@@ -13,8 +13,10 @@ import (
 
 const (
 	// Production cluster hardcoded details.
+	// The cbt deployment (and its Redis) lives in the clickhouse namespace since the
+	// clickhouse-raw migration; it was previously xatu-cbt in the xatu namespace.
 	prodK8sContext = "platform-analytics-hel1-production"
-	prodNamespace  = "xatu"
+	prodNamespace  = "clickhouse"
 
 	// localRedisContainer is the local Docker container name for xatu-cbt Redis.
 	localRedisContainer = "xatu-cbt-redis"
@@ -258,8 +260,8 @@ func (s *BoundsSeeder) bulkInsertLocal(ctx context.Context, redisDB int, bounds 
 
 // prodRedisDetails returns the production Redis pod name and password k8s secret name for a network.
 func prodRedisDetails(network string) (podName, secretName string) {
-	return fmt.Sprintf("%s-xatu-cbt-redis-node-0", network),
-		fmt.Sprintf("%s-xatu-cbt-redis", network)
+	return fmt.Sprintf("%s-cbt-redis-node-0", network),
+		fmt.Sprintf("%s-cbt-redis", network)
 }
 
 // stripRedisPrefix removes the "N) " prefix that redis-cli adds to array elements.
