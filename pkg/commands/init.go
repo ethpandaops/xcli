@@ -2,11 +2,11 @@ package commands
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/ethpandaops/xcli/pkg/version"
+	"github.com/ethpandaops/xcli/pkg/workspace"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -37,9 +37,14 @@ func runRootInit(log logrus.FieldLogger, configPath string) error {
 
 	log.Info("initializing xcli configuration")
 
+	ws, err := workspace.Resolve(configPath, false, false)
+	if err != nil {
+		return err
+	}
+
 	// Check if config already exists
-	if _, err := os.Stat(configPath); err == nil {
-		ui.Success(fmt.Sprintf("Configuration file already exists: %s", configPath))
+	if ws.ConfigExists {
+		ui.Success(fmt.Sprintf("Configuration file already exists: %s", ws.ConfigPath))
 		ui.Blank()
 		ui.Info("To initialize specific stacks, run:")
 		fmt.Println("  xcli lab init        - Initialize lab stack")
@@ -53,22 +58,22 @@ func runRootInit(log logrus.FieldLogger, configPath string) error {
 	cfg := &config.Config{}
 
 	// Save empty configuration
-	if err := cfg.Save(configPath); err != nil {
+	if err := cfg.Save(ws.ConfigPath); err != nil {
 		return fmt.Errorf("failed to save configuration: %w", err)
 	}
 
-	log.WithField("file", configPath).Info("configuration file created")
+	log.WithField("file", ws.ConfigPath).Info("configuration file created")
 
 	// Print summary
 	ui.Blank()
 	ui.Success("xcli configuration initialized!")
-	ui.Info(fmt.Sprintf("Configuration file created: %s", configPath))
+	ui.Info(fmt.Sprintf("Configuration file created: %s", ws.ConfigPath))
 	ui.Blank()
 	ui.Header("Next steps:")
 	fmt.Println("  1. Run 'xcli lab init' to discover and configure lab repositories")
 	fmt.Println("  2. Run 'xcli xatu init' to configure the xatu stack")
 	fmt.Println("  3. Run 'xcli <stack> init' for other stacks as needed")
-	fmt.Printf("  3. Edit %s to customize settings\n", configPath)
+	fmt.Printf("  3. Edit %s to customize settings\n", ws.ConfigPath)
 
 	return nil
 }

@@ -8,7 +8,7 @@ server:
   log_level: "info"
 
 redis:
-  address: "localhost:6380"
+  address: "localhost:{{ .RedisPort }}"
   password: ""
   db: 0
   dial_timeout: 5s

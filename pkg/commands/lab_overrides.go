@@ -2,11 +2,9 @@ package commands
 
 import (
 	"fmt"
-	"path/filepath"
 
-	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/configtui"
-	"github.com/ethpandaops/xcli/pkg/constants"
+	"github.com/ethpandaops/xcli/pkg/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -27,15 +25,14 @@ The TUI allows you to:
 Changes are saved to .cbt-overrides.yaml. Run 'xcli lab config regenerate'
 to apply changes to CBT configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			labCfg, cfgPath, err := config.LoadLabConfig(configPath)
+			labCfg, ws, err := workspace.LoadLabConfig(configPath, true)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			// Derive overrides path (same directory as .xcli.yaml).
-			overridesPath := filepath.Join(filepath.Dir(cfgPath), constants.CBTOverridesFile)
+			printCommandWorkspaceSelection(ws)
 
-			return configtui.Run(labCfg.Repos.XatuCBT, overridesPath)
+			return configtui.Run(labCfg.Repos.XatuCBT, ws.OverridesPath)
 		},
 	}
 }

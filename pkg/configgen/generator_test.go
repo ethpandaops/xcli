@@ -1,15 +1,24 @@
 package configgen
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
 	"testing"
 
 	"dario.cat/mergo"
 	"github.com/ethpandaops/xcli/pkg/config"
+	"github.com/ethpandaops/xcli/pkg/constants"
+	"github.com/ethpandaops/xcli/pkg/instance"
+	"github.com/ethpandaops/xcli/pkg/workspace"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -375,13 +384,14 @@ func TestRemoveEmptyMaps(t *testing.T) {
 }
 
 func TestEmptyOverrideDoesNotWipeAutoDefaults(t *testing.T) {
+	scriptsPath := filepath.Join(constants.RepoXatuCBT, keyModels, "scripts")
 	baseConfig := map[string]any{
 		keyModels: map[string]any{
 			keyEnv: map[string]any{
 				keyNetwork:                   networkMainnet,
 				envExternalModelMinTimestamp: "1234567890",
 				envExternalModelMinBlock:     "23800000",
-				envModelsScriptsPath:         modelsScriptsPath,
+				envModelsScriptsPath:         scriptsPath,
 			},
 		},
 	}
@@ -406,7 +416,7 @@ func TestEmptyOverrideDoesNotWipeAutoDefaults(t *testing.T) {
 	assert.Equal(t, networkMainnet, env[keyNetwork])
 	assert.Equal(t, "1234567890", env[envExternalModelMinTimestamp])
 	assert.Equal(t, "23800000", env[envExternalModelMinBlock])
-	assert.Equal(t, modelsScriptsPath, env[envModelsScriptsPath])
+	assert.Equal(t, scriptsPath, env[envModelsScriptsPath])
 }
 
 func TestUserOverridesTakePrecedence(t *testing.T) {
@@ -446,13 +456,14 @@ func TestUserOverridesTakePrecedence(t *testing.T) {
 }
 
 func TestCommentOnlyEnvOverrideDoesNotWipeAutoDefaults(t *testing.T) {
+	scriptsPath := filepath.Join(constants.RepoXatuCBT, keyModels, "scripts")
 	baseConfig := map[string]any{
 		keyModels: map[string]any{
 			keyEnv: map[string]any{
 				keyNetwork:                   networkMainnet,
 				envExternalModelMinTimestamp: "1234567890",
 				envExternalModelMinBlock:     "23800000",
-				envModelsScriptsPath:         modelsScriptsPath,
+				envModelsScriptsPath:         scriptsPath,
 			},
 		},
 	}
@@ -483,7 +494,7 @@ models:
 	assert.Equal(t, networkMainnet, env[keyNetwork])
 	assert.Equal(t, "1234567890", env[envExternalModelMinTimestamp])
 	assert.Equal(t, "23800000", env[envExternalModelMinBlock])
-	assert.Equal(t, modelsScriptsPath, env[envModelsScriptsPath])
+	assert.Equal(t, scriptsPath, env[envModelsScriptsPath])
 }
 
 func TestExpandDefaultEnabled(t *testing.T) {
@@ -591,4 +602,343 @@ func TestExpandDefaultEnabled(t *testing.T) {
 		// Should not inject anything.
 		assert.Len(t, ov, 1)
 	})
+}
+
+func TestRuntimeGeneratorUsesAllocatedPathsAndPorts(t *testing.T) {
+	registry := instance.NewRegistry(filepath.Join(t.TempDir(), "lab", "instances"))
+	allocator := instance.NewAllocator(registry, false)
+
+	firstRuntime := newConfiggenRuntime(t, registry, allocator, "first")
+	secondRuntime := newConfiggenRuntime(t, registry, allocator, "second")
+
+	require.Equal(t, 0, firstRuntime.Ports.Slot)
+	require.Equal(t, 1, secondRuntime.Ports.Slot)
+	require.Empty(t, firstRuntime.Ports.Overlaps(secondRuntime.Ports))
+
+	firstDir, err := NewRuntimeGenerator(logrus.New(), firstRuntime).GenerateRuntimeConfigs()
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(firstRuntime.Manifest.StateDir, constants.DirConfigs), firstDir)
+
+	secondDir, err := NewRuntimeGenerator(logrus.New(), secondRuntime).GenerateRuntimeConfigs()
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(secondRuntime.Manifest.StateDir, constants.DirConfigs), secondDir)
+
+	assertGeneratedConfigMatchesRuntime(t, firstRuntime, firstDir)
+	assertGeneratedConfigMatchesRuntime(t, secondRuntime, secondDir)
+	assertNoForbiddenRuntimeLiterals(t, firstRuntime, firstDir)
+	assertNoForbiddenRuntimeLiterals(t, secondRuntime, secondDir)
+}
+
+func TestRuntimeGeneratorCopiesCustomConfigsFromRootState(t *testing.T) {
+	registry := instance.NewRegistry(filepath.Join(t.TempDir(), "lab", "instances"))
+	allocator := instance.NewAllocator(registry, false)
+	runtime := newConfiggenRuntime(t, registry, allocator, "custom")
+
+	customConfigsDir := filepath.Join(runtime.Workspace.StateDir, constants.DirCustomConfigs)
+	require.NoError(t, os.MkdirAll(customConfigsDir, 0755))
+
+	customAPIConfig := "custom: true\n"
+	customAPIPath := filepath.Join(
+		customConfigsDir,
+		fmt.Sprintf(constants.ConfigFileCBTAPI, networkMainnet),
+	)
+	require.NoError(t, os.WriteFile(customAPIPath, []byte(customAPIConfig), 0600))
+
+	configsDir, err := NewRuntimeGenerator(logrus.New(), runtime).GenerateRuntimeConfigs()
+	require.NoError(t, err)
+
+	renderedAPIConfig := readGeneratedConfig(
+		t,
+		configsDir,
+		fmt.Sprintf(constants.ConfigFileCBTAPI, networkMainnet),
+	)
+	require.Equal(t, customAPIConfig, renderedAPIConfig)
+}
+
+func newConfiggenRuntime(
+	t *testing.T,
+	registry *instance.Registry,
+	allocator *instance.Allocator,
+	name string,
+) *instance.Runtime {
+	t.Helper()
+
+	configPath := writeConfiggenRuntimeConfig(t, name)
+	labCfg, ws, err := workspace.LoadLabConfig(configPath, false)
+	require.NoError(t, err)
+
+	runtime, err := instance.NewRuntimeFromWorkspace(
+		context.Background(),
+		ws,
+		labCfg,
+		"",
+		instance.RuntimeOptions{
+			Registry:   registry,
+			Allocator:  allocator,
+			ClaimPorts: true,
+		},
+	)
+	require.NoError(t, err)
+
+	return runtime
+}
+
+func writeConfiggenRuntimeConfig(t *testing.T, name string) string {
+	t.Helper()
+
+	rootDir := filepath.Join(t.TempDir(), name)
+	reposDir := filepath.Join(rootDir, "repos")
+	repos := []string{
+		constants.RepoCBT,
+		constants.RepoXatuCBT,
+		constants.RepoCBTAPI,
+		constants.RepoLabBackend,
+		constants.RepoLab,
+	}
+	for _, repo := range repos {
+		require.NoError(t, os.MkdirAll(filepath.Join(reposDir, repo), 0755))
+	}
+
+	xatuCBTRepo := filepath.Join(reposDir, constants.RepoXatuCBT)
+	require.NoError(t, os.MkdirAll(filepath.Join(xatuCBTRepo, keyModels, "external"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(xatuCBTRepo, keyModels, "transformations"), 0755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(xatuCBTRepo, keyModels, "external", fctBlock+".sql"),
+		[]byte("SELECT 1"),
+		0600,
+	))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(xatuCBTRepo, keyModels, "transformations", fctSummary+".sql"),
+		[]byte("SELECT 1"),
+		0600,
+	))
+
+	overridesPath := filepath.Join(rootDir, constants.CBTOverridesFile)
+	overrides := `
+models:
+  env:
+    EXTERNAL_MODEL_MIN_BLOCK: "123"
+`
+	require.NoError(t, os.WriteFile(overridesPath, []byte(overrides), 0600))
+
+	configPath := filepath.Join(rootDir, config.DefaultConfigFileName)
+	content := `
+lab:
+  mode: hybrid
+  repos:
+    cbt: repos/cbt
+    xatuCbt: repos/xatu-cbt
+    cbtApi: repos/cbt-api
+    labBackend: repos/lab-backend
+    lab: repos/lab
+  networks:
+    - name: mainnet
+      enabled: true
+      portOffset: 0
+    - name: sepolia
+      enabled: true
+      portOffset: 1
+  infrastructure:
+    clickhouse:
+      xatu:
+        mode: external
+        externalUrl: "http://example.invalid:9000"
+      cbt:
+        mode: local
+    redis:
+      port: 6380
+    observability:
+      enabled: true
+      prometheusPort: 9090
+      grafanaPort: 3000
+    clickhouseXatuPort: 8125
+    clickhouseCbtPort: 8123
+    redisPort: 6380
+  ports:
+    labBackend: 8080
+    labFrontend: 5173
+    cbtBase: 8081
+    cbtApiBase: 8091
+    cbtFrontendBase: 8085
+`
+	require.NoError(t, os.WriteFile(configPath, []byte(content), 0644))
+
+	return configPath
+}
+
+func assertGeneratedConfigMatchesRuntime(
+	t *testing.T,
+	runtime *instance.Runtime,
+	configsDir string,
+) {
+	t.Helper()
+
+	xatuCBTRepo := runtime.LabConfig.Repos.XatuCBT
+	require.True(t, filepath.IsAbs(xatuCBTRepo))
+
+	for _, network := range runtime.LabConfig.EnabledNetworks() {
+		ports := runtime.Ports.Networks[network.Name]
+
+		cbtConfig := readGeneratedConfig(
+			t,
+			configsDir,
+			fmt.Sprintf(constants.ConfigFileCBT, network.Name),
+		)
+		assert.Contains(t, cbtConfig, filepath.Join(xatuCBTRepo, keyModels, "external"))
+		assert.Contains(t, cbtConfig, filepath.Join(xatuCBTRepo, keyModels, "transformations"))
+		assert.Contains(t, cbtConfig, filepath.Join(xatuCBTRepo, keyModels, "scripts"))
+		assert.Contains(
+			t,
+			cbtConfig,
+			"localhost:"+strconv.Itoa(runtime.Ports.ClickHouseCBT01HTTP),
+		)
+		assert.Contains(t, cbtConfig, "localhost:"+strconv.Itoa(runtime.Ports.Redis))
+		assert.Contains(t, cbtConfig, strconv.Itoa(ports.CBTMetrics))
+		assert.Contains(t, cbtConfig, strconv.Itoa(ports.CBTFrontend))
+		assertRuntimeOverrideMerged(t, cbtConfig)
+
+		apiConfig := readGeneratedConfig(
+			t,
+			configsDir,
+			fmt.Sprintf(constants.ConfigFileCBTAPI, network.Name),
+		)
+		assert.Contains(t, apiConfig, "port: "+strconv.Itoa(ports.CBTAPI))
+		assert.Contains(t, apiConfig, "metrics_port: "+strconv.Itoa(ports.CBTAPIMetrics))
+		assert.Contains(
+			t,
+			apiConfig,
+			"localhost:"+strconv.Itoa(runtime.Ports.ClickHouseCBT01TCP),
+		)
+	}
+
+	backendConfig := readGeneratedConfig(t, configsDir, constants.ConfigFileLabBackend)
+	assert.Contains(t, backendConfig, "port: "+strconv.Itoa(runtime.Ports.LabBackend))
+	assert.Contains(t, backendConfig, "localhost:"+strconv.Itoa(runtime.Ports.Redis))
+	for _, network := range runtime.LabConfig.EnabledNetworks() {
+		assert.Contains(
+			t,
+			backendConfig,
+			"localhost:"+strconv.Itoa(runtime.Ports.Networks[network.Name].CBTAPI),
+		)
+	}
+
+	prometheusConfig := readGeneratedConfig(t, configsDir, "prometheus.yml")
+	assert.Contains(
+		t,
+		prometheusConfig,
+		"host.docker.internal:"+strconv.Itoa(runtime.Ports.LabBackend),
+	)
+	for _, network := range runtime.LabConfig.EnabledNetworks() {
+		ports := runtime.Ports.Networks[network.Name]
+		assert.Contains(
+			t,
+			prometheusConfig,
+			"host.docker.internal:"+strconv.Itoa(ports.CBTMetrics),
+		)
+		assert.Contains(
+			t,
+			prometheusConfig,
+			"host.docker.internal:"+strconv.Itoa(ports.CBTAPIMetrics),
+		)
+	}
+
+	datasourceConfig := readGeneratedConfig(
+		t,
+		configsDir,
+		filepath.Join("grafana", "provisioning", "datasources", "datasource.yml"),
+	)
+	assert.Contains(
+		t,
+		datasourceConfig,
+		"host.docker.internal:"+strconv.Itoa(runtime.Ports.Prometheus),
+	)
+}
+
+func assertRuntimeOverrideMerged(t *testing.T, cbtConfig string) {
+	t.Helper()
+
+	var parsed map[string]any
+	require.NoError(t, yaml.Unmarshal([]byte(cbtConfig), &parsed))
+
+	models, ok := parsed[keyModels].(map[string]any)
+	require.True(t, ok)
+
+	env, ok := models[keyEnv].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "123", env[envExternalModelMinBlock])
+}
+
+func assertNoForbiddenRuntimeLiterals(
+	t *testing.T,
+	runtime *instance.Runtime,
+	configsDir string,
+) {
+	t.Helper()
+
+	generated := readGeneratedTree(t, configsDir)
+	require.NotContains(t, generated, "../xatu-cbt")
+
+	conditionalLiterals := map[string]int{
+		"localhost:8123": 8123,
+		"localhost:9000": 9000,
+		"localhost:6380": 6380,
+	}
+
+	for literal, port := range conditionalLiterals {
+		if !planContainsPort(runtime.Ports, port) {
+			require.NotContains(t, generated, literal)
+		}
+	}
+
+	for _, port := range []int{9100, 9200} {
+		if !planContainsPort(runtime.Ports, port) {
+			require.NotRegexp(t, regexp.MustCompile(`\b`+strconv.Itoa(port)+`\b`), generated)
+		}
+	}
+}
+
+func readGeneratedConfig(t *testing.T, configsDir, name string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join(configsDir, name))
+	require.NoError(t, err)
+
+	return string(data)
+}
+
+func readGeneratedTree(t *testing.T, root string) string {
+	t.Helper()
+
+	var builder strings.Builder
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+
+		builder.Write(data)
+		builder.WriteByte('\n')
+
+		return nil
+	})
+	require.NoError(t, err)
+
+	return builder.String()
+}
+
+func planContainsPort(plan instance.PortPlan, port int) bool {
+	for _, planned := range plan.AllPorts() {
+		if planned == port {
+			return true
+		}
+	}
+
+	return false
 }

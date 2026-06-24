@@ -4,7 +4,7 @@ logging: debug
 metricsAddr: ":{{ .MetricsPort }}"
 
 clickhouse:
-  url: "http://default:supersecret@localhost:8123"
+  url: "http://default:supersecret@localhost:{{ .ClickHouseHTTPPort }}"
   cluster: "{cluster}"
   localSuffix: "_local"
   queryTimeout: 10m
@@ -26,18 +26,18 @@ interval_types:
     - name: Timestamp
 
 redis:
-  url: "redis://localhost:6380/{{ .RedisDB }}"
+  url: "redis://localhost:{{ .RedisPort }}/{{ .RedisDB }}"
 
 models:
   external:
     defaultCluster: "xatu_cluster"
     defaultDatabase: "{{ .ExternalClickHouseDatabase }}"
     paths:
-      - "../xatu-cbt/models/external"
+      - "{{ .ExternalModelsPath }}"
   transformations:
     defaultDatabase: "{{ .Network }}"
     paths:
-      - "../xatu-cbt/models/transformations"
+      - "{{ .TransformationModelsPath }}"
 
 frontend:
   enabled: true

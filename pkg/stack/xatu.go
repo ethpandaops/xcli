@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/ethpandaops/xcli/pkg/compose"
 	"github.com/ethpandaops/xcli/pkg/config"
@@ -231,10 +232,12 @@ func (s *xatuStack) Init(ctx context.Context) error {
 		resolvedConfigPath string
 	)
 
-	if _, err := os.Stat(s.configPath); err == nil {
+	configPath := config.EffectiveConfigPath(s.configPath)
+
+	if _, err := os.Stat(configPath); err == nil {
 		s.log.Info("loading existing configuration")
 
-		result, err := config.Load(s.configPath)
+		result, err := config.Load(configPath)
 		if err != nil {
 			return fmt.Errorf("failed to load existing config: %w", err)
 		}
@@ -244,7 +247,7 @@ func (s *xatuStack) Init(ctx context.Context) error {
 	} else {
 		rootCfg = &config.Config{}
 
-		absPath, err := filepath.Abs(s.configPath)
+		absPath, err := filepath.Abs(configPath)
 		if err != nil {
 			return fmt.Errorf("failed to get absolute config path: %w", err)
 		}
@@ -694,6 +697,10 @@ func (s *xatuStack) Start(ctx context.Context, service string) error {
 
 // Stop stops a specific xatu service.
 func (s *xatuStack) Stop(ctx context.Context, service string) error {
+	if strings.TrimSpace(service) == "" {
+		return s.Down(ctx)
+	}
+
 	xatuCfg, _, err := config.LoadXatuConfig(s.configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)

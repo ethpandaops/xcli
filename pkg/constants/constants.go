@@ -94,14 +94,23 @@ const (
 	// Default ports.
 	DefaultPrometheusPort = 9090
 	DefaultGrafanaPort    = 3000
+)
 
-	// Container names.
-	ContainerPrometheus = "xcli-prometheus"
-	ContainerGrafana    = "xcli-grafana"
-
-	// Volume names.
-	VolumePrometheus = "xcli-prometheus-data"
-	VolumeGrafana    = "xcli-grafana-data"
+// Lab slot-0 port defaults.
+const (
+	DefaultLabBackendPort           = 8080
+	DefaultLabFrontendPort          = 5173
+	DefaultCBTBasePort              = 8081
+	DefaultCBTAPIBasePort           = 8091
+	DefaultCBTFrontendBasePort      = 8085
+	DefaultCBTMetricsBasePort       = 9100
+	DefaultCBTAPIMetricsBasePort    = 9200
+	DefaultClickHouseCBTHTTPPort    = 8123
+	DefaultClickHouseCBTNativePort  = 9000
+	DefaultClickHouseXatuHTTPPort   = 8125
+	DefaultClickHouseXatuNativePort = 9002
+	DefaultRedisPort                = 6380
+	DefaultCommandCenterPort        = 19280
 )
 
 // PID file template.

@@ -69,7 +69,7 @@ func FormatConflicts(conflicts []PortConflict) string {
 	}
 
 	sb.WriteString("\nTo fix this:\n")
-	sb.WriteString("  1. Run 'xcli lab down' to clean up\n")
+	sb.WriteString("  1. Run 'xcli lab stop' to stop the selected instance\n")
 
 	if len(conflicts) > 0 && conflicts[0].PID > 0 {
 		sb.WriteString("  2. Or manually kill processes: ")

@@ -10,6 +10,7 @@ import (
 	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/ethpandaops/xcli/pkg/seeddata"
 	"github.com/ethpandaops/xcli/pkg/ui"
+	"github.com/ethpandaops/xcli/pkg/workspace"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -96,7 +97,7 @@ func runGenerateSeedData(
 	sanitizeIPs bool,
 ) error {
 	// Load configuration
-	labCfg, _, err := config.LoadLabConfig(configPath)
+	labCfg, _, err := workspace.LoadLabConfig(configPath, false)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}

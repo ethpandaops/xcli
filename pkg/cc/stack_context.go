@@ -7,18 +7,11 @@ import (
 	"time"
 
 	"github.com/ethpandaops/xcli/pkg/ai"
-	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/ethpandaops/xcli/pkg/tui"
 	"github.com/sirupsen/logrus"
 )
 
 const logHistorySize = 10000
-
-// dockerContainerNames maps observability service names to Docker container names.
-var dockerContainerNames = map[string]string{
-	constants.ServicePrometheus: constants.ContainerPrometheus,
-	constants.ServiceGrafana:    constants.ContainerGrafana,
-}
 
 // stackContext bundles all per-stack components so each stack operates
 // independently with its own SSE hub, health monitor, log streamer, etc.

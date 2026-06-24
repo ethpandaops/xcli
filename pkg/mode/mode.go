@@ -19,8 +19,8 @@ type Mode interface {
 	GetInfrastructureServices() []string
 
 	// GetHealthCheckPorts returns ports to health check for infrastructure readiness
-	// Local: [8123 (xatu-local), 8124 (cbt), 6380 (redis)]
-	// Hybrid: [8124 (cbt), 6380 (redis), <external-clickhouse-port>]
+	// Local: [8125 (xatu-local), 8123 (cbt), 6380 (redis)]
+	// Hybrid: [8123 (cbt), 6380 (redis), <external-clickhouse-port>]
 	GetHealthCheckPorts() []int
 
 	// GetObservabilityPorts returns ports for observability services (Prometheus, Grafana)

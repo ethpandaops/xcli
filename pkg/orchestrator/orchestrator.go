@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/ethpandaops/xcli/pkg/git"
 	"github.com/ethpandaops/xcli/pkg/infrastructure"
+	"github.com/ethpandaops/xcli/pkg/instance"
 	"github.com/ethpandaops/xcli/pkg/mode"
 	"github.com/ethpandaops/xcli/pkg/portutil"
 	"github.com/ethpandaops/xcli/pkg/process"
@@ -47,6 +49,7 @@ type Orchestrator struct {
 	proc     process.Manager
 	builder  *builder.Manager
 	stateDir string
+	runtime  *instance.Runtime
 	verbose  bool
 	render   ui.Renderer
 }
@@ -57,6 +60,41 @@ func NewOrchestrator(
 	cfg *config.LabConfig,
 	configPath string,
 ) (*Orchestrator, error) {
+	return newOrchestrator(log, cfg, configPath, nil)
+}
+
+// NewOrchestratorWithRuntime creates an orchestrator bound to an instance runtime.
+func NewOrchestratorWithRuntime(
+	log logrus.FieldLogger,
+	runtime *instance.Runtime,
+) (*Orchestrator, error) {
+	if runtime == nil {
+		return nil, fmt.Errorf("runtime is required")
+	}
+	if runtime.LabConfig == nil {
+		return nil, fmt.Errorf("runtime lab config is required")
+	}
+
+	configPath := ""
+	if runtime.Manifest != nil {
+		configPath = runtime.Manifest.ConfigPath
+	}
+	if configPath == "" && runtime.Workspace != nil {
+		configPath = runtime.Workspace.ConfigPath
+	}
+	if configPath == "" {
+		return nil, fmt.Errorf("runtime config path is required")
+	}
+
+	return newOrchestrator(log, runtime.LabConfig, configPath, runtime)
+}
+
+func newOrchestrator(
+	log logrus.FieldLogger,
+	cfg *config.LabConfig,
+	configPath string,
+	runtime *instance.Runtime,
+) (*Orchestrator, error) {
 	// Get absolute path of config file
 	absConfigPath, err := filepath.Abs(configPath)
 	if err != nil {
@@ -66,6 +104,9 @@ func NewOrchestrator(
 	// State directory is in the same directory as the config file
 	configDir := filepath.Dir(absConfigPath)
 	stateDir := filepath.Join(configDir, ".xcli")
+	if runtime != nil && runtime.Manifest != nil && runtime.Manifest.StateDir != "" {
+		stateDir = runtime.Manifest.StateDir
+	}
 
 	// Create mode from config (wrapping LabConfig to get Config)
 	fullConfig := &config.Config{Lab: cfg}
@@ -86,10 +127,11 @@ func NewOrchestrator(
 		log:      log.WithField("component", "orchestrator"),
 		cfg:      cfg,
 		mode:     m,
-		infra:    infrastructure.NewManager(log, cfg, m, stateDir),
+		infra:    infrastructure.NewManagerWithRuntime(log, cfg, m, stateDir, runtime),
 		proc:     process.NewManager(log, stateDir),
 		builder:  builder.NewManager(log, cfg, stateDir),
 		stateDir: stateDir,
+		runtime:  runtime,
 		verbose:  false,
 		render:   ui.NewPlainRenderer(),
 	}, nil
@@ -162,7 +204,24 @@ func (o *Orchestrator) Up(
 	skipBuild bool,
 	forceBuild bool,
 	progress ProgressFunc,
-) error {
+) (err error) {
+	releaseReservationOnFailure := o.runtime != nil &&
+		o.runtime.Manifest != nil &&
+		o.runtime.Manifest.Status == instance.StatusReserved
+	upComplete := false
+
+	defer func() {
+		if upComplete || !releaseReservationOnFailure {
+			return
+		}
+		if err == nil {
+			err = fmt.Errorf("lab up did not complete")
+		}
+		if releaseErr := o.releaseRuntimeReservation(err); releaseErr != nil {
+			o.log.WithError(releaseErr).Warn("failed to release instance reservation after failed up")
+		}
+	}()
+
 	// Display startup banner
 	o.render.Banner("Starting Lab Stack")
 
@@ -436,21 +495,33 @@ func (o *Orchestrator) Up(
 
 	serviceSpinner.Success("All services started")
 
+	if err := o.finalizeRuntimeManifest(ctx); err != nil {
+		return fmt.Errorf("failed to write instance manifest: %w", err)
+	}
+	upComplete = true
+
 	reportProgress(progress, "complete", "Stack is running!")
 
 	o.render.Blank()
 	o.render.Success("Stack is running!")
 
-	// Build services list
+	o.displayRuntimeSummary()
+	o.render.ServiceTable("Services", o.serviceSummary())
+	o.render.Blank()
+
+	return nil
+}
+
+func (o *Orchestrator) serviceSummary() []ui.Service {
 	services := []ui.Service{
 		{
 			Name:   "Lab Frontend",
-			URL:    fmt.Sprintf("http://localhost:%d", o.cfg.Ports.LabFrontend),
+			URL:    o.getServiceURL(constants.ServiceLabFrontend),
 			Status: statusRunning,
 		},
 		{
 			Name:   "Lab Backend",
-			URL:    fmt.Sprintf("http://localhost:%d", o.cfg.Ports.LabBackend),
+			URL:    o.getServiceURL(constants.ServiceLabBackend),
 			Status: statusRunning,
 		},
 	}
@@ -458,41 +529,213 @@ func (o *Orchestrator) Up(
 	for _, net := range o.cfg.EnabledNetworks() {
 		services = append(services, ui.Service{
 			Name:   fmt.Sprintf("CBT API (%s)", net.Name),
-			URL:    fmt.Sprintf("http://localhost:%d", o.cfg.GetCBTAPIPort(net.Name)),
+			URL:    o.getServiceURL(constants.ServiceNameCBTAPI(net.Name)),
 			Status: statusRunning,
 		})
 		services = append(services, ui.Service{
 			Name:   fmt.Sprintf("CBT Frontend (%s)", net.Name),
-			URL:    fmt.Sprintf("http://localhost:%d", o.cfg.GetCBTFrontendPort(net.Name)),
+			URL:    o.getServiceURL(constants.ServiceNameCBT(net.Name)),
 			Status: statusRunning,
 		})
 	}
 
-	// Add observability services if enabled
 	if o.cfg.Infrastructure.Observability.Enabled {
 		services = append(services, ui.Service{
 			Name:   "Prometheus",
-			URL:    fmt.Sprintf("http://localhost:%d", o.cfg.Infrastructure.Observability.PrometheusPort),
+			URL:    o.getServiceURL(constants.ServicePrometheus),
 			Status: statusRunning,
 		})
 		services = append(services, ui.Service{
 			Name:   "Grafana",
-			URL:    fmt.Sprintf("http://localhost:%d", o.cfg.Infrastructure.Observability.GrafanaPort),
+			URL:    o.getServiceURL(constants.ServiceGrafana),
 			Status: statusRunning,
 		})
 	}
 
-	o.render.ServiceTable("Services", services)
+	return services
+}
+
+func (o *Orchestrator) displayRuntimeSummary() {
+	if o.runtime == nil || o.runtime.Manifest == nil {
+		return
+	}
+
+	manifest := o.runtime.Manifest
+	o.render.Header("Instance")
+	o.render.Info(fmt.Sprintf("ID: %s", manifest.InstanceID))
+	o.render.Info(fmt.Sprintf("Config: %s", manifest.ConfigPath))
+	o.render.Info(fmt.Sprintf("Overrides: %s", manifest.OverridesPath))
+	o.render.Info(fmt.Sprintf("State dir: %s", manifest.StateDir))
+
 	o.render.Blank()
+	o.render.Header("Repositories")
+
+	names := make([]string, 0, len(manifest.Repos))
+	for name := range manifest.Repos {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		version := manifest.Repos[name]
+		branch := version.Branch
+		if branch == "" {
+			branch = "unknown"
+		}
+
+		commit := shortCommit(version.Commit)
+		if commit == "" {
+			commit = "unknown"
+		}
+
+		state := "clean"
+		if version.Dirty {
+			state = "dirty"
+		}
+
+		o.render.Info(fmt.Sprintf("%s: %s %s %s (%s)", name, branch, commit, state, version.Path))
+	}
+
+	if manifest.LastError != "" {
+		o.render.Warning(fmt.Sprintf("Repo snapshot warning: %s", manifest.LastError))
+	}
+
+	o.render.Blank()
+}
+
+func (o *Orchestrator) finalizeRuntimeManifest(ctx context.Context) error {
+	if o.runtime == nil || o.runtime.Manifest == nil {
+		return nil
+	}
+
+	manifest := o.runtime.Manifest
+	updatedManifest := *manifest
+	repos, snapshotErr := instance.SnapshotLabRepos(ctx, o.cfg)
+	if len(repos) > 0 {
+		updatedManifest.Repos = repos
+		o.runtime.Repos = repos
+	}
+	if snapshotErr != nil {
+		updatedManifest.LastError = snapshotErr.Error()
+	} else {
+		updatedManifest.LastError = ""
+	}
+
+	updatedManifest.Status = instance.StatusRunning
+	updatedManifest.Ports = o.runtime.Ports
+	updatedManifest.Docker = o.runtime.Docker
+	updatedManifest.PIDs = o.managedPIDs()
+	updatedManifest.URLs = o.runtimeURLs()
+
+	registry, err := o.runtimeRegistry()
+	if err != nil {
+		return err
+	}
+
+	if err := registry.Save(&updatedManifest); err != nil {
+		return err
+	}
+
+	*manifest = updatedManifest
 
 	return nil
 }
 
-// Down stops all services and tears down infrastructure (removes volumes).
+func (o *Orchestrator) markRuntimeStopped() error {
+	if o.runtime == nil || o.runtime.Manifest == nil {
+		return nil
+	}
+
+	o.runtime.Manifest.Status = instance.StatusStopped
+	o.runtime.Manifest.PIDs = map[string]int{}
+
+	registry, err := o.runtimeRegistry()
+	if err != nil {
+		return err
+	}
+
+	return registry.Save(o.runtime.Manifest)
+}
+
+func (o *Orchestrator) releaseRuntimeReservation(upErr error) error {
+	if o.runtime == nil || o.runtime.Manifest == nil {
+		return nil
+	}
+
+	o.runtime.Manifest.Status = instance.StatusStopped
+	if upErr != nil {
+		o.runtime.Manifest.LastError = upErr.Error()
+	}
+	o.runtime.Manifest.PIDs = map[string]int{}
+
+	registry, err := o.runtimeRegistry()
+	if err != nil {
+		return err
+	}
+
+	return registry.Save(o.runtime.Manifest)
+}
+
+func (o *Orchestrator) runtimeRegistry() (*instance.Registry, error) {
+	if o.runtime == nil {
+		return instance.DefaultRegistry()
+	}
+	if o.runtime.Registry != nil {
+		return o.runtime.Registry, nil
+	}
+
+	registry, err := instance.DefaultRegistry()
+	if err != nil {
+		return nil, err
+	}
+	o.runtime.Registry = registry
+
+	return registry, nil
+}
+
+func (o *Orchestrator) managedPIDs() map[string]int {
+	processes := o.proc.List()
+	pids := make(map[string]int, len(processes))
+	for _, p := range processes {
+		pids[p.Name] = p.PID
+	}
+
+	return pids
+}
+
+func (o *Orchestrator) runtimeURLs() map[string]string {
+	urls := map[string]string{
+		constants.ServiceLabFrontend: o.getServiceURL(constants.ServiceLabFrontend),
+		constants.ServiceLabBackend:  o.getServiceURL(constants.ServiceLabBackend),
+		"command-center":             fmt.Sprintf("http://localhost:%d", o.portPlan().CommandCenter),
+	}
+
+	for _, net := range o.cfg.EnabledNetworks() {
+		urls[constants.ServiceNameCBT(net.Name)] = o.getServiceURL(constants.ServiceNameCBT(net.Name))
+		urls[constants.ServiceNameCBTAPI(net.Name)] = o.getServiceURL(constants.ServiceNameCBTAPI(net.Name))
+	}
+
+	if o.cfg.Infrastructure.Observability.Enabled {
+		urls[constants.ServicePrometheus] = o.getServiceURL(constants.ServicePrometheus)
+		urls[constants.ServiceGrafana] = o.getServiceURL(constants.ServiceGrafana)
+	}
+
+	return urls
+}
+
+func shortCommit(commit string) string {
+	if len(commit) <= 12 {
+		return commit
+	}
+
+	return commit[:12]
+}
+
+// Down stops all services and infrastructure while preserving data.
 // progress is an optional callback for reporting teardown phase updates.
 // Pass nil to disable progress reporting (e.g. from CLI callers).
 func (o *Orchestrator) Down(ctx context.Context, progress ProgressFunc) error {
-	o.log.Info("tearing down stack")
+	o.log.Info("stopping stack")
 
 	// Stop services first
 	reportProgress(progress, "stop_services", "Stopping services...")
@@ -537,43 +780,91 @@ func (o *Orchestrator) Down(ctx context.Context, progress ProgressFunc) error {
 		spinner.Success("Log files cleaned")
 	}
 
-	// Final cleanup: Kill any remaining pnpm/vite/esbuild processes
-	// This handles orphaned child processes that reparented after their parent died
-	o.log.Debug("cleaning up orphaned node processes (pnpm/vite/esbuild)")
-
-	patterns := []string{
-		"lab.*vite",
-		"lab.*esbuild",
-		"pnpm.*dev",
-	}
-
-	for _, pattern := range patterns {
-		pkillCmd := exec.Command("pkill", "-KILL", "-f", pattern)
-		if err := pkillCmd.Run(); err != nil {
-			o.log.WithError(err).WithField("pattern", pattern).Debug("pkill found no matching processes")
-		}
-	}
-
-	// Reset infrastructure (stops containers and removes volumes)
+	// Stop infrastructure without removing volumes.
 	reportProgress(progress, "stop_infrastructure", "Stopping infrastructure...")
 
-	spinner = o.render.Task("Stopping infrastructure and removing volumes")
+	spinner = o.render.Task("Stopping infrastructure")
 
-	o.log.Info("resetting infrastructure")
+	o.log.Info("stopping infrastructure")
 
-	if err := o.infra.Reset(ctx); err != nil {
-		spinner.Fail("Failed to reset infrastructure")
+	if err := o.infra.Stop(ctx); err != nil {
+		spinner.Fail("Failed to stop infrastructure")
 
-		return fmt.Errorf("failed to reset infrastructure: %w", err)
+		return fmt.Errorf("failed to stop infrastructure: %w", err)
 	}
 
-	spinner.Success("Infrastructure stopped and volumes removed")
+	spinner.Success("Infrastructure stopped; data preserved")
+
+	if err := o.markRuntimeStopped(); err != nil {
+		return fmt.Errorf("failed to update instance manifest: %w", err)
+	}
 
 	reportProgress(progress, "complete", "Stack stopped")
 
-	o.log.Info("teardown complete")
+	o.log.Info("stack stopped")
 
 	return nil
+}
+
+// Destroy removes all resources and generated state for the selected instance.
+func (o *Orchestrator) Destroy(ctx context.Context, progress ProgressFunc) error {
+	o.log.Info("destroying stack")
+
+	reportProgress(progress, "stop_services", "Stopping services...")
+	spinner := o.render.Task("Stopping services")
+	if err := o.proc.StopAll(ctx); err != nil {
+		o.log.WithError(err).Warn("failed to stop services")
+		spinner.Warning("Services stopped (with warnings)")
+	} else {
+		spinner.Success("Services stopped")
+	}
+
+	reportProgress(progress, "cleanup_orphans", "Cleaning up orphaned processes...")
+	spinner = o.render.Task("Cleaning up orphaned processes")
+	orphanedCount := o.cleanupOrphanedProcesses()
+	if orphanedCount > 0 {
+		spinner.Success(fmt.Sprintf("Cleaned up %d orphaned processes", orphanedCount))
+	} else {
+		spinner.Success("No orphaned processes found")
+	}
+
+	reportProgress(progress, "destroy_infrastructure", "Destroying infrastructure...")
+	spinner = o.render.Task("Destroying infrastructure and volumes")
+	if err := o.infra.Destroy(ctx); err != nil {
+		spinner.Fail("Failed to destroy infrastructure")
+
+		return fmt.Errorf("failed to destroy infrastructure: %w", err)
+	}
+	spinner.Success("Infrastructure and volumes destroyed")
+
+	if o.runtime != nil && o.runtime.Manifest != nil {
+		reportProgress(progress, "remove_state", "Removing generated state...")
+		spinner = o.render.Task("Removing generated state")
+		if err := os.RemoveAll(o.runtime.Manifest.StateDir); err != nil {
+			spinner.Fail("Failed to remove generated state")
+
+			return fmt.Errorf("failed to remove generated state: %w", err)
+		}
+		spinner.Success("Generated state removed")
+
+		registry, err := o.runtimeRegistry()
+		if err != nil {
+			return err
+		}
+		if err := registry.Delete(o.runtime.Manifest); err != nil {
+			return err
+		}
+	}
+
+	reportProgress(progress, "complete", "Stack destroyed")
+	o.log.Info("stack destroyed")
+
+	return nil
+}
+
+// ResetRedis intentionally clears Redis data for the selected instance.
+func (o *Orchestrator) ResetRedis(ctx context.Context) error {
+	return o.infra.ResetRedis(ctx)
 }
 
 // StopServices stops all running services without tearing down infrastructure.
@@ -632,10 +923,19 @@ func (o *Orchestrator) RebuildObservability(ctx context.Context, service string)
 		return fmt.Errorf("observability is not enabled")
 	}
 
-	// Regenerate configs
-	configsDir := filepath.Join(o.stateDir, "configs")
+	if err := o.regenerateObservabilityConfig(service); err != nil {
+		return err
+	}
 
-	generator := configgen.NewGenerator(o.log, o.cfg)
+	// Restart the service
+	return o.infra.RestartObservabilityService(ctx, service)
+}
+
+func (o *Orchestrator) regenerateObservabilityConfig(service string) error {
+	generator, configsDir, userStateDir := o.observabilityConfigGenerator()
+	if err := os.MkdirAll(configsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create configs directory: %w", err)
+	}
 
 	switch service {
 	case constants.ServicePrometheus:
@@ -648,7 +948,7 @@ func (o *Orchestrator) RebuildObservability(ctx context.Context, service string)
 	case constants.ServiceGrafana:
 		o.log.Info("regenerating Grafana provisioning")
 
-		if err := generator.GenerateGrafanaProvisioning(configsDir, o.stateDir); err != nil {
+		if err := generator.GenerateGrafanaProvisioning(configsDir, userStateDir); err != nil {
 			return fmt.Errorf("failed to generate Grafana provisioning: %w", err)
 		}
 
@@ -656,8 +956,21 @@ func (o *Orchestrator) RebuildObservability(ctx context.Context, service string)
 		return fmt.Errorf("unknown observability service: %s", service)
 	}
 
-	// Restart the service
-	return o.infra.RestartObservabilityService(ctx, service)
+	return nil
+}
+
+func (o *Orchestrator) observabilityConfigGenerator() (*configgen.Generator, string, string) {
+	if o.runtime != nil && o.runtime.Manifest != nil {
+		configsDir := filepath.Join(o.runtime.Manifest.StateDir, constants.DirConfigs)
+		userStateDir := o.stateDir
+		if o.runtime.Workspace != nil && o.runtime.Workspace.StateDir != "" {
+			userStateDir = o.runtime.Workspace.StateDir
+		}
+
+		return configgen.NewRuntimeGenerator(o.log, o.runtime), configsDir, userStateDir
+	}
+
+	return configgen.NewGenerator(o.log, o.cfg), filepath.Join(o.stateDir, constants.DirConfigs), o.stateDir
 }
 
 // StartService starts a specific service by name.
@@ -901,7 +1214,7 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 			}
 		}
 
-		fmt.Println("\nRun 'xcli lab down' to clean up orphaned processes")
+		fmt.Println("\nRun 'xcli lab stop' to stop the selected instance")
 	}
 
 	return nil
@@ -910,6 +1223,11 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 // GenerateConfigs generates configuration files for all services.
 // Public method so it can be called by rebuild commands.
 func (o *Orchestrator) GenerateConfigs(ctx context.Context) error {
+	if o.runtime != nil {
+		_, err := configgen.NewRuntimeGenerator(o.log, o.runtime).GenerateRuntimeConfigs()
+		return err
+	}
+
 	configsDir := filepath.Join(o.stateDir, "configs")
 	if err := os.MkdirAll(configsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create configs directory: %w", err)
@@ -1037,8 +1355,8 @@ func (o *Orchestrator) WaitForCBTAPIReady(ctx context.Context) error {
 		return fmt.Errorf("no networks enabled")
 	}
 
-	// Use the first enabled network's cbt-api
-	port := o.cfg.GetCBTAPIPort(networks[0].Name)
+	// Use the first enabled network's cbt-api.
+	port := o.networkPortPlan(networks[0].Name).CBTAPI
 	healthURL := fmt.Sprintf("http://localhost:%d/health", port)
 
 	// Retry for up to 30 seconds
@@ -1167,18 +1485,9 @@ func (o *Orchestrator) checkGitStatus(ctx context.Context) {
 
 	checker := git.NewChecker(o.log)
 
-	// Build map of repositories to check
-	repos := map[string]string{
-		"cbt":                    o.cfg.Repos.CBT,
-		"xatu-cbt":               o.cfg.Repos.XatuCBT,
-		"cbt-api":                o.cfg.Repos.CBTAPI,
-		constants.RepoLabBackend: o.cfg.Repos.LabBackend,
-		"lab":                    o.cfg.Repos.Lab,
-	}
-
 	o.log.Info("checking git status for all repositories")
 
-	statuses := checker.CheckRepositories(ctx, repos)
+	statuses := checker.CheckRepositories(ctx, o.cfg.Repos.Map())
 
 	// Check if any repos are out of date
 	hasOutOfDateRepos := false
@@ -1263,15 +1572,7 @@ func (o *Orchestrator) validatePrerequisites(ctx context.Context) error {
 	o.log.Info("validating prerequisites")
 
 	// Check that all required repositories exist
-	requiredRepos := map[string]string{
-		"cbt":                    o.cfg.Repos.CBT,
-		"xatu-cbt":               o.cfg.Repos.XatuCBT,
-		"cbt-api":                o.cfg.Repos.CBTAPI,
-		constants.RepoLabBackend: o.cfg.Repos.LabBackend,
-		"lab":                    o.cfg.Repos.Lab,
-	}
-
-	for repoName, repoPath := range requiredRepos {
+	for repoName, repoPath := range o.cfg.Repos.Map() {
 		if repoPath == "" {
 			return fmt.Errorf("repository %s not configured", repoName)
 		}
@@ -1302,28 +1603,49 @@ func (o *Orchestrator) validatePrerequisites(ctx context.Context) error {
 	return nil
 }
 
+func (o *Orchestrator) portPlan() instance.PortPlan {
+	if o.runtime != nil {
+		return o.runtime.Ports
+	}
+
+	plan, err := instance.BuildPortPlan(o.cfg, 0)
+	if err != nil {
+		o.log.WithError(err).Warn("failed to build fallback port plan")
+
+		return instance.PortPlan{}
+	}
+
+	return plan
+}
+
+func (o *Orchestrator) networkPortPlan(network string) instance.NetworkPortPlan {
+	plan := o.portPlan()
+	if ports, ok := plan.Networks[network]; ok {
+		return ports
+	}
+
+	return instance.NetworkPortPlan{}
+}
+
 // checkPortConflicts checks if any ports needed by services are already in use.
 func (o *Orchestrator) checkPortConflicts() []portutil.PortConflict {
 	enabledNetworks := o.cfg.EnabledNetworks()
 	portsToCheck := make([]int, 0, 2+4*len(enabledNetworks))
+	plan := o.portPlan()
 
 	// Lab backend and frontend ports
-	portsToCheck = append(portsToCheck, o.cfg.Ports.LabBackend)
-	portsToCheck = append(portsToCheck, o.cfg.Ports.LabFrontend)
+	portsToCheck = append(portsToCheck, plan.LabBackend)
+	portsToCheck = append(portsToCheck, plan.LabFrontend)
 
 	// CBT, CBT API, and CBT frontend ports for each enabled network
-	for i, network := range enabledNetworks {
-		// CBT API service port
-		portsToCheck = append(portsToCheck, o.cfg.GetCBTAPIPort(network.Name))
-
-		// CBT frontend port
-		portsToCheck = append(portsToCheck, o.cfg.GetCBTFrontendPort(network.Name))
-
-		// CBT metrics port (9100 + network index)
-		portsToCheck = append(portsToCheck, 9100+i)
-
-		// CBT API metrics port (9200 + network index)
-		portsToCheck = append(portsToCheck, 9200+i)
+	for _, network := range enabledNetworks {
+		networkPorts := o.networkPortPlan(network.Name)
+		portsToCheck = append(portsToCheck,
+			networkPorts.CBTAPI,
+			networkPorts.CBTFrontend,
+			networkPorts.CBTMetrics,
+			networkPorts.CBTAPIMetrics,
+		)
 	}
 
 	return portutil.CheckPorts(portsToCheck)
@@ -1398,11 +1720,13 @@ func (o *Orchestrator) cleanupOrphanedProcessesForService(service string) {
 
 // getServicePorts returns the port(s) used by a service.
 func (o *Orchestrator) getServicePorts(service string) []int {
+	plan := o.portPlan()
+
 	switch service {
 	case "lab-frontend":
-		return []int{o.cfg.Ports.LabFrontend}
+		return []int{plan.LabFrontend}
 	case constants.ServiceLabBackend:
-		port := o.cfg.Ports.LabBackend
+		port := plan.LabBackend
 		if p := o.readConfigPort(constants.ConfigFileLabBackend); p != 0 {
 			port = p
 		}
@@ -1410,23 +1734,24 @@ func (o *Orchestrator) getServicePorts(service string) []int {
 		return []int{port}
 	default:
 		// Check if it's a CBT or CBT-API service
-		for i, network := range o.cfg.EnabledNetworks() {
+		for _, network := range o.cfg.EnabledNetworks() {
+			networkPorts := o.networkPortPlan(network.Name)
 			if service == "cbt-"+network.Name {
-				fePort := o.cfg.GetCBTFrontendPort(network.Name)
+				fePort := networkPorts.CBTFrontend
 				if p := o.readConfigPort(fmt.Sprintf(constants.ConfigFileCBT, network.Name)); p != 0 {
 					fePort = p
 				}
 
-				return []int{9100 + i, fePort}
+				return []int{networkPorts.CBTMetrics, fePort}
 			}
 
 			if service == "cbt-api-"+network.Name {
-				port := o.cfg.GetCBTAPIPort(network.Name)
+				port := networkPorts.CBTAPI
 				if p := o.readConfigPort(fmt.Sprintf(constants.ConfigFileCBTAPI, network.Name)); p != 0 {
 					port = p
 				}
 
-				return []int{port, 9200 + i}
+				return []int{port, networkPorts.CBTAPIMetrics}
 			}
 		}
 	}
@@ -1436,25 +1761,28 @@ func (o *Orchestrator) getServicePorts(service string) []int {
 
 // getServiceURL returns the URL for a service based on its name.
 func (o *Orchestrator) getServiceURL(service string) string {
+	plan := o.portPlan()
+
 	switch service {
 	case constants.ServiceLabFrontend:
-		return fmt.Sprintf("http://localhost:%d", o.cfg.Ports.LabFrontend)
+		return fmt.Sprintf("http://localhost:%d", plan.LabFrontend)
 	case constants.ServiceLabBackend:
-		port := o.cfg.Ports.LabBackend
+		port := plan.LabBackend
 		if p := o.readConfigPort(constants.ConfigFileLabBackend); p != 0 {
 			port = p
 		}
 
 		return fmt.Sprintf("http://localhost:%d", port)
 	case constants.ServicePrometheus:
-		return fmt.Sprintf("http://localhost:%d", o.cfg.Infrastructure.Observability.PrometheusPort)
+		return fmt.Sprintf("http://localhost:%d", plan.Prometheus)
 	case constants.ServiceGrafana:
-		return fmt.Sprintf("http://localhost:%d", o.cfg.Infrastructure.Observability.GrafanaPort)
+		return fmt.Sprintf("http://localhost:%d", plan.Grafana)
 	default:
 		// Check if it's a CBT or CBT-API service
 		for _, network := range o.cfg.EnabledNetworks() {
+			networkPorts := o.networkPortPlan(network.Name)
 			if service == constants.ServiceNameCBT(network.Name) {
-				fePort := o.cfg.GetCBTFrontendPort(network.Name)
+				fePort := networkPorts.CBTFrontend
 				if p := o.readConfigPort(fmt.Sprintf(constants.ConfigFileCBT, network.Name)); p != 0 {
 					fePort = p
 				}
@@ -1463,7 +1791,7 @@ func (o *Orchestrator) getServiceURL(service string) string {
 			}
 
 			if service == constants.ServiceNameCBTAPI(network.Name) {
-				port := o.cfg.GetCBTAPIPort(network.Name)
+				port := networkPorts.CBTAPI
 				if p := o.readConfigPort(fmt.Sprintf(constants.ConfigFileCBTAPI, network.Name)); p != 0 {
 					port = p
 				}
@@ -1702,9 +2030,22 @@ func (o *Orchestrator) startLabFrontend(ctx context.Context) error {
 		}
 	}
 
-	cmd := exec.CommandContext(ctx, "pnpm", "dev")
+	plan := o.portPlan()
+	cmd := exec.CommandContext(
+		ctx,
+		"pnpm",
+		"dev",
+		"--",
+		"--host",
+		"0.0.0.0",
+		"--port",
+		strconv.Itoa(plan.LabFrontend),
+	)
 	cmd.Dir = o.cfg.Repos.Lab
-	cmd.Env = os.Environ()
+	cmd.Env = append(
+		os.Environ(),
+		fmt.Sprintf("BACKEND=http://localhost:%d", plan.LabBackend),
+	)
 
 	return o.proc.Start(ctx, constants.ServiceLabFrontend, cmd, nil)
 }

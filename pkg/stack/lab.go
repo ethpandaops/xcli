@@ -16,10 +16,12 @@ import (
 	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/ethpandaops/xcli/pkg/diagnostic"
 	"github.com/ethpandaops/xcli/pkg/discovery"
+	"github.com/ethpandaops/xcli/pkg/instance"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
 	"github.com/ethpandaops/xcli/pkg/prerequisites"
 	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/ethpandaops/xcli/pkg/version"
+	"github.com/ethpandaops/xcli/pkg/workspace"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -30,21 +32,144 @@ const repoLabFrontend = "lab-frontend"
 
 // labStack implements Stack for the lab development environment.
 type labStack struct {
-	log        logrus.FieldLogger
-	configPath string
+	log              logrus.FieldLogger
+	configPath       string
+	instanceOverride *string
 
 	// Flag values bound during ConfigureCommand.
 	upMode         string
 	upVerbose      bool
 	rebuildVerbose bool
+	statusAll      bool
 }
 
 // NewLabStack creates a new lab stack instance.
-func NewLabStack(log logrus.FieldLogger, configPath string) Stack {
-	return &labStack{log: log, configPath: configPath}
+func NewLabStack(log logrus.FieldLogger, configPath string, instanceOverride *string) *labStack {
+	return &labStack{log: log, configPath: configPath, instanceOverride: instanceOverride}
 }
 
 func (s *labStack) Name() string { return constants.RepoLab }
+
+func (s *labStack) loadLabConfig(checkCWDOverrides bool) (*config.LabConfig, *workspace.Workspace, error) {
+	return workspace.LoadLabConfig(s.configPath, checkCWDOverrides)
+}
+
+func printWorkspaceSelection(ws *workspace.Workspace) {
+	ui.Info(fmt.Sprintf("Config: %s", ws.ConfigPath))
+	ui.Info(fmt.Sprintf("Overrides: %s", ws.OverridesPath))
+	ui.Info(fmt.Sprintf("State dir: %s", ws.StateDir))
+}
+
+func printRuntimeSelection(runtime *instance.Runtime) {
+	if runtime == nil || runtime.Manifest == nil {
+		return
+	}
+
+	ui.Info(fmt.Sprintf("Instance: %s", runtime.InstanceID))
+	ui.Info(fmt.Sprintf("Config: %s", runtime.Manifest.ConfigPath))
+	ui.Info(fmt.Sprintf("Overrides: %s", runtime.Manifest.OverridesPath))
+	ui.Info(fmt.Sprintf("State dir: %s", runtime.Manifest.StateDir))
+}
+
+func (s *labStack) instanceOverrideValue() string {
+	if s.instanceOverride == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(*s.instanceOverride)
+}
+
+func (s *labStack) loadLifecycleRuntime() (*instance.Runtime, error) {
+	if override := s.instanceOverrideValue(); override != "" {
+		return s.loadLifecycleRuntimeByID(override)
+	}
+
+	labCfg, ws, err := s.loadLabConfig(true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
+	instanceID, err := instance.ResolveID(ws, labCfg, "")
+	if err != nil {
+		return nil, err
+	}
+
+	registry, err := instance.DefaultRegistry()
+	if err != nil {
+		return nil, err
+	}
+
+	manifest, err := registry.Load(instanceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load instance %q manifest: %w", instanceID, err)
+	}
+
+	return instance.NewRuntimeFromManifest(manifest, labCfg, ws, registry)
+}
+
+func (s *labStack) loadLifecycleRuntimeByID(instanceID string) (*instance.Runtime, error) {
+	instanceID, err := instance.SanitizeID(instanceID)
+	if err != nil {
+		return nil, err
+	}
+
+	registry, err := instance.DefaultRegistry()
+	if err != nil {
+		return nil, err
+	}
+
+	manifest, err := registry.Load(instanceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load instance %q manifest: %w", instanceID, err)
+	}
+
+	runtime, err := instance.NewRuntimeFromManifestConfig(context.Background(), manifest, registry)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config for instance %q: %w", instanceID, err)
+	}
+
+	return runtime, nil
+}
+
+type lifecycleRuntimeMode int
+
+const (
+	lifecycleRuntimeSelected lifecycleRuntimeMode = iota
+	lifecycleRuntimeRequiredID
+)
+
+func (s *labStack) withRuntimeOrchestrator(
+	_ context.Context,
+	mode lifecycleRuntimeMode,
+	fn func(*instance.Runtime, *orchestrator.Orchestrator) error,
+) error {
+	var (
+		runtime *instance.Runtime
+		err     error
+	)
+
+	switch mode {
+	case lifecycleRuntimeSelected:
+		runtime, err = s.loadLifecycleRuntime()
+	case lifecycleRuntimeRequiredID:
+		if s.instanceOverrideValue() == "" {
+			return fmt.Errorf("requires --instance <id>")
+		}
+		runtime, err = s.loadLifecycleRuntimeByID(s.instanceOverrideValue())
+	default:
+		return fmt.Errorf("unknown lifecycle runtime mode: %d", mode)
+	}
+	if err != nil {
+		return err
+	}
+
+	orch, err := orchestrator.NewOrchestratorWithRuntime(s.log, runtime)
+	if err != nil {
+		return fmt.Errorf("failed to create orchestrator: %w", err)
+	}
+
+	return fn(runtime, orch)
+}
 
 // ConfigureCommand adds lab-specific flags and descriptions to commands.
 func (s *labStack) ConfigureCommand(name string, cmd *cobra.Command) {
@@ -115,7 +240,7 @@ Examples:
 This will:
   - Stop all application services (CBT, cbt-api, lab-backend, frontend)
   - Stop infrastructure (ClickHouse, Redis)
-  - Remove Docker containers and volumes
+  - Preserve ClickHouse, Redis, Prometheus, and Grafana data volumes
 
 The stack can be restarted with 'xcli lab up'.
 
@@ -123,33 +248,13 @@ Example:
   xcli lab down`
 
 	case cmdClean:
-		cmd.Long = `Completely clean the lab workspace by removing all generated artifacts.
+		cmd.Long = `Stop the selected lab instance without deleting data.
 
-This will:
-  - Stop and remove all Docker containers
-  - Remove Docker volumes (data will be lost!)
-  - Delete generated configuration files (.xcli/ directory)
-  - Remove build artifacts (binaries in each repo)
-  - Clean proto-generated files
+This is a non-destructive alias for 'xcli lab down'. Use
+'xcli lab destroy --instance <id>' when you intentionally want to remove data.
 
-Warning: This is a destructive operation!
-  - All data in ClickHouse and Redis will be lost
-  - You will need to rebuild with 'xcli lab build' or 'xcli lab up'
-  - Generated configs will need to be recreated
-
-This does NOT remove:
-  - Source code or repositories
-  - Your .xcli.yaml configuration file
-  - node_modules or other dependencies
-
-Use cases:
-  - Starting completely fresh after config changes
-  - Clearing disk space
-  - Troubleshooting persistent issues
-  - Switching between major configuration changes
-
-Examples:
-  xcli lab clean                   # Remove all containers, volumes, and build artifacts`
+Example:
+  xcli lab clean`
 
 	case cmdBuild:
 		cmd.Long = `Build all lab projects from source without starting services.
@@ -236,6 +341,7 @@ Examples:
 Note: All rebuild commands automatically restart their respective services if running.`
 
 	case cmdStatus:
+		cmd.Flags().BoolVar(&s.statusAll, "all", false, "Show all lab instances")
 		cmd.Long = `Display status of all lab services and infrastructure.
 
 Shows:
@@ -264,7 +370,9 @@ Example:
   xcli lab start cbt-mainnet`
 
 	case cmdStop:
-		cmd.Long = `Stop a specific lab service.
+		cmd.Long = `Stop the selected lab instance or a specific lab service.
+
+Without a service name this is equivalent to 'xcli lab down' and preserves data.
 
 Available services:
   - lab-backend
@@ -273,6 +381,7 @@ Available services:
   - cbt-api-<network>    (e.g., cbt-api-mainnet, cbt-api-sepolia)
 
 Example:
+  xcli lab stop
   xcli lab stop lab-backend
   xcli lab stop cbt-mainnet`
 
@@ -291,12 +400,12 @@ func (s *labStack) CompleteServices() ValidArgsFunc {
 		log := logrus.New()
 		log.SetOutput(io.Discard)
 
-		labCfg, cfgPath, err := config.LoadLabConfig(s.configPath)
+		labCfg, ws, err := s.loadLabConfig(false)
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 
-		orch, err := orchestrator.NewOrchestrator(log, labCfg, cfgPath)
+		orch, err := orchestrator.NewOrchestrator(log, labCfg, ws.ConfigPath)
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
@@ -336,10 +445,15 @@ func (s *labStack) Init(ctx context.Context) error {
 		resolvedConfigPath string
 	)
 
-	if _, err := os.Stat(s.configPath); err == nil {
+	ws, err := workspace.Resolve(s.configPath, false, false)
+	if err != nil {
+		return err
+	}
+
+	if ws.ConfigExists {
 		s.log.Info("loading existing configuration")
 
-		result, err := config.Load(s.configPath)
+		result, err := config.Load(ws.ConfigPath)
 		if err != nil {
 			return fmt.Errorf("failed to load existing config: %w", err)
 		}
@@ -348,13 +462,7 @@ func (s *labStack) Init(ctx context.Context) error {
 		resolvedConfigPath = result.ConfigPath
 	} else {
 		rootCfg = &config.Config{}
-
-		absPath, err := filepath.Abs(s.configPath)
-		if err != nil {
-			return fmt.Errorf("failed to get absolute config path: %w", err)
-		}
-
-		resolvedConfigPath = absPath
+		resolvedConfigPath = ws.ConfigPath
 	}
 
 	var existingXatu *config.ClickHouseClusterConfig
@@ -402,26 +510,18 @@ func (s *labStack) Init(ctx context.Context) error {
 
 	prereqChecker := prerequisites.NewChecker(s.log)
 
-	repoMap := map[string]string{
-		constants.RepoCBT:        repos.CBT,
-		constants.RepoXatuCBT:    repos.XatuCBT,
-		constants.RepoCBTAPI:     repos.CBTAPI,
-		constants.RepoLabBackend: repos.LabBackend,
-		constants.RepoLab:        repos.Lab,
-	}
-
 	ui.Header("Checking prerequisites")
 
-	for repoName, repoPath := range repoMap {
-		spinner = ui.NewSpinner(fmt.Sprintf("Running prerequisites for %s", repoName))
+	for _, repo := range repos.Ordered() {
+		spinner = ui.NewSpinner(fmt.Sprintf("Running prerequisites for %s", repo.Name))
 
-		if err := prereqChecker.Run(ctx, repoPath, repoName); err != nil {
-			spinner.Fail(fmt.Sprintf("Prerequisites failed for %s", repoName))
+		if err := prereqChecker.Run(ctx, repo.Path, repo.Name); err != nil {
+			spinner.Fail(fmt.Sprintf("Prerequisites failed for %s", repo.Name))
 
-			return fmt.Errorf("failed to run prerequisites for %s: %w", repoName, err)
+			return fmt.Errorf("failed to run prerequisites for %s: %w", repo.Name, err)
 		}
 
-		spinner.Success(fmt.Sprintf("%s prerequisites complete", repoName))
+		spinner.Success(fmt.Sprintf("%s prerequisites complete", repo.Name))
 	}
 
 	labCfg := config.DefaultLab()
@@ -450,17 +550,14 @@ func (s *labStack) Init(ctx context.Context) error {
 
 	ui.Header("Discovered repositories:")
 
-	rows := [][]string{
-		{constants.RepoCBT, repos.CBT},
-		{constants.RepoXatuCBT, repos.XatuCBT},
-		{constants.RepoCBTAPI, repos.CBTAPI},
-		{constants.RepoLabBackend, repos.LabBackend},
-		{constants.RepoLab, repos.Lab},
+	rows := make([][]string, 0, len(repos.Ordered()))
+	for _, repo := range repos.Ordered() {
+		rows = append(rows, []string{repo.Name, repo.Path})
 	}
 	ui.Table([]string{"Repository", "Path"}, rows)
 
 	ui.Blank()
-	ui.Info(fmt.Sprintf("Lab configuration saved to: %s", s.configPath))
+	ui.Info(fmt.Sprintf("Lab configuration saved to: %s", resolvedConfigPath))
 
 	ui.Header("Next steps:")
 	fmt.Println("  1. Review and edit the 'lab:' section in .xcli.yaml if needed")
@@ -546,7 +643,7 @@ func (s *labStack) Check(ctx context.Context) error {
 
 	spinner := renderer.Task("Checking configuration file")
 
-	labCfg, _, err := config.LoadLabConfig(s.configPath)
+	labCfg, _, err := s.loadLabConfig(true)
 	if err != nil {
 		spinner.Fail(fmt.Sprintf("Configuration file error: %v", err))
 
@@ -569,17 +666,10 @@ func (s *labStack) Check(ctx context.Context) error {
 		spinner = renderer.Task("Checking repository paths")
 
 		repoCheckPassed := true
-		repos := map[string]string{
-			constants.RepoCBT:        labCfg.Repos.CBT,
-			constants.RepoXatuCBT:    labCfg.Repos.XatuCBT,
-			constants.RepoCBTAPI:     labCfg.Repos.CBTAPI,
-			constants.RepoLabBackend: labCfg.Repos.LabBackend,
-			constants.RepoLab:        labCfg.Repos.Lab,
-		}
-
 		missingRepos := []string{}
 
-		for name, path := range repos {
+		for _, repo := range labCfg.Repos.Ordered() {
+			name, path := repo.Name, repo.Path
 			absPath, err := filepath.Abs(path)
 			if err != nil {
 				missingRepos = append(missingRepos,
@@ -686,7 +776,7 @@ func (s *labStack) Check(ctx context.Context) error {
 
 // Up starts the lab stack.
 func (s *labStack) Up(ctx context.Context) error {
-	labCfg, cfgPath, err := config.LoadLabConfig(s.configPath)
+	labCfg, ws, err := s.loadLabConfig(true)
 	if err != nil {
 		return err
 	}
@@ -699,7 +789,17 @@ func (s *labStack) Up(ctx context.Context) error {
 		return fmt.Errorf("invalid lab configuration: %w", validationErr)
 	}
 
-	orch, err := orchestrator.NewOrchestrator(s.log, labCfg, cfgPath)
+	runtime, err := instance.NewRuntimeFromWorkspace(ctx, ws, labCfg, s.instanceOverrideValue(), instance.RuntimeOptions{
+		ClaimPorts: true,
+		ProbePorts: true,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to resolve lab instance runtime: %w", err)
+	}
+
+	printRuntimeSelection(runtime)
+
+	orch, err := orchestrator.NewOrchestratorWithRuntime(s.log, runtime)
 	if err != nil {
 		return fmt.Errorf("failed to create orchestrator: %w", err)
 	}
@@ -748,146 +848,105 @@ func (s *labStack) Up(ctx context.Context) error {
 
 // Down stops the lab stack.
 func (s *labStack) Down(ctx context.Context) error {
-	labCfg, cfgPath, err := config.LoadLabConfig(s.configPath)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
+	return s.withRuntimeOrchestrator(ctx, lifecycleRuntimeSelected, func(runtime *instance.Runtime, orch *orchestrator.Orchestrator) error {
+		printRuntimeSelection(runtime)
 
-	orch, err := orchestrator.NewOrchestrator(s.log, labCfg, cfgPath)
-	if err != nil {
-		return fmt.Errorf("failed to create orchestrator: %w", err)
-	}
+		renderer := ui.NewRenderer(nil)
+		defer renderer.Close()
 
-	renderer := ui.NewRenderer(nil)
-	defer renderer.Close()
+		orch.SetRenderer(renderer)
+		renderer.Banner("Stopping Lab Stack")
 
-	orch.SetRenderer(renderer)
-	renderer.Banner("Tearing Down Lab Stack")
+		if err := orch.Down(ctx, nil); err != nil {
+			return err
+		}
 
-	if err := orch.Down(ctx, nil); err != nil {
-		return err
-	}
-
-	renderer.Blank()
-	renderer.Success("Stack torn down successfully")
-	renderer.Info("All services stopped, logs cleaned, and volumes removed.")
-	renderer.Info("Run 'xcli lab up' to start fresh.")
-
-	return nil
-}
-
-// Clean removes all lab containers, volumes, and build artifacts.
-func (s *labStack) Clean(ctx context.Context) error {
-	labCfg, cfgPath, err := config.LoadLabConfig(s.configPath)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	ui.Warning("WARNING: This will remove all lab containers, volumes, and generated files!")
-	fmt.Println("\nThis includes:")
-	fmt.Println("  - All Docker containers and volumes (data will be lost)")
-	fmt.Println("  - Generated configs in .xcli/ directory")
-	fmt.Println("  - Build artifacts (binaries)")
-	fmt.Println("  - Proto-generated files")
-	fmt.Print("\nContinue? (y/N): ")
-
-	var response string
-
-	_, _ = fmt.Scanln(&response)
-
-	if response != "y" && response != "Y" {
-		ui.Info("Cancelled.")
+		renderer.Blank()
+		renderer.Success("Stack stopped successfully")
+		renderer.Info("All services and containers stopped. Data volumes were preserved.")
+		renderer.Info("Run 'xcli lab up' to restart this instance.")
 
 		return nil
+	})
+}
+
+// Clean is a non-destructive alias for stopping the lab stack.
+func (s *labStack) Clean(ctx context.Context) error {
+	ui.Info("xcli lab clean is non-destructive and now stops the selected instance.")
+	ui.Info("Use 'xcli lab destroy --instance <id>' to remove data.")
+
+	return s.Down(ctx)
+}
+
+// Destroy removes all resources and generated state for a named lab instance.
+func (s *labStack) Destroy(ctx context.Context, yes bool) error {
+	if s.instanceOverrideValue() == "" {
+		return fmt.Errorf("destroy requires --instance <id>")
 	}
 
-	orch, err := orchestrator.NewOrchestrator(s.log, labCfg, cfgPath)
-	if err != nil {
-		return fmt.Errorf("failed to create orchestrator: %w", err)
-	}
+	return s.withRuntimeOrchestrator(ctx, lifecycleRuntimeRequiredID, func(runtime *instance.Runtime, orch *orchestrator.Orchestrator) error {
+		printRuntimeSelection(runtime)
 
-	renderer := ui.NewRenderer(nil)
-	defer renderer.Close()
+		if !yes {
+			fmt.Printf("Type %q to destroy this instance and delete its data: ", runtime.InstanceID)
 
-	orch.SetRenderer(renderer)
-	renderer.Banner("Cleaning Lab Workspace")
+			var confirmation string
+			_, _ = fmt.Scanln(&confirmation)
 
-	renderer.Phase("[1/3] Stopping and removing Docker containers and volumes")
+			if confirmation != runtime.InstanceID {
+				ui.Info("Cancelled.")
 
-	if err := orch.Down(ctx, nil); err != nil {
-		renderer.Warning(fmt.Sprintf("Failed to stop services: %v", err))
-		renderer.Info("Continuing with cleanup...")
-	}
-
-	renderer.Phase("[2/3] Removing generated configuration files")
-
-	configDir := filepath.Dir(cfgPath)
-	stateDir := filepath.Join(configDir, ".xcli")
-
-	spinner := renderer.Task("Removing generated configuration files")
-
-	if _, err := os.Stat(stateDir); err == nil {
-		if err := os.RemoveAll(stateDir); err != nil {
-			spinner.Warning(fmt.Sprintf("Failed to remove %s: %v", stateDir, err))
-		} else {
-			spinner.Success("Generated files removed")
-		}
-	} else {
-		spinner.Success("No generated files found")
-	}
-
-	renderer.Phase("[3/3] Removing build artifacts")
-
-	spinner = renderer.Task("Removing build artifacts")
-
-	repos := map[string]string{
-		constants.RepoCBT:        labCfg.Repos.CBT,
-		constants.RepoXatuCBT:    labCfg.Repos.XatuCBT,
-		constants.RepoCBTAPI:     labCfg.Repos.CBTAPI,
-		constants.RepoLabBackend: labCfg.Repos.LabBackend,
-	}
-
-	totalRemoved := 0
-
-	for name, path := range repos {
-		absPath, err := filepath.Abs(path)
-		if err != nil {
-			continue
-		}
-
-		artifacts := []string{
-			filepath.Join(absPath, name),
-			filepath.Join(absPath, "bin"),
-			filepath.Join(absPath, "dist"),
-		}
-
-		for _, artifact := range artifacts {
-			if _, err := os.Stat(artifact); err == nil {
-				if err := os.RemoveAll(artifact); err != nil {
-					spinner.Warning(fmt.Sprintf("Failed to remove %s: %v", artifact, err))
-				} else {
-					totalRemoved++
-				}
+				return nil
 			}
 		}
+
+		renderer := ui.NewRenderer(nil)
+		defer renderer.Close()
+
+		orch.SetRenderer(renderer)
+		renderer.Banner("Destroying Lab Instance")
+
+		if err := orch.Destroy(ctx, nil); err != nil {
+			return err
+		}
+
+		renderer.Blank()
+		renderer.Success("Instance destroyed")
+
+		return nil
+	})
+}
+
+// Reset intentionally clears one data store for a named lab instance.
+func (s *labStack) Reset(ctx context.Context, target string) error {
+	if s.instanceOverrideValue() == "" {
+		return fmt.Errorf("reset requires --instance <id>")
 	}
 
-	if totalRemoved > 0 {
-		spinner.Success(fmt.Sprintf("Removed %d build artifacts", totalRemoved))
-	} else {
-		spinner.Success("No build artifacts found")
+	target = strings.ToLower(strings.TrimSpace(target))
+	if target != "redis" {
+		return fmt.Errorf("unsupported reset target %q; supported target: redis", target)
 	}
 
-	renderer.Blank()
-	renderer.Success("Lab workspace cleaned successfully!")
-	renderer.Info("Next step: xcli lab up")
+	return s.withRuntimeOrchestrator(ctx, lifecycleRuntimeRequiredID, func(runtime *instance.Runtime, orch *orchestrator.Orchestrator) error {
+		printRuntimeSelection(runtime)
 
-	return nil
+		spinner := ui.NewSpinner("Resetting Redis")
+		if err := orch.ResetRedis(ctx); err != nil {
+			spinner.Fail("Failed to reset Redis")
+
+			return err
+		}
+
+		spinner.Success("Redis reset for selected instance")
+
+		return nil
+	})
 }
 
 // Build builds all lab projects from source without starting services.
 func (s *labStack) Build(ctx context.Context, _ []string) error {
-	labCfg, cfgPath, err := config.LoadLabConfig(s.configPath)
+	labCfg, ws, err := s.loadLabConfig(false)
 	if err != nil {
 		return err
 	}
@@ -896,15 +955,7 @@ func (s *labStack) Build(ctx context.Context, _ []string) error {
 		return fmt.Errorf("invalid lab configuration: %w", validateErr)
 	}
 
-	absConfigPath, err := filepath.Abs(cfgPath)
-	if err != nil {
-		return fmt.Errorf("failed to get absolute config path: %w", err)
-	}
-
-	configDir := filepath.Dir(absConfigPath)
-	stateDir := filepath.Join(configDir, ".xcli")
-
-	buildMgr := builder.NewManager(s.log, labCfg, stateDir)
+	buildMgr := builder.NewManager(s.log, labCfg, ws.StateDir)
 
 	renderer := ui.NewRenderer(nil)
 	buildMgr.SetRenderer(renderer)
@@ -928,301 +979,324 @@ func (s *labStack) Build(ctx context.Context, _ []string) error {
 
 // Rebuild rebuilds a specific lab component and restarts affected services.
 func (s *labStack) Rebuild(ctx context.Context, project string) error {
-	labCfg, cfgPath, err := config.LoadLabConfig(s.configPath)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
+	return s.withRuntimeOrchestrator(ctx, lifecycleRuntimeSelected, func(runtime *instance.Runtime, orch *orchestrator.Orchestrator) error {
+		printRuntimeSelection(runtime)
 
-	absConfigPath, err := filepath.Abs(cfgPath)
-	if err != nil {
-		return fmt.Errorf("failed to get absolute config path: %w", err)
-	}
+		labCfg := runtime.LabConfig
 
-	configDir := filepath.Dir(absConfigPath)
-	stateDir := filepath.Join(configDir, ".xcli")
+		orch.SetVerbose(s.rebuildVerbose)
 
-	orch, err := orchestrator.NewOrchestrator(s.log, labCfg, cfgPath)
-	if err != nil {
-		return fmt.Errorf("failed to create orchestrator: %w", err)
-	}
+		switch project {
+		case constants.RepoXatuCBT, "all":
+			return s.runFullRebuild(ctx, orch, runtime.Manifest.StateDir)
 
-	orch.SetVerbose(s.rebuildVerbose)
+		case constants.RepoCBT:
+			spinner := ui.NewSpinner("Rebuilding CBT")
 
-	switch project {
-	case constants.RepoXatuCBT, "all":
-		return s.runFullRebuild(ctx, orch, stateDir)
+			if err := orch.Builder().BuildCBT(ctx, true); err != nil {
+				spinner.Fail("Failed to rebuild CBT")
 
-	case constants.RepoCBT:
-		spinner := ui.NewSpinner("Rebuilding CBT")
-
-		if err := orch.Builder().BuildCBT(ctx, true); err != nil {
-			spinner.Fail("Failed to rebuild CBT")
-
-			return fmt.Errorf("failed to rebuild CBT: %w", err)
-		}
-
-		spinner.Success("CBT rebuilt successfully")
-
-		enabledNetworks := orch.Config().EnabledNetworks()
-		for _, network := range enabledNetworks {
-			serviceName := fmt.Sprintf("cbt-%s", network.Name)
-			spinner = ui.NewSpinner(fmt.Sprintf("Restarting %s", serviceName))
-
-			if err := orch.Restart(ctx, serviceName); err != nil {
-				spinner.Warning(fmt.Sprintf("Could not restart %s", serviceName))
-			} else {
-				spinner.Success(fmt.Sprintf("%s restarted", serviceName))
+				return fmt.Errorf("failed to rebuild CBT: %w", err)
 			}
-		}
 
-	case constants.RepoCBTAPI:
-		spinner := ui.NewSpinner("Regenerating protos and rebuilding cbt-api")
+			spinner.Success("CBT rebuilt successfully")
 
-		if err := orch.Builder().BuildCBTAPI(ctx, true); err != nil {
-			spinner.Fail("Failed to rebuild cbt-api")
+			enabledNetworks := orch.Config().EnabledNetworks()
+			for _, network := range enabledNetworks {
+				serviceName := fmt.Sprintf("cbt-%s", network.Name)
+				spinner = ui.NewSpinner(fmt.Sprintf("Restarting %s", serviceName))
 
-			return fmt.Errorf("failed to rebuild cbt-api: %w", err)
-		}
-
-		spinner.Success("cbt-api rebuilt successfully")
-
-		enabledNetworks := orch.Config().EnabledNetworks()
-		for _, network := range enabledNetworks {
-			serviceName := fmt.Sprintf("cbt-api-%s", network.Name)
-			spinner = ui.NewSpinner(fmt.Sprintf("Restarting %s", serviceName))
-
-			if err := orch.Restart(ctx, serviceName); err != nil {
-				spinner.Warning(fmt.Sprintf("Could not restart %s", serviceName))
-			} else {
-				spinner.Success(fmt.Sprintf("%s restarted", serviceName))
+				if err := orch.Restart(ctx, serviceName); err != nil {
+					spinner.Warning(fmt.Sprintf("Could not restart %s", serviceName))
+				} else {
+					spinner.Success(fmt.Sprintf("%s restarted", serviceName))
+				}
 			}
+
+		case constants.RepoCBTAPI:
+			spinner := ui.NewSpinner("Regenerating protos and rebuilding cbt-api")
+
+			if err := orch.Builder().BuildCBTAPI(ctx, true); err != nil {
+				spinner.Fail("Failed to rebuild cbt-api")
+
+				return fmt.Errorf("failed to rebuild cbt-api: %w", err)
+			}
+
+			spinner.Success("cbt-api rebuilt successfully")
+
+			enabledNetworks := orch.Config().EnabledNetworks()
+			for _, network := range enabledNetworks {
+				serviceName := fmt.Sprintf("cbt-api-%s", network.Name)
+				spinner = ui.NewSpinner(fmt.Sprintf("Restarting %s", serviceName))
+
+				if err := orch.Restart(ctx, serviceName); err != nil {
+					spinner.Warning(fmt.Sprintf("Could not restart %s", serviceName))
+				} else {
+					spinner.Success(fmt.Sprintf("%s restarted", serviceName))
+				}
+			}
+
+			ui.Blank()
+			ui.Info("Note: If you added models in xatu-cbt, use " +
+				"'xcli lab rebuild xatu-cbt' for full workflow")
+
+		case constants.RepoLabBackend:
+			spinner := ui.NewSpinner("Rebuilding lab-backend")
+
+			if err := orch.Builder().BuildLabBackend(ctx, true); err != nil {
+				spinner.Fail("Failed to rebuild lab-backend")
+
+				return fmt.Errorf("failed to rebuild lab-backend: %w", err)
+			}
+
+			spinner.Success("lab-backend rebuilt successfully")
+
+			spinner = ui.NewSpinner("Restarting lab-backend")
+
+			if err := orch.Restart(ctx, constants.RepoLabBackend); err != nil {
+				spinner.Fail("Could not restart lab-backend")
+				ui.Info("If lab-backend is running, restart it manually:")
+				ui.Info("  xcli lab restart lab-backend")
+			} else {
+				spinner.Success("lab-backend restarted successfully")
+			}
+
+		case repoLabFrontend:
+			spinner := ui.NewSpinner("Regenerating lab-frontend API types from cbt-api")
+
+			if err := orch.Builder().BuildLabFrontend(ctx); err != nil {
+				spinner.Fail("Failed to regenerate lab-frontend types")
+
+				return fmt.Errorf("failed to regenerate lab-frontend types: %w", err)
+			}
+
+			spinner.Success("lab-frontend API types regenerated successfully")
+
+			spinner = ui.NewSpinner("Restarting lab-frontend")
+
+			if err := orch.Restart(ctx, repoLabFrontend); err != nil {
+				spinner.Fail("Could not restart lab-frontend")
+				ui.Info("If lab-frontend is running, restart it manually:")
+				ui.Info("  xcli lab restart lab-frontend")
+			} else {
+				spinner.Success("lab-frontend restarted successfully")
+			}
+
+		case "prometheus":
+			if !labCfg.Infrastructure.Observability.Enabled {
+				return fmt.Errorf("observability is not enabled in config")
+			}
+
+			spinner := ui.NewSpinner("Regenerating Prometheus config")
+
+			if err := orch.RebuildObservability(ctx, "prometheus"); err != nil {
+				spinner.Fail("Failed to rebuild Prometheus")
+
+				return fmt.Errorf("failed to rebuild prometheus: %w", err)
+			}
+
+			spinner.Success("Prometheus config regenerated and container restarted")
+
+		case "grafana":
+			if !labCfg.Infrastructure.Observability.Enabled {
+				return fmt.Errorf("observability is not enabled in config")
+			}
+
+			spinner := ui.NewSpinner("Regenerating Grafana provisioning and dashboards")
+
+			if err := orch.RebuildObservability(ctx, "grafana"); err != nil {
+				spinner.Fail("Failed to rebuild Grafana")
+
+				return fmt.Errorf("failed to rebuild grafana: %w", err)
+			}
+
+			spinner.Success("Grafana provisioning regenerated and container restarted")
+			ui.Info("Custom dashboards loaded from .xcli/custom-dashboards/")
+
+		default:
+			return fmt.Errorf(
+				"unknown project: %s\n\nSupported projects: "+
+					"xatu-cbt, cbt, cbt-api, lab-backend, lab-frontend, "+
+					"prometheus, grafana, all",
+				project,
+			)
 		}
 
-		ui.Blank()
-		ui.Info("Note: If you added models in xatu-cbt, use " +
-			"'xcli lab rebuild xatu-cbt' for full workflow")
-
-	case constants.RepoLabBackend:
-		spinner := ui.NewSpinner("Rebuilding lab-backend")
-
-		if err := orch.Builder().BuildLabBackend(ctx, true); err != nil {
-			spinner.Fail("Failed to rebuild lab-backend")
-
-			return fmt.Errorf("failed to rebuild lab-backend: %w", err)
-		}
-
-		spinner.Success("lab-backend rebuilt successfully")
-
-		spinner = ui.NewSpinner("Restarting lab-backend")
-
-		if err := orch.Restart(ctx, constants.RepoLabBackend); err != nil {
-			spinner.Fail("Could not restart lab-backend")
-			ui.Info("If lab-backend is running, restart it manually:")
-			ui.Info("  xcli lab restart lab-backend")
-		} else {
-			spinner.Success("lab-backend restarted successfully")
-		}
-
-	case repoLabFrontend:
-		spinner := ui.NewSpinner("Regenerating lab-frontend API types from cbt-api")
-
-		if err := orch.Builder().BuildLabFrontend(ctx); err != nil {
-			spinner.Fail("Failed to regenerate lab-frontend types")
-
-			return fmt.Errorf("failed to regenerate lab-frontend types: %w", err)
-		}
-
-		spinner.Success("lab-frontend API types regenerated successfully")
-
-		spinner = ui.NewSpinner("Restarting lab-frontend")
-
-		if err := orch.Restart(ctx, repoLabFrontend); err != nil {
-			spinner.Fail("Could not restart lab-frontend")
-			ui.Info("If lab-frontend is running, restart it manually:")
-			ui.Info("  xcli lab restart lab-frontend")
-		} else {
-			spinner.Success("lab-frontend restarted successfully")
-		}
-
-	case "prometheus":
-		if !labCfg.Infrastructure.Observability.Enabled {
-			return fmt.Errorf("observability is not enabled in config")
-		}
-
-		spinner := ui.NewSpinner("Regenerating Prometheus config")
-
-		if err := orch.RebuildObservability(ctx, "prometheus"); err != nil {
-			spinner.Fail("Failed to rebuild Prometheus")
-
-			return fmt.Errorf("failed to rebuild prometheus: %w", err)
-		}
-
-		spinner.Success("Prometheus config regenerated and container restarted")
-
-	case "grafana":
-		if !labCfg.Infrastructure.Observability.Enabled {
-			return fmt.Errorf("observability is not enabled in config")
-		}
-
-		spinner := ui.NewSpinner("Regenerating Grafana provisioning and dashboards")
-
-		if err := orch.RebuildObservability(ctx, "grafana"); err != nil {
-			spinner.Fail("Failed to rebuild Grafana")
-
-			return fmt.Errorf("failed to rebuild grafana: %w", err)
-		}
-
-		spinner.Success("Grafana provisioning regenerated and container restarted")
-		ui.Info("Custom dashboards loaded from .xcli/custom-dashboards/")
-
-	default:
-		return fmt.Errorf(
-			"unknown project: %s\n\nSupported projects: "+
-				"xatu-cbt, cbt, cbt-api, lab-backend, lab-frontend, "+
-				"prometheus, grafana, all",
-			project,
-		)
-	}
-
-	return nil
+		return nil
+	})
 }
 
 // PrintStatus displays lab stack status.
 func (s *labStack) PrintStatus(ctx context.Context) error {
-	labCfg, cfgPath, err := config.LoadLabConfig(s.configPath)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+	if s.statusAll {
+		return s.printAllInstanceStatus(ctx)
 	}
 
-	orch, err := orchestrator.NewOrchestrator(s.log, labCfg, cfgPath)
-	if err != nil {
-		return fmt.Errorf("failed to create orchestrator: %w", err)
-	}
+	return s.withRuntimeOrchestrator(ctx, lifecycleRuntimeSelected, func(runtime *instance.Runtime, orch *orchestrator.Orchestrator) error {
+		printRuntimeSelection(runtime)
 
-	return orch.Status(ctx)
+		return orch.Status(ctx)
+	})
 }
 
-// Logs shows logs for lab services.
-func (s *labStack) Logs(ctx context.Context, service string, follow bool) error {
-	labCfg, cfgPath, err := config.LoadLabConfig(s.configPath)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	orch, err := orchestrator.NewOrchestrator(s.log, labCfg, cfgPath)
-	if err != nil {
-		return fmt.Errorf("failed to create orchestrator: %w", err)
-	}
-
-	return orch.Logs(ctx, service, follow)
-}
-
-// Start starts a specific lab service.
-func (s *labStack) Start(ctx context.Context, service string) error {
-	labCfg, cfgPath, err := config.LoadLabConfig(s.configPath)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	orch, err := orchestrator.NewOrchestrator(s.log, labCfg, cfgPath)
-	if err != nil {
-		return fmt.Errorf("failed to create orchestrator: %w", err)
-	}
-
-	if !orch.IsValidService(service) {
-		ui.Error(fmt.Sprintf("Unknown service: %s", service))
-		fmt.Println("\nAvailable services:")
-
-		for _, svc := range orch.GetValidServices() {
-			fmt.Printf("  - %s\n", svc)
-		}
-
-		return fmt.Errorf("unknown service: %s", service)
-	}
-
-	spinner := ui.NewSpinner(fmt.Sprintf("Starting %s", service))
-
-	if err := orch.StartService(ctx, service); err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to start %s", service))
-
-		return fmt.Errorf("failed to start service: %w", err)
-	}
-
-	spinner.Success(fmt.Sprintf("%s started successfully", service))
-
-	return nil
-}
-
-// Stop stops a specific lab service.
-func (s *labStack) Stop(ctx context.Context, service string) error {
-	labCfg, cfgPath, err := config.LoadLabConfig(s.configPath)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	orch, err := orchestrator.NewOrchestrator(s.log, labCfg, cfgPath)
-	if err != nil {
-		return fmt.Errorf("failed to create orchestrator: %w", err)
-	}
-
-	if !orch.IsValidService(service) {
-		ui.Error(fmt.Sprintf("Unknown service: %s", service))
-		fmt.Println("\nAvailable services:")
-
-		for _, svc := range orch.GetValidServices() {
-			fmt.Printf("  - %s\n", svc)
-		}
-
-		return fmt.Errorf("unknown service: %s", service)
-	}
-
-	spinner := ui.NewSpinner(fmt.Sprintf("Stopping %s", service))
-
-	if err := orch.StopService(ctx, service); err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to stop %s", service))
-
-		return fmt.Errorf("failed to stop service: %w", err)
-	}
-
-	spinner.Success(fmt.Sprintf("%s stopped successfully", service))
-
-	return nil
-}
-
-// Restart restarts a specific lab service.
-func (s *labStack) Restart(ctx context.Context, service string) error {
-	labCfg, cfgPath, err := config.LoadLabConfig(s.configPath)
+func (s *labStack) printAllInstanceStatus(ctx context.Context) error {
+	registry, err := instance.DefaultRegistry()
 	if err != nil {
 		return err
 	}
 
-	orch, err := orchestrator.NewOrchestrator(s.log, labCfg, cfgPath)
+	result, err := instance.NewReconciler(registry).ReconcileAll(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to create orchestrator: %w", err)
+		return err
 	}
 
-	if !orch.IsValidService(service) {
-		ui.Error(fmt.Sprintf("Unknown service: %s", service))
-		fmt.Println("\nAvailable services:")
-
-		for _, svc := range orch.GetValidServices() {
-			fmt.Printf("  - %s\n", svc)
+	if len(result.Instances) == 0 {
+		ui.Info("No lab instances registered")
+		if result.DockerError != nil {
+			ui.Warning(fmt.Sprintf("Docker reconciliation skipped: %v", result.DockerError))
 		}
 
-		return fmt.Errorf("unknown service: %s", service)
+		return nil
 	}
 
-	spinner := ui.NewSpinner(fmt.Sprintf("Restarting %s", service))
-
-	if err := orch.Restart(ctx, service); err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to restart %s", service))
-
-		return fmt.Errorf("failed to restart service: %w", err)
+	rows := make([][]string, 0, len(result.Instances))
+	for _, item := range result.Instances {
+		rows = append(rows, []string{
+			item.InstanceID,
+			item.Status,
+			boolSummary(item.Live.BackingExists),
+			fmt.Sprintf("%d/%d", trueCount(item.Live.PIDs), len(item.Live.PIDs)),
+			fmt.Sprintf("%d", len(item.Live.DockerResources)),
+			fmt.Sprintf("%d/%d", trueCount(item.Live.Ports), len(item.Live.Ports)),
+			item.Manifest.RootDir,
+			item.Manifest.ConfigPath,
+		})
 	}
 
-	spinner.Success(fmt.Sprintf("%s restarted successfully", service))
+	ui.Table([]string{"Instance", "Status", "Live", "PIDs", "Docker", "Ports", "Root", "Config"}, rows)
+	if result.DockerError != nil {
+		ui.Warning(fmt.Sprintf("Docker reconciliation skipped: %v", result.DockerError))
+	}
 
 	return nil
+}
+
+func boolSummary(value bool) string {
+	if value {
+		return "yes"
+	}
+
+	return "no"
+}
+
+func trueCount(values map[string]bool) int {
+	count := 0
+	for _, value := range values {
+		if value {
+			count++
+		}
+	}
+
+	return count
+}
+
+// Logs shows logs for lab services.
+func (s *labStack) Logs(ctx context.Context, service string, follow bool) error {
+	return s.withRuntimeOrchestrator(ctx, lifecycleRuntimeSelected, func(runtime *instance.Runtime, orch *orchestrator.Orchestrator) error {
+
+		return orch.Logs(ctx, service, follow)
+	})
+}
+
+// Start starts a specific lab service.
+func (s *labStack) Start(ctx context.Context, service string) error {
+	return s.withRuntimeOrchestrator(ctx, lifecycleRuntimeSelected, func(runtime *instance.Runtime, orch *orchestrator.Orchestrator) error {
+
+		if !orch.IsValidService(service) {
+			ui.Error(fmt.Sprintf("Unknown service: %s", service))
+			fmt.Println("\nAvailable services:")
+
+			for _, svc := range orch.GetValidServices() {
+				fmt.Printf("  - %s\n", svc)
+			}
+
+			return fmt.Errorf("unknown service: %s", service)
+		}
+
+		spinner := ui.NewSpinner(fmt.Sprintf("Starting %s", service))
+
+		if err := orch.StartService(ctx, service); err != nil {
+			spinner.Fail(fmt.Sprintf("Failed to start %s", service))
+
+			return fmt.Errorf("failed to start service: %w", err)
+		}
+
+		spinner.Success(fmt.Sprintf("%s started successfully", service))
+
+		return nil
+	})
+}
+
+// Stop stops a specific lab service.
+func (s *labStack) Stop(ctx context.Context, service string) error {
+	if strings.TrimSpace(service) == "" {
+		return s.Down(ctx)
+	}
+
+	return s.withRuntimeOrchestrator(ctx, lifecycleRuntimeSelected, func(runtime *instance.Runtime, orch *orchestrator.Orchestrator) error {
+
+		if !orch.IsValidService(service) {
+			ui.Error(fmt.Sprintf("Unknown service: %s", service))
+			fmt.Println("\nAvailable services:")
+
+			for _, svc := range orch.GetValidServices() {
+				fmt.Printf("  - %s\n", svc)
+			}
+
+			return fmt.Errorf("unknown service: %s", service)
+		}
+
+		spinner := ui.NewSpinner(fmt.Sprintf("Stopping %s", service))
+
+		if err := orch.StopService(ctx, service); err != nil {
+			spinner.Fail(fmt.Sprintf("Failed to stop %s", service))
+
+			return fmt.Errorf("failed to stop service: %w", err)
+		}
+
+		spinner.Success(fmt.Sprintf("%s stopped successfully", service))
+
+		return nil
+	})
+}
+
+// Restart restarts a specific lab service.
+func (s *labStack) Restart(ctx context.Context, service string) error {
+	return s.withRuntimeOrchestrator(ctx, lifecycleRuntimeSelected, func(runtime *instance.Runtime, orch *orchestrator.Orchestrator) error {
+
+		if !orch.IsValidService(service) {
+			ui.Error(fmt.Sprintf("Unknown service: %s", service))
+			fmt.Println("\nAvailable services:")
+
+			for _, svc := range orch.GetValidServices() {
+				fmt.Printf("  - %s\n", svc)
+			}
+
+			return fmt.Errorf("unknown service: %s", service)
+		}
+
+		spinner := ui.NewSpinner(fmt.Sprintf("Restarting %s", service))
+
+		if err := orch.Restart(ctx, service); err != nil {
+			spinner.Fail(fmt.Sprintf("Failed to restart %s", service))
+
+			return fmt.Errorf("failed to restart service: %w", err)
+		}
+
+		spinner.Success(fmt.Sprintf("%s restarted successfully", service))
+
+		return nil
+	})
 }
 
 // runFullRebuild executes the full rebuild and restart workflow.
