@@ -97,6 +97,7 @@ func NewManifest(
 	if ws == nil {
 		return nil, fmt.Errorf("workspace is required")
 	}
+
 	if labCfg == nil {
 		return nil, fmt.Errorf("lab config is required")
 	}
@@ -108,6 +109,7 @@ func NewManifest(
 
 	now := time.Now().UTC()
 	repos, snapshotErr := SnapshotLabRepos(ctx, labCfg)
+
 	lastError := ""
 	if snapshotErr != nil {
 		lastError = snapshotErr.Error()
@@ -144,6 +146,7 @@ func SnapshotLabRepos(ctx context.Context, labCfg *config.LabConfig) (map[string
 		version, err := xcligit.Snapshot(ctx, path)
 		if err != nil {
 			version.Path = path
+
 			errs = append(errs, fmt.Sprintf("%s: %v", name, err))
 		}
 
@@ -207,12 +210,15 @@ func (p DockerPlan) WithDefaults(fallback DockerPlan) DockerPlan {
 	if p.ProjectName == "" {
 		p.ProjectName = fallback.ProjectName
 	}
+
 	if len(p.Containers) == 0 {
 		p.Containers = fallback.Containers
 	}
+
 	if len(p.Volumes) == 0 {
 		p.Volumes = fallback.Volumes
 	}
+
 	if len(p.Labels) == 0 {
 		p.Labels = fallback.Labels
 	}

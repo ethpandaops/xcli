@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testConfigPath = "/tmp/.xcli.yaml"
+
 func TestResolveIDDerivesDeterministicConfigPathID(t *testing.T) {
 	rootDir := t.TempDir()
 	configPath := filepath.Join(rootDir, config.DefaultConfigFileName)
@@ -32,7 +34,7 @@ func TestResolveIDDerivesDeterministicConfigPathID(t *testing.T) {
 }
 
 func TestResolveIDConfigOverride(t *testing.T) {
-	ws := &workspace.Workspace{RootDir: t.TempDir(), ConfigPath: "/tmp/.xcli.yaml"}
+	ws := &workspace.Workspace{RootDir: t.TempDir(), ConfigPath: testConfigPath}
 	labCfg := &config.LabConfig{
 		Instance: config.LabInstanceConfig{ID: "My Lab.Instance!"},
 	}
@@ -43,7 +45,7 @@ func TestResolveIDConfigOverride(t *testing.T) {
 }
 
 func TestResolveIDCLIOverrideWins(t *testing.T) {
-	ws := &workspace.Workspace{RootDir: t.TempDir(), ConfigPath: "/tmp/.xcli.yaml"}
+	ws := &workspace.Workspace{RootDir: t.TempDir(), ConfigPath: testConfigPath}
 	labCfg := &config.LabConfig{
 		Instance: config.LabInstanceConfig{ID: "from-config"},
 	}
@@ -54,7 +56,7 @@ func TestResolveIDCLIOverrideWins(t *testing.T) {
 }
 
 func TestResolveIDRejectsEmptySanitizedOverride(t *testing.T) {
-	ws := &workspace.Workspace{RootDir: t.TempDir(), ConfigPath: "/tmp/.xcli.yaml"}
+	ws := &workspace.Workspace{RootDir: t.TempDir(), ConfigPath: testConfigPath}
 
 	_, err := ResolveID(ws, &config.LabConfig{}, "!!!")
 	require.Error(t, err)

@@ -53,9 +53,11 @@ func (r *Registry) Save(manifest *Manifest) error {
 	if manifest == nil {
 		return fmt.Errorf("manifest is required")
 	}
+
 	if manifest.InstanceID == "" {
 		return fmt.Errorf("manifest instance id is required")
 	}
+
 	if err := r.checkManifestConflict(manifest); err != nil {
 		return err
 	}
@@ -64,6 +66,7 @@ func (r *Registry) Save(manifest *Manifest) error {
 	if manifest.CreatedAt.IsZero() {
 		manifest.CreatedAt = now
 	}
+
 	manifest.UpdatedAt = now
 
 	if err := writeJSONAtomic(r.ManifestPath(manifest.InstanceID), manifest); err != nil {
@@ -87,9 +90,11 @@ func (r *Registry) checkManifestConflict(manifest *Manifest) error {
 
 		return fmt.Errorf("failed to inspect existing manifest %q: %w", manifest.InstanceID, err)
 	}
+
 	if existing == nil || existing.ConfigPath == "" || manifest.ConfigPath == "" {
 		return nil
 	}
+
 	if sameConfigPath(existing.ConfigPath, manifest.ConfigPath) {
 		return nil
 	}
@@ -123,6 +128,7 @@ func (r *Registry) LoadAll() ([]*Manifest, error) {
 	if os.IsNotExist(err) {
 		return []*Manifest{}, nil
 	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to read registry dir: %w", err)
 	}
@@ -135,6 +141,7 @@ func (r *Registry) LoadAll() ([]*Manifest, error) {
 		}
 
 		instanceID := strings.TrimSuffix(entry.Name(), ".json")
+
 		manifest, loadErr := r.Load(instanceID)
 		if loadErr != nil {
 			return nil, loadErr
@@ -155,6 +162,7 @@ func (r *Registry) Delete(manifest *Manifest) error {
 	if manifest == nil {
 		return fmt.Errorf("manifest is required")
 	}
+
 	if manifest.InstanceID == "" {
 		return fmt.Errorf("manifest instance id is required")
 	}
@@ -183,6 +191,7 @@ func writeJSONAtomic(path string, value any) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal json: %w", err)
 	}
+
 	data = append(data, '\n')
 
 	tmp, err := os.CreateTemp(dir, ".manifest-*.tmp")
@@ -195,11 +204,13 @@ func writeJSONAtomic(path string, value any) error {
 
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
+
 		return fmt.Errorf("failed to write temp file: %w", err)
 	}
 
 	if err := tmp.Chmod(manifestFileMode); err != nil {
 		_ = tmp.Close()
+
 		return fmt.Errorf("failed to chmod temp file: %w", err)
 	}
 
@@ -217,9 +228,11 @@ func writeJSONAtomic(path string, value any) error {
 func sameConfigPath(a, b string) bool {
 	aAbs, aErr := filepath.Abs(a)
 	bAbs, bErr := filepath.Abs(b)
+
 	if aErr == nil {
 		a = aAbs
 	}
+
 	if bErr == nil {
 		b = bAbs
 	}

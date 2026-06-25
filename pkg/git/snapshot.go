@@ -30,8 +30,8 @@ func Snapshot(ctx context.Context, repoPath string) (RepoVersion, error) {
 		return version, fmt.Errorf("failed to inspect repo path %s: %w", absPath, statErr)
 	}
 
-	if _, err := gitOutput(ctx, absPath, "rev-parse", "--is-inside-work-tree"); err != nil {
-		return version, fmt.Errorf("not a git worktree at %s: %w", absPath, err)
+	if _, workTreeErr := gitOutput(ctx, absPath, "rev-parse", "--is-inside-work-tree"); workTreeErr != nil {
+		return version, fmt.Errorf("not a git worktree at %s: %w", absPath, workTreeErr)
 	}
 
 	branch, err := gitOutput(ctx, absPath, "branch", "--show-current")

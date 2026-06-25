@@ -688,6 +688,7 @@ func writeConfiggenRuntimeConfig(t *testing.T, name string) string {
 
 	rootDir := filepath.Join(t.TempDir(), name)
 	reposDir := filepath.Join(rootDir, "repos")
+
 	repos := []string{
 		constants.RepoCBT,
 		constants.RepoXatuCBT,
@@ -814,6 +815,7 @@ func assertGeneratedConfigMatchesRuntime(
 	backendConfig := readGeneratedConfig(t, configsDir, constants.ConfigFileLabBackend)
 	assert.Contains(t, backendConfig, "port: "+strconv.Itoa(runtime.Ports.LabBackend))
 	assert.Contains(t, backendConfig, "localhost:"+strconv.Itoa(runtime.Ports.Redis))
+
 	for _, network := range runtime.LabConfig.EnabledNetworks() {
 		assert.Contains(
 			t,
@@ -828,6 +830,7 @@ func assertGeneratedConfigMatchesRuntime(
 		prometheusConfig,
 		"host.docker.internal:"+strconv.Itoa(runtime.Ports.LabBackend),
 	)
+
 	for _, network := range runtime.LabConfig.EnabledNetworks() {
 		ports := runtime.Ports.Networks[network.Name]
 		assert.Contains(
@@ -910,10 +913,12 @@ func readGeneratedTree(t *testing.T, root string) string {
 	t.Helper()
 
 	var builder strings.Builder
+
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
+
 		if entry.IsDir() {
 			return nil
 		}

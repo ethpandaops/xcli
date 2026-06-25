@@ -63,6 +63,7 @@ Use 'xcli lab [command] --help' for more information about a command.`,
 	cmd.AddCommand(NewLabShowCommand())
 
 	var destroyYes bool
+
 	destroyCmd := &cobra.Command{
 		Use:   "destroy",
 		Short: "Destroy one lab instance and delete its data",

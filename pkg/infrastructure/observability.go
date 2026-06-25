@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
@@ -128,6 +129,7 @@ func newObservabilityResources(
 	if runtime.Ports.Prometheus != 0 {
 		resources.ports[constants.ServicePrometheus] = runtime.Ports.Prometheus
 	}
+
 	if runtime.Ports.Grafana != 0 {
 		resources.ports[constants.ServiceGrafana] = runtime.Ports.Grafana
 	}
@@ -238,6 +240,7 @@ func (m *ObservabilityManager) Destroy(ctx context.Context) error {
 	if err := m.Stop(ctx); err != nil {
 		return err
 	}
+
 	if !m.cfg.Infrastructure.Observability.Enabled {
 		return nil
 	}
@@ -383,6 +386,7 @@ func (m *ObservabilityManager) startPrometheus(ctx context.Context) error {
 
 	// Prepare config path
 	configPath := filepath.Join(m.xcliDir, "configs", "prometheus.yml")
+
 	promPort := m.servicePort(constants.ServicePrometheus)
 	if err := m.ensureVolume(ctx, volumeName); err != nil {
 		return fmt.Errorf("failed to create Prometheus volume: %w", err)
@@ -471,6 +475,7 @@ func (m *ObservabilityManager) startGrafana(ctx context.Context) error {
 	// Prepare paths
 	provisioningPath := filepath.Join(m.xcliDir, "configs", "grafana", "provisioning")
 	dashboardsPath := filepath.Join(m.xcliDir, "configs", "grafana", "dashboards")
+
 	grafanaPort := m.servicePort(constants.ServiceGrafana)
 	if err := m.ensureVolume(ctx, volumeName); err != nil {
 		return fmt.Errorf("failed to create Grafana volume: %w", err)
@@ -702,11 +707,13 @@ func (m *ObservabilityManager) ensureVolume(ctx context.Context, name string) er
 	}
 
 	labels := m.labels()
+
 	vol, err := m.docker.VolumeInspect(ctx, name)
 	if err == nil {
 		return validateDockerLabels("volume", name, vol.Labels, labels)
 	}
-	if !client.IsErrNotFound(err) {
+
+	if !cerrdefs.IsNotFound(err) {
 		return fmt.Errorf("failed to inspect volume %s: %w", name, err)
 	}
 

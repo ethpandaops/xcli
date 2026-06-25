@@ -11,6 +11,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// tableColumnValue is the "Value" table column header.
+const tableColumnValue = "Value"
+
 // NewLabListCommand creates the lab list command.
 func NewLabListCommand() *cobra.Command {
 	return &cobra.Command{
@@ -29,6 +32,7 @@ func NewLabListCommand() *cobra.Command {
 
 			if len(result.Instances) == 0 {
 				ui.Info("No lab instances registered")
+
 				if result.DockerError != nil {
 					ui.Warning(fmt.Sprintf("Docker reconciliation skipped: %v", result.DockerError))
 				}
@@ -37,6 +41,7 @@ func NewLabListCommand() *cobra.Command {
 			}
 
 			printInstanceList(result.Instances)
+
 			if result.DockerError != nil {
 				ui.Warning(fmt.Sprintf("Docker reconciliation skipped: %v", result.DockerError))
 			}
@@ -71,6 +76,7 @@ func NewLabShowCommand() *cobra.Command {
 			for _, item := range result.Instances {
 				if item.InstanceID == instanceID {
 					printInstanceDetails(item)
+
 					if result.DockerError != nil {
 						ui.Warning(fmt.Sprintf("Docker reconciliation skipped: %v", result.DockerError))
 					}
@@ -99,6 +105,7 @@ func printInstanceList(instances []*instance.ReconciledInstance) {
 		for name := range manifest.Repos {
 			repoNames = append(repoNames, name)
 		}
+
 		sort.Strings(repoNames)
 
 		rows := make([][]string, 0, len(repoNames))
@@ -136,27 +143,31 @@ func printInstanceDetails(item *instance.ReconciledInstance) {
 
 	if len(manifest.URLs) > 0 {
 		rows := sortedMapRows(manifest.URLs)
+
 		ui.Blank()
 		ui.Table([]string{"Service", "URL"}, rows)
 	}
 
 	if ports := manifest.Ports.NamedPorts(); len(ports) > 0 {
 		names := sortedKeysInt(ports)
+
 		rows := make([][]string, 0, len(names))
 		for _, name := range names {
 			port := ports[name]
 			if port == 0 {
 				continue
 			}
+
 			rows = append(rows, []string{
 				name,
 				strconv.Itoa(port),
 				boolLabel(item.Live.Ports[name]),
 			})
 		}
+
 		if len(rows) > 0 {
 			ui.Blank()
-			ui.Table([]string{"Port", "Value", "Bound"}, rows)
+			ui.Table([]string{"Port", tableColumnValue, "Bound"}, rows)
 		}
 	}
 
@@ -165,12 +176,15 @@ func printInstanceDetails(item *instance.ReconciledInstance) {
 		for _, name := range sortedKeysString(manifest.Docker.Containers) {
 			rows = append(rows, []string{"container", name, manifest.Docker.Containers[name], "-"})
 		}
+
 		for _, name := range sortedKeysString(manifest.Docker.Volumes) {
 			rows = append(rows, []string{"volume", name, manifest.Docker.Volumes[name], "-"})
 		}
+
 		for _, resource := range item.Live.DockerResources {
 			rows = append(rows, []string{resource.Kind, "live", resource.Name, resource.State})
 		}
+
 		ui.Blank()
 		ui.Table([]string{"Type", "Service", "Name", "State"}, rows)
 	}
@@ -183,6 +197,7 @@ func printRepoTable(manifest *instance.Manifest) {
 	for name := range manifest.Repos {
 		repoNames = append(repoNames, name)
 	}
+
 	sort.Strings(repoNames)
 
 	rows := make([][]string, 0, len(repoNames))
@@ -222,6 +237,7 @@ func dirtyLabel(dirty bool) string {
 
 func sortedMapRows(values map[string]string) [][]string {
 	keys := sortedKeysString(values)
+
 	rows := make([][]string, 0, len(keys))
 	for _, key := range keys {
 		rows = append(rows, []string{key, values[key]})
@@ -235,6 +251,7 @@ func sortedKeysString(values map[string]string) []string {
 	for key := range values {
 		keys = append(keys, key)
 	}
+
 	sort.Strings(keys)
 
 	return keys
@@ -245,6 +262,7 @@ func sortedKeysInt(values map[string]int) []string {
 	for key := range values {
 		keys = append(keys, key)
 	}
+
 	sort.Strings(keys)
 
 	return keys

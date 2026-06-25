@@ -32,7 +32,10 @@ func TestLabBackendRedisAddrUsesRuntimePort(t *testing.T) {
 	}
 
 	require.Equal(t, "localhost:7380", backend.RedisAddr())
-	require.Equal(t, 7380, backend.GetConfigSummary().(configResponse).Ports.Redis)
+
+	summary, ok := backend.GetConfigSummary().(configResponse)
+	require.True(t, ok)
+	require.Equal(t, 7380, summary.Ports.Redis)
 }
 
 func TestLabBackendConfigOverrideUsesWorkspaceCustomConfigDir(t *testing.T) {
@@ -87,6 +90,7 @@ func newTestLabRuntime(t *testing.T, instanceID string) *instance.Runtime {
 	for _, path := range repoPaths {
 		require.NoError(t, os.MkdirAll(path, 0755))
 	}
+
 	require.NoError(t, os.MkdirAll(filepath.Join(repoPaths[constants.RepoXatuCBT], "models", "external"), 0755))
 	require.NoError(t, os.MkdirAll(filepath.Join(repoPaths[constants.RepoXatuCBT], "models", "transformations"), 0755))
 	require.NoError(t, os.MkdirAll(filepath.Join(repoPaths[constants.RepoXatuCBT], "models", "scripts"), 0755))
@@ -127,6 +131,7 @@ func newTestLabRuntime(t *testing.T, instanceID string) *instance.Runtime {
 	require.NoError(t, err)
 	ports, err := instance.BuildPortPlan(labCfg, 0)
 	require.NoError(t, err)
+
 	dockerPlan := instance.NewDockerPlan(manifest.InstanceID, manifest.ConfigPath)
 	manifest.Ports = ports
 	manifest.Docker = dockerPlan

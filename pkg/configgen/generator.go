@@ -96,11 +96,13 @@ func (g *Generator) prometheusPort() int {
 
 func (g *Generator) portPlan() instance.PortPlan {
 	fallback := instance.DefaultPortPlan()
+
 	if g.cfg != nil {
 		if plan, err := instance.BuildPortPlan(g.cfg, 0); err == nil {
 			fallback = plan
 		}
 	}
+
 	if g.runtime == nil {
 		return fallback
 	}
@@ -117,6 +119,7 @@ func (g *Generator) xatuCBTModelsPath(kind string) string {
 	if g.runtime != nil && g.runtime.LabConfig != nil && g.runtime.LabConfig.Repos.XatuCBT != "" {
 		return filepath.Join(g.runtime.LabConfig.Repos.XatuCBT, keyModels, kind)
 	}
+
 	if g.cfg != nil && g.cfg.Repos.XatuCBT != "" {
 		return filepath.Join(g.cfg.Repos.XatuCBT, keyModels, kind)
 	}

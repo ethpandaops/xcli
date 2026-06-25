@@ -71,6 +71,7 @@ func NewOrchestratorWithRuntime(
 	if runtime == nil {
 		return nil, fmt.Errorf("runtime is required")
 	}
+
 	if runtime.LabConfig == nil {
 		return nil, fmt.Errorf("runtime lab config is required")
 	}
@@ -79,9 +80,11 @@ func NewOrchestratorWithRuntime(
 	if runtime.Manifest != nil {
 		configPath = runtime.Manifest.ConfigPath
 	}
+
 	if configPath == "" && runtime.Workspace != nil {
 		configPath = runtime.Workspace.ConfigPath
 	}
+
 	if configPath == "" {
 		return nil, fmt.Errorf("runtime config path is required")
 	}
@@ -103,6 +106,7 @@ func newOrchestrator(
 
 	// State directory is in the same directory as the config file
 	configDir := filepath.Dir(absConfigPath)
+
 	stateDir := filepath.Join(configDir, ".xcli")
 	if runtime != nil && runtime.Manifest != nil && runtime.Manifest.StateDir != "" {
 		stateDir = runtime.Manifest.StateDir
@@ -214,9 +218,11 @@ func (o *Orchestrator) Up(
 		if upComplete || !releaseReservationOnFailure {
 			return
 		}
+
 		if err == nil {
 			err = fmt.Errorf("lab up did not complete")
 		}
+
 		if releaseErr := o.releaseRuntimeReservation(err); releaseErr != nil {
 			o.log.WithError(releaseErr).Warn("failed to release instance reservation after failed up")
 		}
@@ -498,6 +504,7 @@ func (o *Orchestrator) Up(
 	if err := o.finalizeRuntimeManifest(ctx); err != nil {
 		return fmt.Errorf("failed to write instance manifest: %w", err)
 	}
+
 	upComplete = true
 
 	reportProgress(progress, "complete", "Stack is running!")
@@ -574,10 +581,12 @@ func (o *Orchestrator) displayRuntimeSummary() {
 	for name := range manifest.Repos {
 		names = append(names, name)
 	}
+
 	sort.Strings(names)
 
 	for _, name := range names {
 		version := manifest.Repos[name]
+
 		branch := version.Branch
 		if branch == "" {
 			branch = "unknown"
@@ -610,11 +619,13 @@ func (o *Orchestrator) finalizeRuntimeManifest(ctx context.Context) error {
 
 	manifest := o.runtime.Manifest
 	updatedManifest := *manifest
+
 	repos, snapshotErr := instance.SnapshotLabRepos(ctx, o.cfg)
 	if len(repos) > 0 {
 		updatedManifest.Repos = repos
 		o.runtime.Repos = repos
 	}
+
 	if snapshotErr != nil {
 		updatedManifest.LastError = snapshotErr.Error()
 	} else {
@@ -666,6 +677,7 @@ func (o *Orchestrator) releaseRuntimeReservation(upErr error) error {
 	if upErr != nil {
 		o.runtime.Manifest.LastError = upErr.Error()
 	}
+
 	o.runtime.Manifest.PIDs = map[string]int{}
 
 	registry, err := o.runtimeRegistry()
@@ -680,6 +692,7 @@ func (o *Orchestrator) runtimeRegistry() (*instance.Registry, error) {
 	if o.runtime == nil {
 		return instance.DefaultRegistry()
 	}
+
 	if o.runtime.Registry != nil {
 		return o.runtime.Registry, nil
 	}
@@ -688,6 +701,7 @@ func (o *Orchestrator) runtimeRegistry() (*instance.Registry, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	o.runtime.Registry = registry
 
 	return registry, nil
@@ -695,6 +709,7 @@ func (o *Orchestrator) runtimeRegistry() (*instance.Registry, error) {
 
 func (o *Orchestrator) managedPIDs() map[string]int {
 	processes := o.proc.List()
+
 	pids := make(map[string]int, len(processes))
 	for _, p := range processes {
 		pids[p.Name] = p.PID
@@ -811,6 +826,7 @@ func (o *Orchestrator) Destroy(ctx context.Context, progress ProgressFunc) error
 	o.log.Info("destroying stack")
 
 	reportProgress(progress, "stop_services", "Stopping services...")
+
 	spinner := o.render.Task("Stopping services")
 	if err := o.proc.StopAll(ctx); err != nil {
 		o.log.WithError(err).Warn("failed to stop services")
@@ -820,7 +836,9 @@ func (o *Orchestrator) Destroy(ctx context.Context, progress ProgressFunc) error
 	}
 
 	reportProgress(progress, "cleanup_orphans", "Cleaning up orphaned processes...")
+
 	spinner = o.render.Task("Cleaning up orphaned processes")
+
 	orphanedCount := o.cleanupOrphanedProcesses()
 	if orphanedCount > 0 {
 		spinner.Success(fmt.Sprintf("Cleaned up %d orphaned processes", orphanedCount))
@@ -829,28 +847,33 @@ func (o *Orchestrator) Destroy(ctx context.Context, progress ProgressFunc) error
 	}
 
 	reportProgress(progress, "destroy_infrastructure", "Destroying infrastructure...")
+
 	spinner = o.render.Task("Destroying infrastructure and volumes")
 	if err := o.infra.Destroy(ctx); err != nil {
 		spinner.Fail("Failed to destroy infrastructure")
 
 		return fmt.Errorf("failed to destroy infrastructure: %w", err)
 	}
+
 	spinner.Success("Infrastructure and volumes destroyed")
 
 	if o.runtime != nil && o.runtime.Manifest != nil {
 		reportProgress(progress, "remove_state", "Removing generated state...")
+
 		spinner = o.render.Task("Removing generated state")
 		if err := os.RemoveAll(o.runtime.Manifest.StateDir); err != nil {
 			spinner.Fail("Failed to remove generated state")
 
 			return fmt.Errorf("failed to remove generated state: %w", err)
 		}
+
 		spinner.Success("Generated state removed")
 
 		registry, err := o.runtimeRegistry()
 		if err != nil {
 			return err
 		}
+
 		if err := registry.Delete(o.runtime.Manifest); err != nil {
 			return err
 		}
@@ -962,6 +985,7 @@ func (o *Orchestrator) regenerateObservabilityConfig(service string) error {
 func (o *Orchestrator) observabilityConfigGenerator() (*configgen.Generator, string, string) {
 	if o.runtime != nil && o.runtime.Manifest != nil {
 		configsDir := filepath.Join(o.runtime.Manifest.StateDir, constants.DirConfigs)
+
 		userStateDir := o.stateDir
 		if o.runtime.Workspace != nil && o.runtime.Workspace.StateDir != "" {
 			userStateDir = o.runtime.Workspace.StateDir
@@ -1225,6 +1249,7 @@ func (o *Orchestrator) Status(ctx context.Context) error {
 func (o *Orchestrator) GenerateConfigs(ctx context.Context) error {
 	if o.runtime != nil {
 		_, err := configgen.NewRuntimeGenerator(o.log, o.runtime).GenerateRuntimeConfigs()
+
 		return err
 	}
 
@@ -2031,6 +2056,7 @@ func (o *Orchestrator) startLabFrontend(ctx context.Context) error {
 	}
 
 	plan := o.portPlan()
+	//nolint:gosec // G204: args are internally constructed, not user input
 	cmd := exec.CommandContext(
 		ctx,
 		"pnpm",
@@ -2042,6 +2068,7 @@ func (o *Orchestrator) startLabFrontend(ctx context.Context) error {
 		strconv.Itoa(plan.LabFrontend),
 	)
 	cmd.Dir = o.cfg.Repos.Lab
+
 	cmd.Env = append(
 		os.Environ(),
 		fmt.Sprintf("BACKEND=http://localhost:%d", plan.LabBackend),

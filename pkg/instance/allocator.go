@@ -54,21 +54,26 @@ func (a *Allocator) Allocate(ctx context.Context, req AllocationRequest) (PortPl
 	if req.InstanceID == "" {
 		return PortPlan{}, fmt.Errorf("instance id is required")
 	}
+
 	if req.LabConfig == nil {
 		return PortPlan{}, fmt.Errorf("lab config is required")
 	}
+
 	if a.registry == nil {
 		var err error
+
 		a.registry, err = DefaultRegistry()
 		if err != nil {
 			return PortPlan{}, err
 		}
 	}
+
 	if a.lockPath == "" {
 		lockPath, err := DefaultRegistryLockPath()
 		if err != nil {
 			return PortPlan{}, err
 		}
+
 		a.lockPath = lockPath
 	}
 
@@ -84,6 +89,7 @@ func (a *Allocator) Allocate(ctx context.Context, req AllocationRequest) (PortPl
 	}
 
 	var rejected []string
+
 	for slot := 0; slot < a.maxSlots; slot++ {
 		if err := ctx.Err(); err != nil {
 			return PortPlan{}, err
@@ -96,6 +102,7 @@ func (a *Allocator) Allocate(ctx context.Context, req AllocationRequest) (PortPl
 
 		if overlap := overlapWithSet(plan.AllPorts(), activePorts); len(overlap) > 0 {
 			rejected = append(rejected, fmt.Sprintf("slot %d registry ports in use: %v", slot, overlap))
+
 			continue
 		}
 
@@ -103,6 +110,7 @@ func (a *Allocator) Allocate(ctx context.Context, req AllocationRequest) (PortPl
 			boundPorts := boundPorts(plan.AllPorts())
 			if len(boundPorts) > 0 {
 				rejected = append(rejected, fmt.Sprintf("slot %d bound ports in use: %v", slot, boundPorts))
+
 				continue
 			}
 		}
@@ -114,6 +122,7 @@ func (a *Allocator) Allocate(ctx context.Context, req AllocationRequest) (PortPl
 
 			req.Manifest.Ports = plan
 			req.Manifest.Status = StatusReserved
+
 			req.Manifest.Docker = NewDockerPlan(req.InstanceID, req.Manifest.ConfigPath)
 			if err := a.registry.Save(req.Manifest); err != nil {
 				return PortPlan{}, err
@@ -143,6 +152,7 @@ func (a *Allocator) activeRegistryPorts(instanceID string) (map[int]bool, error)
 	}
 
 	ports := make(map[int]bool)
+
 	for _, manifest := range manifests {
 		if manifest.InstanceID == instanceID || !isActiveManifest(manifest) {
 			continue
@@ -168,6 +178,7 @@ func isActiveManifest(manifest *Manifest) bool {
 		if reservationHasBacking(manifest) {
 			return true
 		}
+
 		if manifest.UpdatedAt.IsZero() {
 			return false
 		}
@@ -184,6 +195,7 @@ func reservationHasBacking(manifest *Manifest) bool {
 			return true
 		}
 	}
+
 	for _, port := range manifest.Ports.AllPorts() {
 		if port > 0 && !isPortFree(port) {
 			return true
@@ -205,6 +217,7 @@ func lockFile(path string) (func(), error) {
 
 	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
 		_ = file.Close()
+
 		return nil, fmt.Errorf("failed to lock registry: %w", err)
 	}
 
@@ -216,11 +229,13 @@ func lockFile(path string) (func(), error) {
 
 func boundPorts(ports []int) []int {
 	bound := make([]int, 0)
+
 	for _, port := range ports {
 		if !isPortFree(port) {
 			bound = append(bound, port)
 		}
 	}
+
 	sort.Ints(bound)
 
 	return bound
@@ -239,11 +254,13 @@ func isPortFree(port int) bool {
 
 func overlapWithSet(ports []int, used map[int]bool) []int {
 	overlap := make([]int, 0)
+
 	for _, port := range ports {
 		if used[port] {
 			overlap = append(overlap, port)
 		}
 	}
+
 	sort.Ints(overlap)
 
 	return overlap

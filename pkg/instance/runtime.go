@@ -32,11 +32,13 @@ func (r *Runtime) EffectiveDockerPlan() DockerPlan {
 	if r.Manifest != nil {
 		fallback = r.Manifest.EffectiveDockerPlan()
 	}
+
 	if fallback.ProjectName == "" && r.InstanceID != "" {
 		configPath := ""
 		if r.Manifest != nil {
 			configPath = r.Manifest.ConfigPath
 		}
+
 		fallback = NewDockerPlan(r.InstanceID, configPath)
 	}
 
@@ -88,6 +90,7 @@ func ResolveRuntimeFromWorkspace(
 		if err != nil {
 			return nil, err
 		}
+
 		opts.Registry = registry
 	}
 
@@ -100,6 +103,7 @@ func ResolveRuntimeFromWorkspace(
 		if cliInstanceID != "" {
 			return NewRuntimeFromManifestConfig(ctx, manifest, registry)
 		}
+
 		if manifest.ConfigPath != "" && ws.ConfigPath != "" && !sameConfigPath(manifest.ConfigPath, ws.ConfigPath) {
 			return nil, fmt.Errorf(
 				"instance id %q is registered for config %s, not current config %s",
@@ -178,6 +182,7 @@ func NewRuntimeFromManifestConfig(
 	if manifest == nil {
 		return nil, fmt.Errorf("manifest is required")
 	}
+
 	if manifest.ConfigPath == "" {
 		return nil, fmt.Errorf("manifest %q has no config path", manifest.InstanceID)
 	}
@@ -205,9 +210,11 @@ func NewRuntimeFromManifest(
 	if manifest == nil {
 		return nil, fmt.Errorf("manifest is required")
 	}
+
 	if labCfg == nil {
 		return nil, fmt.Errorf("lab config is required")
 	}
+
 	if ws == nil {
 		return nil, fmt.Errorf("workspace is required")
 	}

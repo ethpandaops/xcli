@@ -38,6 +38,11 @@ const (
 	logFieldHost = "host"
 
 	defaultXatuCBTProjectName = "xatu-cbt-platform"
+
+	// cmdInfra is the xatu-cbt "infra" subcommand.
+	cmdInfra = "infra"
+	// flagProjectName is the xatu-cbt "--project-name" flag.
+	flagProjectName = "--project-name"
 )
 
 // clickHouseClusterShards are the shard suffixes for ClickHouse clusters.
@@ -71,6 +76,7 @@ func NewManagerWithRuntime(
 	runtime *instance.Runtime,
 ) *Manager {
 	xatuCBTPath := cfg.Repos.XatuCBT + "/bin/xatu-cbt"
+
 	if runtime != nil && runtime.Manifest != nil && runtime.Manifest.StateDir != "" {
 		xcliDir = runtime.Manifest.StateDir
 	}
@@ -99,6 +105,7 @@ func (m *Manager) DockerContainerName(service string) (string, bool) {
 	}
 
 	resources := newObservabilityResources(m.cfg, m.runtime)
+
 	name := resources.containers[service]
 	if name == "" {
 		return "", false
@@ -119,6 +126,7 @@ func (m *Manager) xatuCBTProjectName() string {
 	if m.runtime == nil {
 		return defaultXatuCBTProjectName
 	}
+
 	if plan := m.runtime.EffectiveDockerPlan(); plan.ProjectName != "" {
 		return plan.ProjectName
 	}
@@ -128,9 +136,9 @@ func (m *Manager) xatuCBTProjectName() string {
 
 func (m *Manager) infraStartArgs(xatuSource string) []string {
 	return []string{
-		"infra",
+		cmdInfra,
 		"start",
-		"--project-name",
+		flagProjectName,
 		m.xatuCBTProjectName(),
 		"--xatu-source",
 		xatuSource,
@@ -139,14 +147,15 @@ func (m *Manager) infraStartArgs(xatuSource string) []string {
 
 func (m *Manager) infraActionArgs(action string) []string {
 	return []string{
-		"infra",
+		cmdInfra,
 		action,
-		"--project-name",
+		flagProjectName,
 		m.xatuCBTProjectName(),
 	}
 }
 
 func (m *Manager) xatuCBTCommand(ctx context.Context, args ...string) (*exec.Cmd, error) {
+	//nolint:gosec // G204: args are internally constructed, not user input
 	cmd := exec.CommandContext(ctx, m.xatuCBTPath, args...)
 	cmd.Dir = m.cfg.Repos.XatuCBT
 
@@ -154,6 +163,7 @@ func (m *Manager) xatuCBTCommand(ctx context.Context, args ...string) (*exec.Cmd
 	if err != nil {
 		return nil, err
 	}
+
 	cmd.Env = env
 
 	return cmd, nil
@@ -187,6 +197,7 @@ func (m *Manager) xatuCBTPortPlan() (instance.PortPlan, error) {
 	if err != nil {
 		return instance.PortPlan{}, err
 	}
+
 	if m.runtime == nil {
 		return fallback, nil
 	}
@@ -232,6 +243,7 @@ func mergeEnv(base []string, overrides map[string]string) []string {
 	for name := range overrides {
 		names = append(names, name)
 	}
+
 	sort.Strings(names)
 
 	for _, name := range names {
@@ -399,6 +411,7 @@ func (m *Manager) ResetRedis(ctx context.Context) error {
 		return err
 	}
 
+	//nolint:gosec // G204: args are internally constructed, not user input
 	cmd := exec.CommandContext(
 		ctx,
 		"redis-cli",

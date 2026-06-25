@@ -14,9 +14,11 @@ func (g *Generator) GenerateRuntimeConfigs() (string, error) {
 	if g.runtime == nil {
 		return "", fmt.Errorf("runtime is required")
 	}
+
 	if g.runtime.Workspace == nil {
 		return "", fmt.Errorf("runtime workspace is required")
 	}
+
 	if g.runtime.Manifest == nil {
 		return "", fmt.Errorf("runtime manifest is required")
 	}

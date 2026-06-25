@@ -53,6 +53,7 @@ func TestAllocatorStoppedManifestDoesNotHogSlot(t *testing.T) {
 	stopped := testManifest(t, "stopped")
 	stoppedPlan, err := BuildPortPlan(labCfg, 0)
 	require.NoError(t, err)
+
 	stopped.Ports = stoppedPlan
 	stopped.Status = StatusStopped
 	require.NoError(t, registry.Save(stopped))

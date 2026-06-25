@@ -45,9 +45,12 @@ func TestXatuCBTInfraCommandsUseInstanceProjectAndPortEnv(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			runtime := xatuCBTContractRuntime(t, labCfg, tt.instanceID, tt.ports)
 			manager := NewManagerWithRuntime(logrus.New(), labCfg, nil, runtime.Manifest.StateDir, runtime)
+
 			var captured *exec.Cmd
+
 			manager.runCmd = func(cmd *exec.Cmd, _ bool) error {
 				captured = cmd
+
 				return nil
 			}
 
@@ -60,6 +63,7 @@ func TestXatuCBTInfraCommandsUseInstanceProjectAndPortEnv(t *testing.T) {
 
 			for commandName, args := range commands {
 				captured = nil
+
 				require.NoError(t, manager.runXatuCBT(context.Background(), args...))
 				require.NotNil(t, captured, commandName)
 
@@ -81,8 +85,10 @@ func TestXatuCBTRunHelperHandsScopedCommandToRunner(t *testing.T) {
 	manager := NewManagerWithRuntime(logrus.New(), labCfg, nil, runtime.Manifest.StateDir, runtime)
 
 	var captured *exec.Cmd
+
 	manager.runCmd = func(cmd *exec.Cmd, _ bool) error {
 		captured = cmd
+
 		return nil
 	}
 
@@ -103,9 +109,12 @@ func TestSafeStopDestroyAndRedisResetUseSeparateCommands(t *testing.T) {
 	require.NoError(t, err)
 
 	manager := NewManagerWithRuntime(logrus.New(), labCfg, stackMode, runtime.Manifest.StateDir, runtime)
+
 	var captured []*exec.Cmd
+
 	manager.runCmd = func(cmd *exec.Cmd, _ bool) error {
 		captured = append(captured, cmd)
+
 		return nil
 	}
 
@@ -122,6 +131,7 @@ func TestSafeStopDestroyAndRedisResetUseSeparateCommands(t *testing.T) {
 	require.NotContains(t, strings.Join(captured[0].Args, " "), "FLUSHALL")
 
 	captured = nil
+
 	require.NoError(t, manager.Destroy(context.Background()))
 	require.Len(t, captured, 1)
 	require.Equal(t, []string{
@@ -133,6 +143,7 @@ func TestSafeStopDestroyAndRedisResetUseSeparateCommands(t *testing.T) {
 	}, captured[0].Args)
 
 	captured = nil
+
 	require.NoError(t, manager.ResetRedis(context.Background()))
 	require.Len(t, captured, 1)
 	require.Equal(t, []string{

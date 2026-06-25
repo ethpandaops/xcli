@@ -107,7 +107,7 @@ func (f fakeDockerResources) ListXCLIResources(context.Context) ([]DockerResourc
 
 func orphanDockerResource(instanceID string) DockerResource {
 	return DockerResource{
-		Kind:  "container",
+		Kind:  DockerResourceKindContainer,
 		ID:    "container-id",
 		Name:  "xcli-" + instanceID + "-prometheus",
 		State: "running",
@@ -120,7 +120,7 @@ func orphanDockerResource(instanceID string) DockerResource {
 
 func composeProjectDockerResource(instanceID string) DockerResource {
 	return DockerResource{
-		Kind:  "container",
+		Kind:  DockerResourceKindContainer,
 		ID:    "compose-container-id",
 		Name:  "xcli-" + instanceID + "-redis-1",
 		State: "running",

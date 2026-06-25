@@ -97,6 +97,7 @@ func BuildPortPlan(labCfg *config.LabConfig, slot int) (PortPlan, error) {
 	if labCfg == nil {
 		return PortPlan{}, fmt.Errorf("lab config is required")
 	}
+
 	if slot < 0 {
 		return PortPlan{}, fmt.Errorf("slot must be non-negative")
 	}
@@ -161,60 +162,79 @@ func (p PortPlan) WithDefaults(fallback PortPlan) PortPlan {
 	if p.LabBackend == 0 {
 		p.LabBackend = fallback.LabBackend
 	}
+
 	if p.LabFrontend == 0 {
 		p.LabFrontend = fallback.LabFrontend
 	}
+
 	if p.CBTBase == 0 {
 		p.CBTBase = fallback.CBTBase
 	}
+
 	if p.CBTAPIBase == 0 {
 		p.CBTAPIBase = fallback.CBTAPIBase
 	}
+
 	if p.CBTFrontendBase == 0 {
 		p.CBTFrontendBase = fallback.CBTFrontendBase
 	}
+
 	if p.CBTMetricsBase == 0 {
 		p.CBTMetricsBase = fallback.CBTMetricsBase
 	}
+
 	if p.CBTAPIMetricsBase == 0 {
 		p.CBTAPIMetricsBase = fallback.CBTAPIMetricsBase
 	}
+
 	if p.ClickHouseXatu01HTTP == 0 {
 		p.ClickHouseXatu01HTTP = fallback.ClickHouseXatu01HTTP
 	}
+
 	if p.ClickHouseXatu01TCP == 0 {
 		p.ClickHouseXatu01TCP = fallback.ClickHouseXatu01TCP
 	}
+
 	if p.ClickHouseXatu02HTTP == 0 {
 		p.ClickHouseXatu02HTTP = fallback.ClickHouseXatu02HTTP
 	}
+
 	if p.ClickHouseXatu02TCP == 0 {
 		p.ClickHouseXatu02TCP = fallback.ClickHouseXatu02TCP
 	}
+
 	if p.ClickHouseCBT01HTTP == 0 {
 		p.ClickHouseCBT01HTTP = fallback.ClickHouseCBT01HTTP
 	}
+
 	if p.ClickHouseCBT01TCP == 0 {
 		p.ClickHouseCBT01TCP = fallback.ClickHouseCBT01TCP
 	}
+
 	if p.ClickHouseCBT02HTTP == 0 {
 		p.ClickHouseCBT02HTTP = fallback.ClickHouseCBT02HTTP
 	}
+
 	if p.ClickHouseCBT02TCP == 0 {
 		p.ClickHouseCBT02TCP = fallback.ClickHouseCBT02TCP
 	}
+
 	if p.Redis == 0 {
 		p.Redis = fallback.Redis
 	}
+
 	if p.Prometheus == 0 {
 		p.Prometheus = fallback.Prometheus
 	}
+
 	if p.Grafana == 0 {
 		p.Grafana = fallback.Grafana
 	}
+
 	if p.CommandCenter == 0 {
 		p.CommandCenter = fallback.CommandCenter
 	}
+
 	p.Networks = networkPortsWithDefaults(p.Networks, fallback.Networks)
 
 	return p
@@ -223,12 +243,14 @@ func (p PortPlan) WithDefaults(fallback PortPlan) PortPlan {
 // XatuCBTEnv returns the project and host-port env vars for xatu-cbt infra.
 func (p PortPlan) XatuCBTEnv(projectName string) map[string]string {
 	p = p.WithDefaults(DefaultPortPlan())
+
 	env := map[string]string{
 		"XATU_CBT_PROJECT_NAME": projectName,
 	}
 	for _, field := range xatuCBTPortEnvFields {
 		env[field.name] = strconv.Itoa(field.get(p))
 	}
+
 	for _, name := range xatuCBTBindAddressVars {
 		env[name] = "127.0.0.1"
 	}
@@ -239,6 +261,7 @@ func (p PortPlan) XatuCBTEnv(projectName string) map[string]string {
 // AllPorts returns every concrete port in this plan, sorted ascending.
 func (p PortPlan) AllPorts() []int {
 	namedPorts := p.NamedPorts()
+
 	ports := make([]int, 0, len(namedPorts))
 	for _, port := range namedPorts {
 		ports = append(ports, port)
@@ -286,23 +309,29 @@ func networkPortsWithDefaults(
 	for name, network := range fallback {
 		merged[name] = network
 	}
+
 	for name, network := range ports {
 		fallbackNetwork := merged[name]
 		if network.CBT == 0 {
 			network.CBT = fallbackNetwork.CBT
 		}
+
 		if network.CBTAPI == 0 {
 			network.CBTAPI = fallbackNetwork.CBTAPI
 		}
+
 		if network.CBTFrontend == 0 {
 			network.CBTFrontend = fallbackNetwork.CBTFrontend
 		}
+
 		if network.CBTMetrics == 0 {
 			network.CBTMetrics = fallbackNetwork.CBTMetrics
 		}
+
 		if network.CBTAPIMetrics == 0 {
 			network.CBTAPIMetrics = fallbackNetwork.CBTAPIMetrics
 		}
+
 		merged[name] = network
 	}
 
@@ -317,11 +346,13 @@ func (p PortPlan) DuplicatePorts() []int {
 	}
 
 	duplicates := make([]int, 0)
+
 	for port, count := range counts {
 		if count > 1 {
 			duplicates = append(duplicates, port)
 		}
 	}
+
 	sort.Ints(duplicates)
 
 	return duplicates
@@ -335,6 +366,7 @@ func (p PortPlan) Overlaps(other PortPlan) []int {
 	}
 
 	overlap := make([]int, 0)
+
 	for _, port := range other.AllPorts() {
 		if seen[port] {
 			overlap = append(overlap, port)

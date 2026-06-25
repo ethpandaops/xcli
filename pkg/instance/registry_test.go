@@ -37,6 +37,7 @@ func TestRegistrySaveWritesGlobalAndLocalManifest(t *testing.T) {
 
 	globalPath := registry.ManifestPath("alpha")
 	localPath := LocalManifestPath(rootDir, "alpha")
+
 	require.FileExists(t, globalPath)
 	require.FileExists(t, localPath)
 

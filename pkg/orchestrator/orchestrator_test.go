@@ -54,6 +54,7 @@ func TestFinalizeRuntimeManifestWritesRunningInstance(t *testing.T) {
 
 	orch, err := NewOrchestratorWithRuntime(logrus.New(), runtime)
 	require.NoError(t, err)
+
 	orch.proc = &fakeProcessManager{
 		processes: []*process.Process{
 			{Name: constants.ServiceLabBackend, PID: 1234},
@@ -171,6 +172,7 @@ func TestRuntimePortsDriveFrontendCommand(t *testing.T) {
 
 	orch, err := NewOrchestratorWithRuntime(logrus.New(), runtime)
 	require.NoError(t, err)
+
 	fakeProc := &fakeProcessManager{}
 	orch.proc = fakeProc
 
@@ -288,6 +290,7 @@ func newOrchestratorTestRuntime(t *testing.T, instanceID string, slot int) *inst
 
 	ports, err := instance.BuildPortPlan(cfg, slot)
 	require.NoError(t, err)
+
 	dockerPlan := instance.NewDockerPlan(manifest.InstanceID, manifest.ConfigPath)
 	manifest.Ports = ports
 	manifest.Docker = dockerPlan

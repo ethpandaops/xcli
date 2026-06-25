@@ -54,12 +54,6 @@ func (s *labStack) loadLabConfig(checkCWDOverrides bool) (*config.LabConfig, *wo
 	return workspace.LoadLabConfig(s.configPath, checkCWDOverrides)
 }
 
-func printWorkspaceSelection(ws *workspace.Workspace) {
-	ui.Info(fmt.Sprintf("Config: %s", ws.ConfigPath))
-	ui.Info(fmt.Sprintf("Overrides: %s", ws.OverridesPath))
-	ui.Info(fmt.Sprintf("State dir: %s", ws.StateDir))
-}
-
 func printRuntimeSelection(runtime *instance.Runtime) {
 	if runtime == nil || runtime.Manifest == nil {
 		return
@@ -155,10 +149,12 @@ func (s *labStack) withRuntimeOrchestrator(
 		if s.instanceOverrideValue() == "" {
 			return fmt.Errorf("requires --instance <id>")
 		}
+
 		runtime, err = s.loadLifecycleRuntimeByID(s.instanceOverrideValue())
 	default:
 		return fmt.Errorf("unknown lifecycle runtime mode: %d", mode)
 	}
+
 	if err != nil {
 		return err
 	}
@@ -453,9 +449,9 @@ func (s *labStack) Init(ctx context.Context) error {
 	if ws.ConfigExists {
 		s.log.Info("loading existing configuration")
 
-		result, err := config.Load(ws.ConfigPath)
-		if err != nil {
-			return fmt.Errorf("failed to load existing config: %w", err)
+		result, loadErr := config.Load(ws.ConfigPath)
+		if loadErr != nil {
+			return fmt.Errorf("failed to load existing config: %w", loadErr)
 		}
 
 		rootCfg = result.Config
@@ -554,6 +550,7 @@ func (s *labStack) Init(ctx context.Context) error {
 	for _, repo := range repos.Ordered() {
 		rows = append(rows, []string{repo.Name, repo.Path})
 	}
+
 	ui.Table([]string{"Repository", "Path"}, rows)
 
 	ui.Blank()
@@ -670,6 +667,7 @@ func (s *labStack) Check(ctx context.Context) error {
 
 		for _, repo := range labCfg.Repos.Ordered() {
 			name, path := repo.Name, repo.Path
+
 			absPath, err := filepath.Abs(path)
 			if err != nil {
 				missingRepos = append(missingRepos,
@@ -891,6 +889,7 @@ func (s *labStack) Destroy(ctx context.Context, yes bool) error {
 			fmt.Printf("Type %q to destroy this instance and delete its data: ", runtime.InstanceID)
 
 			var confirmation string
+
 			_, _ = fmt.Scanln(&confirmation)
 
 			if confirmation != runtime.InstanceID {
@@ -1152,6 +1151,7 @@ func (s *labStack) printAllInstanceStatus(ctx context.Context) error {
 
 	if len(result.Instances) == 0 {
 		ui.Info("No lab instances registered")
+
 		if result.DockerError != nil {
 			ui.Warning(fmt.Sprintf("Docker reconciliation skipped: %v", result.DockerError))
 		}
@@ -1174,6 +1174,7 @@ func (s *labStack) printAllInstanceStatus(ctx context.Context) error {
 	}
 
 	ui.Table([]string{"Instance", "Status", "Live", "PIDs", "Docker", "Ports", "Root", "Config"}, rows)
+
 	if result.DockerError != nil {
 		ui.Warning(fmt.Sprintf("Docker reconciliation skipped: %v", result.DockerError))
 	}
@@ -1191,6 +1192,7 @@ func boolSummary(value bool) string {
 
 func trueCount(values map[string]bool) int {
 	count := 0
+
 	for _, value := range values {
 		if value {
 			count++
@@ -1203,7 +1205,6 @@ func trueCount(values map[string]bool) int {
 // Logs shows logs for lab services.
 func (s *labStack) Logs(ctx context.Context, service string, follow bool) error {
 	return s.withRuntimeOrchestrator(ctx, lifecycleRuntimeSelected, func(runtime *instance.Runtime, orch *orchestrator.Orchestrator) error {
-
 		return orch.Logs(ctx, service, follow)
 	})
 }
@@ -1211,7 +1212,6 @@ func (s *labStack) Logs(ctx context.Context, service string, follow bool) error 
 // Start starts a specific lab service.
 func (s *labStack) Start(ctx context.Context, service string) error {
 	return s.withRuntimeOrchestrator(ctx, lifecycleRuntimeSelected, func(runtime *instance.Runtime, orch *orchestrator.Orchestrator) error {
-
 		if !orch.IsValidService(service) {
 			ui.Error(fmt.Sprintf("Unknown service: %s", service))
 			fmt.Println("\nAvailable services:")
@@ -1244,7 +1244,6 @@ func (s *labStack) Stop(ctx context.Context, service string) error {
 	}
 
 	return s.withRuntimeOrchestrator(ctx, lifecycleRuntimeSelected, func(runtime *instance.Runtime, orch *orchestrator.Orchestrator) error {
-
 		if !orch.IsValidService(service) {
 			ui.Error(fmt.Sprintf("Unknown service: %s", service))
 			fmt.Println("\nAvailable services:")
@@ -1273,7 +1272,6 @@ func (s *labStack) Stop(ctx context.Context, service string) error {
 // Restart restarts a specific lab service.
 func (s *labStack) Restart(ctx context.Context, service string) error {
 	return s.withRuntimeOrchestrator(ctx, lifecycleRuntimeSelected, func(runtime *instance.Runtime, orch *orchestrator.Orchestrator) error {
-
 		if !orch.IsValidService(service) {
 			ui.Error(fmt.Sprintf("Unknown service: %s", service))
 			fmt.Println("\nAvailable services:")

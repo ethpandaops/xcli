@@ -20,6 +20,9 @@ import (
 const (
 	StatusOrphan = "orphan"
 
+	// DockerResourceKindContainer is the DockerResource.Kind value for containers.
+	DockerResourceKindContainer = "container"
+
 	DockerLabelInstance = "com.ethpandaops.xcli.instance"
 	DockerLabelConfig   = "com.ethpandaops.xcli.config"
 
@@ -81,6 +84,7 @@ func NewReconciler(registry *Registry) *Reconciler {
 // ReconcileAll reads the registry and reconciles it against live resources.
 func (r *Reconciler) ReconcileAll(ctx context.Context) (*ReconcileResult, error) {
 	registry := r.Registry
+
 	var err error
 	if registry == nil {
 		registry, err = DefaultRegistry()
@@ -96,11 +100,13 @@ func (r *Reconciler) ReconcileAll(ctx context.Context) (*ReconcileResult, error)
 
 	resources, dockerErr := r.listDockerResources(ctx)
 	resourcesByInstance := make(map[string][]DockerResource)
+
 	for _, resource := range resources {
 		instanceID := dockerResourceInstanceID(resource)
 		if instanceID == "" {
 			continue
 		}
+
 		resourcesByInstance[instanceID] = append(resourcesByInstance[instanceID], resource)
 	}
 
@@ -111,16 +117,19 @@ func (r *Reconciler) ReconcileAll(ctx context.Context) (*ReconcileResult, error)
 		if manifest == nil || manifest.InstanceID == "" {
 			continue
 		}
+
 		seen[manifest.InstanceID] = true
 		instances = append(instances, r.reconcileManifest(manifest, true, resourcesByInstance[manifest.InstanceID]))
 	}
 
 	orphanIDs := make([]string, 0)
+
 	for instanceID := range resourcesByInstance {
 		if !seen[instanceID] {
 			orphanIDs = append(orphanIDs, instanceID)
 		}
 	}
+
 	sort.Strings(orphanIDs)
 
 	for _, instanceID := range orphanIDs {
@@ -150,6 +159,7 @@ func (r *Reconciler) reconcileManifest(
 	if status == "" {
 		status = StatusCreated
 	}
+
 	if registryPresent &&
 		(manifest.Status == StatusRunning || manifest.Status == StatusReserved) &&
 		!live.BackingExists {
@@ -202,6 +212,7 @@ func (r *Reconciler) listDockerResources(ctx context.Context) ([]DockerResource,
 	provider := r.Docker
 	if provider == nil {
 		var err error
+
 		provider, err = NewDockerResourceProvider()
 		if err != nil {
 			return nil, err
@@ -213,6 +224,7 @@ func (r *Reconciler) listDockerResources(ctx context.Context) ([]DockerResource,
 
 func (r *Reconciler) checkPIDs(pids map[string]int) map[string]bool {
 	result := make(map[string]bool, len(pids))
+
 	check := r.PIDAlive
 	if check == nil {
 		check = defaultPIDAlive
@@ -228,6 +240,7 @@ func (r *Reconciler) checkPIDs(pids map[string]int) map[string]bool {
 func (r *Reconciler) checkPorts(plan PortPlan) map[string]bool {
 	ports := plan.NamedPorts()
 	result := make(map[string]bool, len(ports))
+
 	check := r.PortBound
 	if check == nil {
 		check = defaultPortBound
@@ -237,6 +250,7 @@ func (r *Reconciler) checkPorts(plan PortPlan) map[string]bool {
 	for name := range ports {
 		names = append(names, name)
 	}
+
 	sort.Strings(names)
 
 	for _, name := range names {
@@ -275,7 +289,7 @@ func dockerResourceInstanceID(resource DockerResource) string {
 
 func hasDockerContainer(resources []DockerResource) bool {
 	for _, resource := range resources {
-		if resource.Kind == "container" {
+		if resource.Kind == DockerResourceKindContainer {
 			return true
 		}
 	}
@@ -297,6 +311,7 @@ func defaultPortBound(port int) bool {
 	if err != nil {
 		return false
 	}
+
 	_ = conn.Close()
 
 	return true
@@ -327,6 +342,7 @@ func (p *dockerResourceProvider) ListXCLIResources(ctx context.Context) ([]Docke
 		if err != nil {
 			return nil, fmt.Errorf("failed to list Docker containers: %w", err)
 		}
+
 		for _, item := range containers {
 			name := item.ID
 			if len(item.Names) > 0 {
@@ -337,10 +353,11 @@ func (p *dockerResourceProvider) ListXCLIResources(ctx context.Context) ([]Docke
 			if seen[key] {
 				continue
 			}
+
 			seen[key] = true
 
 			resources = append(resources, DockerResource{
-				Kind:   "container",
+				Kind:   DockerResourceKindContainer,
 				ID:     item.ID,
 				Name:   name,
 				State:  item.State,
@@ -352,11 +369,13 @@ func (p *dockerResourceProvider) ListXCLIResources(ctx context.Context) ([]Docke
 		if err != nil {
 			return nil, fmt.Errorf("failed to list Docker volumes: %w", err)
 		}
+
 		for _, item := range volumes.Volumes {
 			key := "volume:" + item.Name
 			if seen[key] {
 				continue
 			}
+
 			seen[key] = true
 
 			resources = append(resources, DockerResource{

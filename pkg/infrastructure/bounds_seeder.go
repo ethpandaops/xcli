@@ -33,6 +33,12 @@ const (
 	cmdRedisCLI = "redis-cli"
 	// flagN is the "-n" flag (redis-cli database number / kubectl namespace).
 	flagN = "-n"
+	// flagH is the redis-cli "-h" host flag.
+	flagH = "-h"
+	// flagP is the redis-cli "-p" port flag.
+	flagP = "-p"
+	// localhostIP is the loopback address used to reach local Redis.
+	localhostIP = "127.0.0.1"
 )
 
 // BoundsSeeder handles seeding CBT external bounds from production Redis.
@@ -109,6 +115,7 @@ func (s *BoundsSeeder) SeedFromProduction(ctx context.Context, network string, r
 
 // CheckNeedsSeeding checks if local Redis has any external bounds for the given network.
 func (s *BoundsSeeder) CheckNeedsSeeding(ctx context.Context, redisDB int) (bool, error) {
+	//nolint:gosec // G204: args are internally constructed, not user input
 	cmd := exec.CommandContext(ctx, cmdRedisCLI, s.localRedisArgs(redisDB, "KEYS", redisBoundsKeyPrefix+"*")...)
 
 	output, err := cmd.CombinedOutput()
@@ -237,6 +244,7 @@ func (s *BoundsSeeder) bulkInsertLocal(ctx context.Context, redisDB int, bounds 
 			len(b.Key), b.Key, len(b.Value), b.Value)
 	}
 
+	//nolint:gosec // G204: args are internally constructed, not user input
 	cmd := exec.CommandContext(ctx, cmdRedisCLI, s.localRedisArgs(redisDB, "--pipe")...)
 	cmd.Stdin = &protocol
 
@@ -260,11 +268,12 @@ func (s *BoundsSeeder) localRedisArgs(redisDB int, args ...string) []string {
 		}
 	}
 
-	result := []string{
-		"-h", "127.0.0.1",
-		"-p", strconv.Itoa(redisPort),
+	result := make([]string, 0, 6+len(args))
+	result = append(result,
+		flagH, localhostIP,
+		flagP, strconv.Itoa(redisPort),
 		flagN, strconv.Itoa(redisDB),
-	}
+	)
 	result = append(result, args...)
 
 	return result

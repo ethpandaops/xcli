@@ -42,6 +42,7 @@ func Resolve(configPath string, requireConfig bool, checkCWDOverrides bool) (*Wo
 	} else {
 		resolvedPath, exists, err = resolveExplicitConfig(path)
 	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -130,6 +131,7 @@ func (w *Workspace) CheckCWDOverrides() error {
 	}
 
 	cwdOverrides := filepath.Join(cwd, constants.CBTOverridesFile)
+
 	cwdOverrides, err = filepath.Abs(cwdOverrides)
 	if err != nil {
 		return fmt.Errorf("failed to resolve current overrides path: %w", err)

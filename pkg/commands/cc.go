@@ -55,6 +55,7 @@ Use --no-open to prevent this behavior.`,
 					if err != nil {
 						return fmt.Errorf("failed to load selected instance config: %w", err)
 					}
+
 					workspace.ResolveLabRepoPaths(cfg.Lab, ws.RootDir)
 					cfg.Lab = runtime.LabConfig
 				}
@@ -63,6 +64,7 @@ Use --no-open to prevent this behavior.`,
 					port = runtime.Ports.CommandCenter
 				}
 			}
+
 			if port == 0 {
 				port = instance.DefaultCommandCenterPort
 			}

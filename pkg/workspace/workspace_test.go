@@ -71,6 +71,7 @@ func TestResolveExplicitConfigWins(t *testing.T) {
 
 	defaultConfig := filepath.Join(root, config.DefaultConfigFileName)
 	explicitConfig := filepath.Join(root, "custom.yaml")
+
 	require.NoError(t, os.WriteFile(defaultConfig, []byte("lab: {}\n"), 0644))
 	require.NoError(t, os.WriteFile(explicitConfig, []byte("lab: {}\n"), 0644))
 	require.NoError(t, os.Chdir(nested))

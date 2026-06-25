@@ -564,6 +564,7 @@ func (b *labBackend) overridesPath() string {
 		if b.runtime.Workspace != nil && b.runtime.Workspace.OverridesPath != "" {
 			return b.runtime.Workspace.OverridesPath
 		}
+
 		if b.runtime.Manifest != nil && b.runtime.Manifest.OverridesPath != "" {
 			return b.runtime.Manifest.OverridesPath
 		}
@@ -577,12 +578,14 @@ func (b *labBackend) workspaceStateDir() string {
 		if b.runtime.Workspace != nil && b.runtime.Workspace.StateDir != "" {
 			return b.runtime.Workspace.StateDir
 		}
+
 		if b.runtime.Manifest != nil && b.runtime.Manifest.RootDir != "" {
 			return filepath.Join(b.runtime.Manifest.RootDir, ".xcli")
 		}
 	}
 
 	stateDir := b.orch.StateDir()
+
 	instancesDir := filepath.Dir(stateDir)
 	if filepath.Base(instancesDir) == "instances" {
 		return filepath.Dir(instancesDir)
@@ -605,6 +608,7 @@ func (b *labBackend) portPlan() instance.PortPlan {
 		if len(b.runtime.Ports.AllPorts()) > 0 {
 			return b.runtime.Ports
 		}
+
 		if b.runtime.Manifest != nil && len(b.runtime.Manifest.Ports.AllPorts()) > 0 {
 			return b.runtime.Manifest.Ports
 		}

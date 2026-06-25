@@ -202,11 +202,13 @@ func buildLabDiagnosticContext(
 		if err != nil {
 			return nil, err
 		}
+
 		manifestLoaded = true
 	} else {
 		if !os.IsNotExist(loadErr) {
 			traps = append(traps, fmt.Sprintf("Could not load registry manifest for %s: %v", instanceID, loadErr))
 		}
+
 		runtime, err = instance.NewRuntimeFromWorkspace(ctx, ws, labCfg, cliInstanceID, instance.RuntimeOptions{
 			Registry:   registry,
 			ClaimPorts: false,
@@ -215,11 +217,14 @@ func buildLabDiagnosticContext(
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve candidate runtime: %w", err)
 		}
+
 		traps = append(traps, "No persisted manifest for this instance yet; run 'xcli lab up' to create one.")
 	}
+
 	if runtime.Workspace != nil {
 		ws = runtime.Workspace
 	}
+
 	if runtime.LabConfig != nil {
 		labCfg = runtime.LabConfig
 	}
@@ -234,11 +239,10 @@ func buildLabDiagnosticContext(
 		))
 	}
 
-	for _, missing := range missingRepoPaths(labCfg) {
-		traps = append(traps, missing)
-	}
+	traps = append(traps, missingRepoPaths(labCfg)...)
 
 	var reconciled *instance.ReconciledInstance
+
 	result, reconcileErr := instance.NewReconciler(registry).ReconcileAll(ctx)
 	if reconcileErr != nil {
 		traps = append(traps, fmt.Sprintf("Could not reconcile instances: %v", reconcileErr))
@@ -246,21 +250,25 @@ func buildLabDiagnosticContext(
 		for _, item := range result.Instances {
 			if item.InstanceID == runtime.InstanceID {
 				reconciled = item
+
 				break
 			}
 		}
+
 		if result.DockerError != nil {
 			traps = append(traps, fmt.Sprintf("Docker reconciliation skipped: %v", result.DockerError))
 		}
 	}
 
 	portChecks := probeRuntimePorts(runtime)
+
 	portConflicts := nonOwnedPortConflicts(runtime, portChecks)
 	for _, conflict := range portConflicts {
 		owner := fmt.Sprintf("PID %d", conflict.PID)
 		if conflict.Process != "" {
 			owner += " " + conflict.Process
 		}
+
 		traps = append(traps, fmt.Sprintf(
 			"Port %d (%s) is bound by %s and is not recorded as this instance app PID.",
 			conflict.Port,
@@ -281,6 +289,7 @@ func buildLabDiagnosticContext(
 func printLabDiagnostics(diag *labDiagnosticContext) {
 	runtime := diag.Runtime
 	manifest := runtime.Manifest
+
 	status := "unregistered"
 	if diag.Reconciled != nil {
 		status = diag.Reconciled.Status
@@ -289,7 +298,7 @@ func printLabDiagnostics(diag *labDiagnosticContext) {
 	}
 
 	ui.Header("Instance Diagnostics")
-	ui.Table([]string{"Field", "Value"}, [][]string{
+	ui.Table([]string{"Field", tableColumnValue}, [][]string{
 		{"Instance", runtime.InstanceID},
 		{"Status", status},
 		{"Manifest", boolLabel(diag.ManifestLoaded)},
@@ -302,26 +311,32 @@ func printLabDiagnostics(diag *labDiagnosticContext) {
 
 	if ports := runtime.Ports.NamedPorts(); len(ports) > 0 {
 		names := sortedKeysInt(ports)
+
 		rows := make([][]string, 0, len(names))
 		for _, name := range names {
 			port := ports[name]
 			if port == 0 {
 				continue
 			}
+
 			bound := "no"
 			owner := "-"
+
 			if conflict := diag.PortChecks[port]; conflict != nil && conflict.PID > 0 {
 				bound = "yes"
+
 				owner = fmt.Sprintf("PID %d", conflict.PID)
 				if conflict.Process != "" {
 					owner += " " + conflict.Process
 				}
 			}
+
 			rows = append(rows, []string{name, strconv.Itoa(port), bound, owner})
 		}
+
 		if len(rows) > 0 {
 			ui.Blank()
-			ui.Table([]string{"Port", "Value", "Bound", "Owner"}, rows)
+			ui.Table([]string{"Port", tableColumnValue, "Bound", "Owner"}, rows)
 		}
 	}
 
@@ -334,6 +349,7 @@ func printLabDiagnostics(diag *labDiagnosticContext) {
 
 	ui.Blank()
 	ui.Header("Traps")
+
 	for _, trap := range diag.Traps {
 		ui.Warning(trap)
 	}
@@ -349,6 +365,7 @@ func detectStrayCWDOverrides(ws *workspace.Workspace) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
+
 	if filepath.Clean(cwdOverrides) == filepath.Clean(ws.OverridesPath) {
 		return "", false, nil
 	}
@@ -364,13 +381,17 @@ func detectStrayCWDOverrides(ws *workspace.Workspace) (string, bool, error) {
 
 func missingRepoPaths(labCfg *config.LabConfig) []string {
 	missing := make([]string, 0)
+
 	for _, repo := range labCfg.Repos.Ordered() {
 		name := repo.Name
+
 		path := strings.TrimSpace(repo.Path)
 		if path == "" {
 			missing = append(missing, fmt.Sprintf("Repo %s has no configured path", name))
+
 			continue
 		}
+
 		if _, err := os.Stat(path); err != nil {
 			if os.IsNotExist(err) {
 				missing = append(missing, fmt.Sprintf("Repo %s path does not exist: %s", name, path))
@@ -385,6 +406,7 @@ func missingRepoPaths(labCfg *config.LabConfig) []string {
 
 func probeRuntimePorts(runtime *instance.Runtime) map[int]*portutil.PortConflict {
 	ports := runtime.Ports.NamedPorts()
+
 	checks := make(map[int]*portutil.PortConflict, len(ports))
 	for _, port := range ports {
 		if port <= 0 {
@@ -402,6 +424,7 @@ func nonOwnedPortConflicts(
 	portChecks map[int]*portutil.PortConflict,
 ) []diagnosticPortConflict {
 	ownedPIDs := make(map[int]bool)
+
 	if runtime.Manifest != nil {
 		for _, pid := range runtime.Manifest.PIDs {
 			if pid > 0 {
@@ -413,6 +436,7 @@ func nonOwnedPortConflicts(
 	ports := runtime.Ports.NamedPorts()
 	names := sortedKeysInt(ports)
 	conflicts := make([]diagnosticPortConflict, 0)
+
 	for _, name := range names {
 		port := ports[name]
 		if port <= 0 {
@@ -428,6 +452,7 @@ func nonOwnedPortConflicts(
 		if process != "" {
 			process = "(" + process + ")"
 		}
+
 		conflicts = append(conflicts, diagnosticPortConflict{
 			Name:    name,
 			Port:    port,

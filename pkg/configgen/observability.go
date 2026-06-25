@@ -166,8 +166,8 @@ func (g *Generator) GenerateGrafanaProvisioning(outputDir, xcliDir string) error
 	// Generate datasource provisioning file
 	datasourcePath := filepath.Join(outputDir, "grafana", "provisioning", "datasources", "datasource.yml")
 
-	//nolint:gosec // Config file permissions are intentionally 0644 for readability
 	datasourceConfig := fmt.Sprintf(grafanaDatasourceConfigTemplate, g.prometheusPort())
+	//nolint:gosec // G306: config file intentionally world-readable
 	if err := os.WriteFile(datasourcePath, []byte(datasourceConfig), 0644); err != nil {
 		return fmt.Errorf("failed to write datasource.yml: %w", err)
 	}
