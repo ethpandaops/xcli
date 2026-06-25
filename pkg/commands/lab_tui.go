@@ -3,15 +3,16 @@ package commands
 import (
 	"fmt"
 
-	"github.com/ethpandaops/xcli/pkg/config"
+	"github.com/ethpandaops/xcli/pkg/instance"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
 	"github.com/ethpandaops/xcli/pkg/tui"
+	"github.com/ethpandaops/xcli/pkg/workspace"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
 // NewLabTUICommand creates the lab TUI command.
-func NewLabTUICommand(log logrus.FieldLogger, configPath string) *cobra.Command {
+func NewLabTUICommand(log logrus.FieldLogger, configPath string, instanceOverride *string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "tui",
 		Short: "Launch interactive TUI dashboard",
@@ -37,13 +38,21 @@ Note: TUI requires an interactive terminal (TTY).
 For non-interactive use, use 'xcli lab status' instead.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Load config
-			labCfg, cfgPath, err := config.LoadLabConfig(configPath)
+			labCfg, ws, err := workspace.LoadLabConfig(configPath, false)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
+			runtime, err := instance.ResolveRuntimeFromWorkspace(cmd.Context(), ws, labCfg, instanceOverrideValue(instanceOverride), instance.RuntimeOptions{
+				ClaimPorts: false,
+				ProbePorts: true,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to resolve lab instance runtime: %w", err)
+			}
+
 			// Initialize orchestrator
-			orch, err := orchestrator.NewOrchestrator(log, labCfg, cfgPath)
+			orch, err := orchestrator.NewOrchestratorWithRuntime(log, runtime)
 			if err != nil {
 				return fmt.Errorf("failed to create orchestrator: %w", err)
 			}

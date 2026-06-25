@@ -13,6 +13,7 @@ import (
 	"github.com/ethpandaops/xcli/pkg/configtui"
 	"github.com/ethpandaops/xcli/pkg/constants"
 	"github.com/ethpandaops/xcli/pkg/git"
+	"github.com/ethpandaops/xcli/pkg/instance"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
 	"github.com/ethpandaops/xcli/pkg/seeddata"
 	"github.com/ethpandaops/xcli/pkg/tui"
@@ -27,6 +28,7 @@ type labBackend struct {
 	orch    *orchestrator.Orchestrator
 	labCfg  *config.LabConfig
 	cfgPath string
+	runtime *instance.Runtime
 	gitChk  *git.Checker
 }
 
@@ -39,6 +41,7 @@ func newLabBackend(
 	orch *orchestrator.Orchestrator,
 	labCfg *config.LabConfig,
 	cfgPath string,
+	runtime *instance.Runtime,
 	gitChk *git.Checker,
 ) *labBackend {
 	return &labBackend{
@@ -47,6 +50,7 @@ func newLabBackend(
 		orch:    orch,
 		labCfg:  labCfg,
 		cfgPath: cfgPath,
+		runtime: runtime,
 		gitChk:  gitChk,
 	}
 }
@@ -120,16 +124,16 @@ func (b *labBackend) GetConfigSummary() any {
 		Mode:     b.labCfg.Mode,
 		Networks: networks,
 		Ports: portsInfo{
-			LabBackend:      b.labCfg.Ports.LabBackend,
-			LabFrontend:     b.labCfg.Ports.LabFrontend,
-			CBTBase:         b.labCfg.Ports.CBTBase,
-			CBTAPIBase:      b.labCfg.Ports.CBTAPIBase,
-			CBTFrontendBase: b.labCfg.Ports.CBTFrontendBase,
-			ClickHouseCBT:   b.labCfg.Infrastructure.ClickHouseCBTPort,
-			ClickHouseXatu:  b.labCfg.Infrastructure.ClickHouseXatuPort,
-			Redis:           b.labCfg.Infrastructure.RedisPort,
-			Prometheus:      b.labCfg.Infrastructure.Observability.PrometheusPort,
-			Grafana:         b.labCfg.Infrastructure.Observability.GrafanaPort,
+			LabBackend:      b.portPlan().LabBackend,
+			LabFrontend:     b.portPlan().LabFrontend,
+			CBTBase:         b.portPlan().CBTBase,
+			CBTAPIBase:      b.portPlan().CBTAPIBase,
+			CBTFrontendBase: b.portPlan().CBTFrontendBase,
+			ClickHouseCBT:   b.portPlan().ClickHouseCBT01HTTP,
+			ClickHouseXatu:  b.portPlan().ClickHouseXatu01HTTP,
+			Redis:           b.portPlan().Redis,
+			Prometheus:      b.portPlan().Prometheus,
+			Grafana:         b.portPlan().Grafana,
 		},
 		CfgPath: b.cfgPath,
 	}
@@ -179,7 +183,7 @@ func (b *labBackend) RebuildService(ctx context.Context, name string) error {
 
 // LogSource returns how to stream logs for a given service.
 func (b *labBackend) LogSource(name string) LogSourceInfo {
-	if container, ok := dockerContainerNames[name]; ok {
+	if container, ok := b.orch.InfrastructureManager().DockerContainerName(name); ok {
 		return LogSourceInfo{Type: cmdDocker, Container: container}
 	}
 
@@ -193,13 +197,7 @@ func (b *labBackend) LogFilePath(name string) string {
 
 // GitRepos returns the lab repositories for git status checking.
 func (b *labBackend) GitRepos() map[string]string {
-	return map[string]string{
-		"cbt":         b.labCfg.Repos.CBT,
-		"xatu-cbt":    b.labCfg.Repos.XatuCBT,
-		"cbt-api":     b.labCfg.Repos.CBTAPI,
-		"lab-backend": b.labCfg.Repos.LabBackend,
-		"lab":         b.labCfg.Repos.Lab,
-	}
+	return b.labCfg.Repos.Map()
 }
 
 // GetEditableConfig returns the lab config with passwords masked.
@@ -279,11 +277,7 @@ func (b *labBackend) PutEditableConfig(data json.RawMessage) error {
 // GetOverrides returns the CBT overrides state.
 func (b *labBackend) GetOverrides() (any, error) {
 	xatuCBTPath := b.labCfg.Repos.XatuCBT
-	stateDir := b.orch.StateDir()
-
-	overridesPath := filepath.Join(
-		filepath.Dir(stateDir), constants.CBTOverridesFile,
-	)
+	overridesPath := b.overridesPath()
 
 	externalNames, transformNames, err := configtui.DiscoverModels(xatuCBTPath)
 	if err != nil {
@@ -350,10 +344,7 @@ func (b *labBackend) PutOverrides(data json.RawMessage) error {
 		return fmt.Errorf("invalid request body: %w", err)
 	}
 
-	stateDir := b.orch.StateDir()
-	overridesPath := filepath.Join(
-		filepath.Dir(stateDir), constants.CBTOverridesFile,
-	)
+	overridesPath := b.overridesPath()
 
 	existingOverrides, _, err := configtui.LoadOverrides(overridesPath)
 	if err != nil {
@@ -417,14 +408,14 @@ func (b *labBackend) PutOverrides(data json.RawMessage) error {
 
 // GetConfigFiles lists generated config files with override status.
 func (b *labBackend) GetConfigFiles() ([]configFileInfo, error) {
-	configsDir := filepath.Join(b.orch.StateDir(), "configs")
+	configsDir := filepath.Join(b.orch.StateDir(), constants.DirConfigs)
 
 	entries, err := os.ReadDir(configsDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read configs directory: %w", err)
 	}
 
-	customDir := filepath.Join(b.orch.StateDir(), "custom-configs")
+	customDir := b.customConfigsDir()
 	files := make([]configFileInfo, 0, len(entries))
 
 	for _, entry := range entries {
@@ -458,7 +449,7 @@ func (b *labBackend) GetConfigFile(name string) (*configFileContent, error) {
 		return nil, fmt.Errorf("invalid file name")
 	}
 
-	configsDir := filepath.Join(b.orch.StateDir(), "configs")
+	configsDir := filepath.Join(b.orch.StateDir(), constants.DirConfigs)
 	safePath := filepath.Join(configsDir, cleanName)
 
 	content, err := os.ReadFile(safePath)
@@ -471,9 +462,7 @@ func (b *labBackend) GetConfigFile(name string) (*configFileContent, error) {
 		Content: string(content),
 	}
 
-	customPath := filepath.Join(
-		b.orch.StateDir(), "custom-configs", cleanName,
-	)
+	customPath := filepath.Join(b.customConfigsDir(), cleanName)
 
 	overrideContent, overrideErr := os.ReadFile(customPath)
 	if overrideErr == nil {
@@ -496,7 +485,7 @@ func (b *labBackend) PutConfigFileOverride(name, content string) error {
 		return fmt.Errorf("invalid YAML: %w", err)
 	}
 
-	customDir := filepath.Join(b.orch.StateDir(), "custom-configs")
+	customDir := b.customConfigsDir()
 	if err := os.MkdirAll(customDir, 0755); err != nil {
 		return fmt.Errorf("failed to create custom-configs directory: %w", err)
 	}
@@ -522,9 +511,7 @@ func (b *labBackend) DeleteConfigFileOverride(name string) error {
 		return fmt.Errorf("invalid file name")
 	}
 
-	safePath := filepath.Join(
-		b.orch.StateDir(), "custom-configs", cleanName,
-	)
+	safePath := filepath.Join(b.customConfigsDir(), cleanName)
 
 	if err := os.Remove(safePath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove override: %w", err)
@@ -544,7 +531,11 @@ func (b *labBackend) Regenerate(ctx context.Context) error {
 
 // RecreateOrchestrator rebuilds the orchestrator with the current config.
 func (b *labBackend) RecreateOrchestrator() error {
-	newOrch, err := orchestrator.NewOrchestrator(b.log, b.labCfg, b.cfgPath)
+	if b.runtime == nil {
+		return fmt.Errorf("lab runtime is required to recreate orchestrator")
+	}
+
+	newOrch, err := orchestrator.NewOrchestratorWithRuntime(b.log, b.runtime)
 	if err != nil {
 		return fmt.Errorf("failed to recreate orchestrator: %w", err)
 	}
@@ -564,7 +555,69 @@ func (b *labBackend) StateDir() string {
 	return b.orch.StateDir()
 }
 
+func (b *labBackend) customConfigsDir() string {
+	return filepath.Join(b.workspaceStateDir(), constants.DirCustomConfigs)
+}
+
+func (b *labBackend) overridesPath() string {
+	if b.runtime != nil {
+		if b.runtime.Workspace != nil && b.runtime.Workspace.OverridesPath != "" {
+			return b.runtime.Workspace.OverridesPath
+		}
+
+		if b.runtime.Manifest != nil && b.runtime.Manifest.OverridesPath != "" {
+			return b.runtime.Manifest.OverridesPath
+		}
+	}
+
+	return filepath.Join(filepath.Dir(b.workspaceStateDir()), constants.CBTOverridesFile)
+}
+
+func (b *labBackend) workspaceStateDir() string {
+	if b.runtime != nil {
+		if b.runtime.Workspace != nil && b.runtime.Workspace.StateDir != "" {
+			return b.runtime.Workspace.StateDir
+		}
+
+		if b.runtime.Manifest != nil && b.runtime.Manifest.RootDir != "" {
+			return filepath.Join(b.runtime.Manifest.RootDir, ".xcli")
+		}
+	}
+
+	stateDir := b.orch.StateDir()
+
+	instancesDir := filepath.Dir(stateDir)
+	if filepath.Base(instancesDir) == "instances" {
+		return filepath.Dir(instancesDir)
+	}
+
+	return filepath.Dir(stateDir)
+}
+
 // RedisAddr returns the Redis address for the Lab stack.
 func (b *labBackend) RedisAddr() string {
-	return fmt.Sprintf("localhost:%d", b.labCfg.Infrastructure.RedisPort)
+	if port := b.portPlan().Redis; port > 0 {
+		return fmt.Sprintf("localhost:%d", port)
+	}
+
+	return "localhost:0"
+}
+
+func (b *labBackend) portPlan() instance.PortPlan {
+	if b.runtime != nil {
+		if len(b.runtime.Ports.AllPorts()) > 0 {
+			return b.runtime.Ports
+		}
+
+		if b.runtime.Manifest != nil && len(b.runtime.Manifest.Ports.AllPorts()) > 0 {
+			return b.runtime.Manifest.Ports
+		}
+	}
+
+	plan, err := instance.BuildPortPlan(b.labCfg, 0)
+	if err != nil {
+		return instance.PortPlan{}
+	}
+
+	return plan
 }

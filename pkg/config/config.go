@@ -14,6 +14,35 @@ import (
 	"github.com/ethpandaops/xcli/pkg/constants"
 )
 
+// DefaultConfigFileName is the workspace-local xcli configuration file.
+const DefaultConfigFileName = ".xcli.yaml"
+
+var runtimeConfigPath string
+
+// SetRuntimeConfigPath records the config path selected by CLI flag parsing.
+//
+// Most command constructors receive their config path before Cobra parses
+// persistent flags, so runtime loaders use this value when their local fallback
+// is still the default path.
+func SetRuntimeConfigPath(path string) {
+	runtimeConfigPath = strings.TrimSpace(path)
+}
+
+// EffectiveConfigPath returns the config path that should be used by runtime
+// loaders after global flag parsing has completed.
+func EffectiveConfigPath(path string) string {
+	if path == "" {
+		path = DefaultConfigFileName
+	}
+
+	if (path == DefaultConfigFileName || path == "."+string(filepath.Separator)+DefaultConfigFileName) &&
+		runtimeConfigPath != "" {
+		return runtimeConfigPath
+	}
+
+	return path
+}
+
 // Config represents the xcli root configuration
 // It contains stack-specific configurations and optional workspace-level settings.
 type Config struct {
@@ -30,12 +59,18 @@ type Config struct {
 // LabConfig represents the lab stack configuration.
 type LabConfig struct {
 	Repos          LabReposConfig       `yaml:"repos"`
+	Instance       LabInstanceConfig    `yaml:"instance,omitempty"`
 	Mode           string               `yaml:"mode"`
 	Networks       []NetworkConfig      `yaml:"networks"`
 	Infrastructure InfrastructureConfig `yaml:"infrastructure"`
 	Ports          LabPortsConfig       `yaml:"ports"`
 	Dev            LabDevConfig         `yaml:"dev"`
 	TUI            TUIConfig            `yaml:"tui"`
+}
+
+// LabInstanceConfig contains per-instance identity settings.
+type LabInstanceConfig struct {
+	ID string `yaml:"id,omitempty"`
 }
 
 // LabReposConfig contains paths to lab repositories.
@@ -45,6 +80,34 @@ type LabReposConfig struct {
 	CBTAPI     string `yaml:"cbtApi"`
 	LabBackend string `yaml:"labBackend"`
 	Lab        string `yaml:"lab"`
+}
+
+// LabRepoPath is one named lab repository path.
+type LabRepoPath struct {
+	Name string
+	Path string
+}
+
+// Map returns the configured lab repositories keyed by canonical repository name.
+func (r LabReposConfig) Map() map[string]string {
+	return map[string]string{
+		constants.RepoCBT:        r.CBT,
+		constants.RepoXatuCBT:    r.XatuCBT,
+		constants.RepoCBTAPI:     r.CBTAPI,
+		constants.RepoLabBackend: r.LabBackend,
+		constants.RepoLab:        r.Lab,
+	}
+}
+
+// Ordered returns lab repositories in the standard display/init order.
+func (r LabReposConfig) Ordered() []LabRepoPath {
+	return []LabRepoPath{
+		{Name: constants.RepoCBT, Path: r.CBT},
+		{Name: constants.RepoXatuCBT, Path: r.XatuCBT},
+		{Name: constants.RepoCBTAPI, Path: r.CBTAPI},
+		{Name: constants.RepoLabBackend, Path: r.LabBackend},
+		{Name: constants.RepoLab, Path: r.Lab},
+	}
 }
 
 // NetworkConfig represents a network configuration.
@@ -238,15 +301,7 @@ func (c *Config) Validate() error {
 
 // ValidateRepos checks if repository paths are valid.
 func (c *LabConfig) ValidateRepos() error {
-	repos := map[string]string{
-		"cbt":         c.Repos.CBT,
-		"xatu-cbt":    c.Repos.XatuCBT,
-		"cbt-api":     c.Repos.CBTAPI,
-		"lab-backend": c.Repos.LabBackend,
-		"lab":         c.Repos.Lab,
-	}
-
-	for name, path := range repos {
+	for name, path := range c.Repos.Map() {
 		absPath, err := filepath.Abs(path)
 		if err != nil {
 			return fmt.Errorf("invalid path for %s: %w", name, err)
@@ -433,23 +488,23 @@ func DefaultLab() *LabConfig {
 				},
 				CBT: ClickHouseClusterConfig{Mode: constants.InfraModeLocal},
 			},
-			Redis:   RedisConfig{Port: 6380},
+			Redis:   RedisConfig{Port: constants.DefaultRedisPort},
 			Volumes: VolumesConfig{Persist: true},
 			Observability: ObservabilityConfig{
 				Enabled:        false,
 				PrometheusPort: constants.DefaultPrometheusPort,
 				GrafanaPort:    constants.DefaultGrafanaPort,
 			},
-			ClickHouseXatuPort: 8125,
-			ClickHouseCBTPort:  8123,
-			RedisPort:          6380,
+			ClickHouseXatuPort: constants.DefaultClickHouseXatuHTTPPort,
+			ClickHouseCBTPort:  constants.DefaultClickHouseCBTHTTPPort,
+			RedisPort:          constants.DefaultRedisPort,
 		},
 		Ports: LabPortsConfig{
-			LabBackend:      8080,
-			LabFrontend:     5173,
-			CBTBase:         8081,
-			CBTAPIBase:      8091,
-			CBTFrontendBase: 8085,
+			LabBackend:      constants.DefaultLabBackendPort,
+			LabFrontend:     constants.DefaultLabFrontendPort,
+			CBTBase:         constants.DefaultCBTBasePort,
+			CBTAPIBase:      constants.DefaultCBTAPIBasePort,
+			CBTFrontendBase: constants.DefaultCBTFrontendBasePort,
 		},
 		Dev: LabDevConfig{
 			LabRebuildOnChange: false,
@@ -461,13 +516,14 @@ func DefaultLab() *LabConfig {
 	}
 }
 
-// Load reads and parses a config file
-// Supports both old (flat) and new (namespaced) config formats for backward compatibility.
+// Load reads and parses a config file.
 // If the path is ".xcli.yaml" (the default), it will search upward through parent directories.
 // Returns the config and the resolved absolute path to the config file.
 func Load(path string) (*LoadResult, error) {
+	path = EffectiveConfigPath(path)
+
 	// If using default path, search for it in parent directories
-	if path == ".xcli.yaml" {
+	if path == DefaultConfigFileName {
 		path = FindConfig(path)
 	}
 
@@ -498,24 +554,6 @@ func Load(path string) (*LoadResult, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	// Check if this is an old format config (has top-level "repos" field instead of "lab")
-	// by attempting to parse as LabConfig
-	var legacyCheck struct {
-		Repos *LabReposConfig `yaml:"repos,omitempty"`
-		Lab   *LabConfig      `yaml:"lab,omitempty"`
-	}
-	if err := yaml.Unmarshal(data, &legacyCheck); err == nil {
-		if legacyCheck.Repos != nil && legacyCheck.Lab == nil {
-			// Old format detected - migrate it
-			var labCfg LabConfig
-			if err := yaml.Unmarshal(data, &labCfg); err != nil {
-				return nil, fmt.Errorf("failed to parse legacy config: %w", err)
-			}
-
-			cfg.Lab = &labCfg
-		}
-	}
-
 	// Apply defaults to loaded config
 	cfg.setDefaults()
 
@@ -525,49 +563,18 @@ func Load(path string) (*LoadResult, error) {
 	}, nil
 }
 
-// LoadLabConfig loads and validates lab configuration from the config file.
-// This is a convenience function that combines Load with lab-specific validation.
-// Returns the lab config and the config file path, or an error if loading fails
-// or if the lab configuration is not found.
-func LoadLabConfig(configPath string) (*LabConfig, string, error) {
-	result, err := Load(configPath)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to load config: %w", err)
-	}
-
-	if result.Config.Lab == nil {
-		return nil, "", fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
-	}
-
-	return result.Config.Lab, result.ConfigPath, nil
-}
-
-// FindConfig searches for a config file using multiple strategies:
-// 1. Search upward from current directory to filesystem root
-// 2. Search immediate child directories
-// 3. Check global config for registered project paths
+// FindConfig searches upward from current directory to filesystem root.
 // Returns the absolute path to the config file, or the provided fallback path if not found.
 func FindConfig(fallback string) string {
-	const configFileName = ".xcli.yaml"
-
 	// Start from current working directory
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fallback
 	}
 
-	// Strategy 1: Search upward
-	if path := searchUpward(cwd, configFileName); path != "" {
-		return path
-	}
-
-	// Strategy 2: Search immediate child directories
-	if path := searchChildren(cwd, configFileName); path != "" {
-		return path
-	}
-
-	// Strategy 3: Check global config
-	if path := searchGlobalConfig(); path != "" {
+	// Search upward only. Child-directory and global fallbacks can silently
+	// select another workspace when multiple xcli instances exist.
+	if path := searchUpward(cwd, DefaultConfigFileName); path != "" {
 		return path
 	}
 
@@ -584,15 +591,15 @@ func (c *Config) setDefaults() {
 
 	// Infrastructure defaults
 	if c.Lab.Infrastructure.ClickHouseXatuPort == 0 {
-		c.Lab.Infrastructure.ClickHouseXatuPort = 8123
+		c.Lab.Infrastructure.ClickHouseXatuPort = constants.DefaultClickHouseXatuHTTPPort
 	}
 
 	if c.Lab.Infrastructure.ClickHouseCBTPort == 0 {
-		c.Lab.Infrastructure.ClickHouseCBTPort = 8124
+		c.Lab.Infrastructure.ClickHouseCBTPort = constants.DefaultClickHouseCBTHTTPPort
 	}
 
 	if c.Lab.Infrastructure.RedisPort == 0 {
-		c.Lab.Infrastructure.RedisPort = 6380
+		c.Lab.Infrastructure.RedisPort = constants.DefaultRedisPort
 	}
 
 	// TUI defaults
@@ -638,46 +645,4 @@ func searchUpward(startDir, configFileName string) string {
 
 		currentDir = parentDir
 	}
-}
-
-// searchChildren looks for config file in immediate child directories.
-func searchChildren(parentDir, configFileName string) string {
-	entries, err := os.ReadDir(parentDir)
-	if err != nil {
-		return ""
-	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		configPath := filepath.Join(parentDir, entry.Name(), configFileName)
-		if _, err := os.Stat(configPath); err == nil {
-			// Found it - return absolute path
-			absPath, err := filepath.Abs(configPath)
-			if err != nil {
-				return configPath
-			}
-
-			return absPath
-		}
-	}
-
-	return ""
-}
-
-// searchGlobalConfig checks the global config file for the xcli installation path.
-func searchGlobalConfig() string {
-	globalCfg, err := LoadGlobalConfig()
-	if err != nil || globalCfg.XCLIPath == "" {
-		return ""
-	}
-
-	configPath := filepath.Join(globalCfg.XCLIPath, ".xcli.yaml")
-	if _, err := os.Stat(configPath); err == nil {
-		return configPath
-	}
-
-	return ""
 }

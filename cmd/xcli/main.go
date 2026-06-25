@@ -88,6 +88,7 @@ func main() {
 		}
 
 		log.SetLevel(level)
+		config.SetRuntimeConfigPath(configPath)
 
 		// Enable log writer based on verbose flag
 		logWriter.SetEnabled(verbose)

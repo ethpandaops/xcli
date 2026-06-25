@@ -3,16 +3,17 @@ package commands
 import (
 	"fmt"
 
-	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
+	"github.com/ethpandaops/xcli/pkg/instance"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
 	"github.com/ethpandaops/xcli/pkg/ui"
+	"github.com/ethpandaops/xcli/pkg/workspace"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
 // NewLabModeCommand creates the lab mode command.
-func NewLabModeCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
+func NewLabModeCommand(log logrus.FieldLogger, configPath string, instanceOverride *string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mode <local|hybrid>",
 		Short: "Switch deployment mode between fully local and hybrid external data source",
@@ -48,17 +49,17 @@ Examples:
 			}
 
 			// Load config (need full config to save it later)
-			result, err := config.Load(configPath)
+			rootCfg, ws, err := workspace.LoadConfig(configPath, true, true)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			if result.Config.Lab == nil {
+			if rootCfg.Lab == nil {
 				return fmt.Errorf("lab configuration not found - run 'xcli lab init' first")
 			}
 
-			labCfg := result.Config.Lab
-			cfgPath := result.ConfigPath
+			labCfg := rootCfg.Lab
+			cfgPath := ws.ConfigPath
 
 			// Check if already in requested mode
 			if labCfg.Mode == mode {
@@ -101,7 +102,7 @@ Examples:
 			}
 
 			// Save config
-			if err := result.Config.Save(cfgPath); err != nil {
+			if err := rootCfg.Save(cfgPath); err != nil {
 				return fmt.Errorf("failed to save config: %w", err)
 			}
 
@@ -126,14 +127,21 @@ Examples:
 
 			_, _ = fmt.Scanln(&response)
 			if response == "y" || response == "Y" {
-				orch, err := orchestrator.NewOrchestrator(log, labCfg, cfgPath)
+				runtime, err := instance.ResolveRuntime(cmd.Context(), cfgPath, instanceOverrideValue(instanceOverride), false, instance.RuntimeOptions{
+					ClaimPorts: false,
+					ProbePorts: true,
+				})
+				if err != nil {
+					return fmt.Errorf("failed to resolve lab instance runtime: %w", err)
+				}
+
+				orch, err := orchestrator.NewOrchestratorWithRuntime(log, runtime)
 				if err != nil {
 					return fmt.Errorf("failed to create orchestrator: %w", err)
 				}
-				// Tear down infrastructure completely
-				// This is necessary because local vs hybrid mode use different infrastructure
+				// Stop and restart because local vs hybrid mode use different infrastructure.
 				if err := orch.Down(cmd.Context(), nil); err != nil {
-					return fmt.Errorf("failed to tear down: %w", err)
+					return fmt.Errorf("failed to stop stack: %w", err)
 				}
 				// Restart with auto-build enabled, no force rebuild
 				if err := orch.Up(cmd.Context(), false, false, nil); err != nil {

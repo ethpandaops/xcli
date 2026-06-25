@@ -329,7 +329,8 @@ export default function LabConfigEditor({ onToast, onNavigateDashboard, stack }:
                 <h3 className="text-sm/5 font-semibold text-text-primary">Restart Required</h3>
               </div>
               <p className="mb-5 text-sm/5 text-text-tertiary">
-                Lab config changes require a full stack restart. The stack will be torn down and rebooted.
+                Lab config changes require a full stack restart. The selected instance will be stopped and started
+                again.
               </p>
               <div className="flex justify-end gap-2">
                 <button

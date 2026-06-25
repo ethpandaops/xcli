@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 	"github.com/ethpandaops/xcli/pkg/configgen"
 	"github.com/ethpandaops/xcli/pkg/constants"
 	executil "github.com/ethpandaops/xcli/pkg/exec"
+	"github.com/ethpandaops/xcli/pkg/instance"
 	"github.com/ethpandaops/xcli/pkg/mode"
 	"github.com/ethpandaops/xcli/pkg/ui"
 	"github.com/sirupsen/logrus"
@@ -33,6 +36,13 @@ const (
 
 	// logFieldHost is the structured log field key for a host.
 	logFieldHost = "host"
+
+	defaultXatuCBTProjectName = "xatu-cbt-platform"
+
+	// cmdInfra is the xatu-cbt "infra" subcommand.
+	cmdInfra = "infra"
+	// flagProjectName is the xatu-cbt "--project-name" flag.
+	flagProjectName = "--project-name"
 )
 
 // clickHouseClusterShards are the shard suffixes for ClickHouse clusters.
@@ -47,12 +57,29 @@ type Manager struct {
 	verbose       bool
 	observability *ObservabilityManager
 	xcliDir       string
+	runtime       *instance.Runtime
+	runCmd        func(*exec.Cmd, bool) error
 }
 
 // NewManager creates a new infrastructure manager.
 // Mode parameter provides mode-specific behavior (services, ports, etc.)
 func NewManager(log logrus.FieldLogger, cfg *config.LabConfig, m mode.Mode, xcliDir string) *Manager {
+	return NewManagerWithRuntime(log, cfg, m, xcliDir, nil)
+}
+
+// NewManagerWithRuntime creates an infrastructure manager bound to an instance runtime.
+func NewManagerWithRuntime(
+	log logrus.FieldLogger,
+	cfg *config.LabConfig,
+	m mode.Mode,
+	xcliDir string,
+	runtime *instance.Runtime,
+) *Manager {
 	xatuCBTPath := cfg.Repos.XatuCBT + "/bin/xatu-cbt"
+
+	if runtime != nil && runtime.Manifest != nil && runtime.Manifest.StateDir != "" {
+		xcliDir = runtime.Manifest.StateDir
+	}
 
 	return &Manager{
 		log:         log.WithField("component", "infrastructure"),
@@ -61,12 +88,169 @@ func NewManager(log logrus.FieldLogger, cfg *config.LabConfig, m mode.Mode, xcli
 		xatuCBTPath: xatuCBTPath,
 		verbose:     false,
 		xcliDir:     xcliDir,
+		runtime:     runtime,
+		runCmd:      executil.RunCmd,
 	}
 }
 
 // SetVerbose sets verbose mode for infrastructure commands.
 func (m *Manager) SetVerbose(verbose bool) {
 	m.verbose = verbose
+}
+
+// DockerContainerName returns the Docker container name for xcli-managed services.
+func (m *Manager) DockerContainerName(service string) (string, bool) {
+	if service != constants.ServicePrometheus && service != constants.ServiceGrafana {
+		return "", false
+	}
+
+	resources := newObservabilityResources(m.cfg, m.runtime)
+
+	name := resources.containers[service]
+	if name == "" {
+		return "", false
+	}
+
+	return name, true
+}
+
+func (m *Manager) userStateDir() string {
+	if m.runtime != nil && m.runtime.Workspace != nil && m.runtime.Workspace.StateDir != "" {
+		return m.runtime.Workspace.StateDir
+	}
+
+	return m.xcliDir
+}
+
+func (m *Manager) xatuCBTProjectName() string {
+	if m.runtime == nil {
+		return defaultXatuCBTProjectName
+	}
+
+	if plan := m.runtime.EffectiveDockerPlan(); plan.ProjectName != "" {
+		return plan.ProjectName
+	}
+
+	return defaultXatuCBTProjectName
+}
+
+func (m *Manager) infraStartArgs(xatuSource string) []string {
+	return []string{
+		cmdInfra,
+		"start",
+		flagProjectName,
+		m.xatuCBTProjectName(),
+		"--xatu-source",
+		xatuSource,
+	}
+}
+
+func (m *Manager) infraActionArgs(action string) []string {
+	return []string{
+		cmdInfra,
+		action,
+		flagProjectName,
+		m.xatuCBTProjectName(),
+	}
+}
+
+func (m *Manager) xatuCBTCommand(ctx context.Context, args ...string) (*exec.Cmd, error) {
+	//nolint:gosec // G204: args are internally constructed, not user input
+	cmd := exec.CommandContext(ctx, m.xatuCBTPath, args...)
+	cmd.Dir = m.cfg.Repos.XatuCBT
+
+	env, err := m.xatuCBTEnv(os.Environ())
+	if err != nil {
+		return nil, err
+	}
+
+	cmd.Env = env
+
+	return cmd, nil
+}
+
+func (m *Manager) runXatuCBT(ctx context.Context, args ...string) error {
+	cmd, err := m.xatuCBTCommand(ctx, args...)
+	if err != nil {
+		return err
+	}
+
+	runCmd := m.runCmd
+	if runCmd == nil {
+		runCmd = executil.RunCmd
+	}
+
+	return runCmd(cmd, m.verbose)
+}
+
+func (m *Manager) xatuCBTEnv(base []string) ([]string, error) {
+	plan, err := m.xatuCBTPortPlan()
+	if err != nil {
+		return nil, err
+	}
+
+	return mergeEnv(base, plan.XatuCBTEnv(m.xatuCBTProjectName())), nil
+}
+
+func (m *Manager) xatuCBTPortPlan() (instance.PortPlan, error) {
+	fallback, err := instance.BuildPortPlan(m.cfg, 0)
+	if err != nil {
+		return instance.PortPlan{}, err
+	}
+
+	if m.runtime == nil {
+		return fallback, nil
+	}
+
+	plan := m.runtime.Ports
+	if len(plan.AllPorts()) == 0 && m.runtime.Manifest != nil {
+		plan = m.runtime.Manifest.Ports
+	}
+
+	return plan.WithDefaults(fallback), nil
+}
+
+func (m *Manager) healthCheckPorts() ([]int, error) {
+	if m.runtime == nil {
+		return m.mode.GetHealthCheckPorts(), nil
+	}
+
+	plan, err := m.xatuCBTPortPlan()
+	if err != nil {
+		return nil, err
+	}
+
+	ports := []int{plan.ClickHouseCBT01HTTP, plan.Redis}
+	if !m.mode.NeedsExternalClickHouse() {
+		ports = append(ports, plan.ClickHouseXatu01HTTP)
+	}
+
+	return ports, nil
+}
+
+func mergeEnv(base []string, overrides map[string]string) []string {
+	env := make([]string, 0, len(base)+len(overrides))
+	for _, entry := range base {
+		name, _, found := strings.Cut(entry, "=")
+		if found && overrides[name] != "" {
+			continue
+		}
+
+		env = append(env, entry)
+	}
+
+	names := make([]string, 0, len(overrides))
+	for name := range overrides {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	for _, name := range names {
+		env = append(env, fmt.Sprintf("%s=%s", name, overrides[name]))
+	}
+
+	return env
 }
 
 // Start starts infrastructure via xatu-cbt.
@@ -98,7 +282,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	spinner := ui.NewSpinner("Starting infrastructure services")
 
 	// Build command arguments
-	args := []string{"infra", "start", "--xatu-source", xatuSource}
+	args := m.infraStartArgs(xatuSource)
 
 	// Add external Xatu URL if in external mode. Credentials configured via the
 	// separate externalUsername/externalPassword fields must be embedded into the
@@ -128,11 +312,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		args = append(args, "--xatu-ref", m.cfg.Dev.XatuRef)
 	}
 
-	//nolint:gosec // xatuCBTPath is from config and validated during discovery
-	cmd := exec.CommandContext(ctx, m.xatuCBTPath, args...)
-	cmd.Dir = m.cfg.Repos.XatuCBT
-
-	if err := executil.RunCmd(cmd, m.verbose); err != nil {
+	if err := m.runXatuCBT(ctx, args...); err != nil {
 		spinner.Fail("Failed to start infrastructure services")
 
 		return fmt.Errorf("failed to start infrastructure: %w", err)
@@ -182,11 +362,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 		}
 	}
 
-	//nolint:gosec // xatuCBTPath is from config and validated during discovery
-	cmd := exec.CommandContext(ctx, m.xatuCBTPath, "infra", "stop")
-	cmd.Dir = m.cfg.Repos.XatuCBT
-
-	if err := executil.RunCmd(cmd, m.verbose); err != nil {
+	if err := m.runXatuCBT(ctx, m.infraActionArgs("stop")...); err != nil {
 		return fmt.Errorf("failed to stop infrastructure: %w", err)
 	}
 
@@ -195,25 +371,65 @@ func (m *Manager) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Reset resets infrastructure (clean slate).
+// Reset resets infrastructure and removes data. Use Stop for ordinary shutdown.
 func (m *Manager) Reset(ctx context.Context) error {
+	return m.Destroy(ctx)
+}
+
+// Destroy removes infrastructure containers and volumes for this instance.
+func (m *Manager) Destroy(ctx context.Context) error {
 	m.log.WithField("mode", m.mode.Name()).Info("resetting infrastructure")
 
-	// Stop first
-	if err := m.Stop(ctx); err != nil {
-		m.log.WithError(err).Warn("Failed to stop infrastructure")
+	if m.cfg.Infrastructure.Observability.Enabled {
+		if m.observability == nil {
+			obsMgr, err := NewObservabilityManagerWithRuntime(m.log, m.cfg, m.xcliDir, m.runtime)
+			if err != nil {
+				return fmt.Errorf("failed to create observability manager: %w", err)
+			}
+
+			m.observability = obsMgr
+		}
+
+		if err := m.observability.Destroy(ctx); err != nil {
+			m.log.WithError(err).Warn("failed to destroy observability stack")
+		}
 	}
 
-	// Remove volumes
-	//nolint:gosec // xatuCBTPath is from config and validated during discovery
-	cmd := exec.CommandContext(ctx, m.xatuCBTPath, "infra", "reset")
-	cmd.Dir = m.cfg.Repos.XatuCBT
-
-	if err := executil.RunCmd(cmd, m.verbose); err != nil {
+	if err := m.runXatuCBT(ctx, m.infraActionArgs("reset")...); err != nil {
 		return fmt.Errorf("failed to reset infrastructure: %w", err)
 	}
 
 	m.log.WithField("mode", m.mode.Name()).Info("infrastructure reset complete")
+
+	return nil
+}
+
+// ResetRedis intentionally clears Redis data for this instance only.
+func (m *Manager) ResetRedis(ctx context.Context) error {
+	plan, err := m.xatuCBTPortPlan()
+	if err != nil {
+		return err
+	}
+
+	//nolint:gosec // G204: args are internally constructed, not user input
+	cmd := exec.CommandContext(
+		ctx,
+		"redis-cli",
+		"-h",
+		"127.0.0.1",
+		"-p",
+		strconv.Itoa(plan.Redis),
+		"FLUSHALL",
+	)
+
+	runCmd := m.runCmd
+	if runCmd == nil {
+		runCmd = executil.RunCmd
+	}
+
+	if err := runCmd(cmd, m.verbose); err != nil {
+		return fmt.Errorf("failed to reset Redis for instance %s: %w", m.xatuCBTProjectName(), err)
+	}
 
 	return nil
 }
@@ -223,13 +439,19 @@ func (m *Manager) SetupNetwork(ctx context.Context, network string) error {
 	m.log.WithField("network", network).Info("running network setup")
 
 	// xatu-cbt network setup uses NETWORK env var, not --network flag
-	//nolint:gosec // xatuCBTPath is from config and validated during discovery
-	cmd := exec.CommandContext(ctx, m.xatuCBTPath, "network", "setup", "--force")
-	cmd.Dir = m.cfg.Repos.XatuCBT
+	cmd, err := m.xatuCBTCommand(ctx, "network", "setup", "--force")
+	if err != nil {
+		return err
+	}
 
-	cmd.Env = append(os.Environ(), fmt.Sprintf("NETWORK=%s", network))
+	cmd.Env = mergeEnv(cmd.Env, map[string]string{"NETWORK": network})
 
-	if err := executil.RunCmd(cmd, m.verbose); err != nil {
+	runCmd := m.runCmd
+	if runCmd == nil {
+		runCmd = executil.RunCmd
+	}
+
+	if err := runCmd(cmd, m.verbose); err != nil {
 		return fmt.Errorf("failed to setup network %s: %w", network, err)
 	}
 
@@ -238,8 +460,12 @@ func (m *Manager) SetupNetwork(ctx context.Context, network string) error {
 
 // IsRunning checks if infrastructure is running.
 func (m *Manager) IsRunning(ctx context.Context) bool {
-	// Get ports from mode (instead of hard-coded ports)
-	ports := m.mode.GetHealthCheckPorts()
+	ports, err := m.healthCheckPorts()
+	if err != nil {
+		m.log.WithError(err).Warn("failed to resolve infrastructure health check ports")
+
+		return false
+	}
 
 	for _, port := range ports {
 		addr := fmt.Sprintf("localhost:%d", port)
@@ -253,8 +479,10 @@ func (m *Manager) IsRunning(ctx context.Context) bool {
 
 // WaitForReady waits for infrastructure to be ready.
 func (m *Manager) WaitForReady(ctx context.Context, timeout time.Duration, spinner *ui.Spinner) error {
-	// Get ports from mode (instead of hard-coded checks)
-	ports := m.mode.GetHealthCheckPorts()
+	ports, err := m.healthCheckPorts()
+	if err != nil {
+		return fmt.Errorf("failed to resolve infrastructure health check ports: %w", err)
+	}
 
 	m.log.WithFields(logrus.Fields{
 		"mode":  m.mode.Name(),
@@ -304,14 +532,21 @@ func (m *Manager) WaitForReady(ctx context.Context, timeout time.Duration, spinn
 // Hybrid mode shows ClickHouse CBT + Redis; local mode adds ClickHouse Xatu.
 func (m *Manager) Status(ctx context.Context) map[string]bool {
 	// Map ports to display names for mode-relevant infrastructure only.
+	plan, err := m.xatuCBTPortPlan()
+	if err != nil {
+		m.log.WithError(err).Warn("failed to resolve infrastructure status ports")
+
+		return map[string]bool{}
+	}
+
 	portNames := map[int]string{
-		m.cfg.Infrastructure.ClickHouseCBTPort: "ClickHouse CBT",
-		m.cfg.Infrastructure.RedisPort:         "Redis",
+		plan.ClickHouseCBT01HTTP: "ClickHouse CBT",
+		plan.Redis:               "Redis",
 	}
 
 	// Local mode also runs a local ClickHouse Xatu instance.
 	if !m.mode.NeedsExternalClickHouse() {
-		portNames[m.cfg.Infrastructure.ClickHouseXatuPort] = "ClickHouse Xatu"
+		portNames[plan.ClickHouseXatu01HTTP] = "ClickHouse Xatu"
 	}
 
 	status := make(map[string]bool, len(portNames))
@@ -345,7 +580,7 @@ func (m *Manager) TestExternalConnection(ctx context.Context) error {
 	port := parsedURL.Port()
 	if port == "" {
 		// Default ClickHouse native port
-		port = "9000"
+		port = strconv.Itoa(constants.DefaultClickHouseCBTNativePort)
 	}
 
 	// Extract username and password
@@ -439,7 +674,7 @@ func (m *Manager) GetObservabilityStatus(ctx context.Context) (map[string]Contai
 	}
 
 	if m.observability == nil {
-		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
+		obsMgr, err := NewObservabilityManagerWithRuntime(m.log, m.cfg, m.xcliDir, m.runtime)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create observability manager: %w", err)
 		}
@@ -457,7 +692,7 @@ func (m *Manager) RestartObservabilityService(ctx context.Context, service strin
 	}
 
 	if m.observability == nil {
-		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
+		obsMgr, err := NewObservabilityManagerWithRuntime(m.log, m.cfg, m.xcliDir, m.runtime)
 		if err != nil {
 			return fmt.Errorf("failed to create observability manager: %w", err)
 		}
@@ -475,7 +710,7 @@ func (m *Manager) StartObservabilityService(ctx context.Context, service string)
 	}
 
 	if m.observability == nil {
-		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
+		obsMgr, err := NewObservabilityManagerWithRuntime(m.log, m.cfg, m.xcliDir, m.runtime)
 		if err != nil {
 			return fmt.Errorf("failed to create observability manager: %w", err)
 		}
@@ -493,7 +728,7 @@ func (m *Manager) StopObservabilityService(ctx context.Context, service string) 
 	}
 
 	if m.observability == nil {
-		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
+		obsMgr, err := NewObservabilityManagerWithRuntime(m.log, m.cfg, m.xcliDir, m.runtime)
 		if err != nil {
 			return fmt.Errorf("failed to create observability manager: %w", err)
 		}
@@ -515,7 +750,7 @@ func (m *Manager) AutoSeedBoundsIfNeeded(ctx context.Context, spinner ui.Task) e
 
 	m.log.Debug("Checking if external bounds seeding is needed...")
 
-	seeder := NewBoundsSeeder(m.log)
+	seeder := NewBoundsSeederWithRuntime(m.log, m.runtime)
 
 	enabledNetworks := m.cfg.EnabledNetworks()
 	if len(enabledNetworks) == 0 {
@@ -650,16 +885,12 @@ func (m *Manager) checkClusterShardDNS(ctx context.Context, host string) error {
 // transformations depend on. Only invoked in local mode; an external/remote xatu
 // already has its schema.
 func (m *Manager) migrateXatu(ctx context.Context) error {
-	args := []string{"infra", "migrate-xatu"}
+	args := m.infraActionArgs("migrate-xatu")
 	if m.cfg.Dev.XatuRef != "" {
 		args = append(args, "--xatu-ref", m.cfg.Dev.XatuRef)
 	}
 
-	//nolint:gosec // xatuCBTPath is from config and validated during discovery
-	cmd := exec.CommandContext(ctx, m.xatuCBTPath, args...)
-	cmd.Dir = m.cfg.Repos.XatuCBT
-
-	if err := executil.RunCmd(cmd, m.verbose); err != nil {
+	if err := m.runXatuCBT(ctx, args...); err != nil {
 		return fmt.Errorf("failed to run xatu migrations: %w", err)
 	}
 
@@ -677,6 +908,9 @@ func (m *Manager) startObservability(ctx context.Context) error {
 	}
 
 	generator := configgen.NewGenerator(m.log, m.cfg)
+	if m.runtime != nil {
+		generator = configgen.NewRuntimeGenerator(m.log, m.runtime)
+	}
 
 	m.log.Debug("generating observability configs")
 
@@ -684,13 +918,13 @@ func (m *Manager) startObservability(ctx context.Context) error {
 		return fmt.Errorf("failed to generate Prometheus config: %w", err)
 	}
 
-	if err := generator.GenerateGrafanaProvisioning(configsDir, m.xcliDir); err != nil {
+	if err := generator.GenerateGrafanaProvisioning(configsDir, m.userStateDir()); err != nil {
 		return fmt.Errorf("failed to generate Grafana provisioning: %w", err)
 	}
 
 	// Create and start the observability manager
 	if m.observability == nil {
-		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
+		obsMgr, err := NewObservabilityManagerWithRuntime(m.log, m.cfg, m.xcliDir, m.runtime)
 		if err != nil {
 			return fmt.Errorf("failed to create observability manager: %w", err)
 		}
@@ -705,7 +939,7 @@ func (m *Manager) startObservability(ctx context.Context) error {
 func (m *Manager) stopObservability(ctx context.Context) error {
 	if m.observability == nil {
 		// Create manager just for stopping (in case containers exist from previous run)
-		obsMgr, err := NewObservabilityManager(m.log, m.cfg, m.xcliDir)
+		obsMgr, err := NewObservabilityManagerWithRuntime(m.log, m.cfg, m.xcliDir, m.runtime)
 		if err != nil {
 			return fmt.Errorf("failed to create observability manager: %w", err)
 		}

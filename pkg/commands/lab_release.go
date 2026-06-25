@@ -12,6 +12,7 @@ import (
 	"github.com/ethpandaops/xcli/pkg/git"
 	"github.com/ethpandaops/xcli/pkg/release"
 	"github.com/ethpandaops/xcli/pkg/ui"
+	"github.com/ethpandaops/xcli/pkg/workspace"
 	"github.com/pterm/pterm"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -1131,7 +1132,7 @@ func runPreflightChecks(
 		return nil
 	}
 
-	labCfg, _, err := config.LoadLabConfig(configPath)
+	labCfg, _, err := workspace.LoadLabConfig(configPath, false)
 	if err != nil {
 		log.WithError(err).Debug("could not load lab config for pre-flight checks (skipping local repo checks)")
 

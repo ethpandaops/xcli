@@ -4,18 +4,16 @@ import (
 	"fmt"
 
 	"github.com/ethpandaops/xcli/pkg/config"
+	"github.com/ethpandaops/xcli/pkg/instance"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
 	"github.com/ethpandaops/xcli/pkg/ui"
+	"github.com/ethpandaops/xcli/pkg/workspace"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
 // NewLabConfigCommand creates the lab config command.
-// NOTE: This is maintained for backward compatibility. Consider using:
-//
-//	xcli config show --stack=lab
-//	xcli config validate --stack=lab
-func NewLabConfigCommand(log logrus.FieldLogger, configPath string) *cobra.Command {
+func NewLabConfigCommand(log logrus.FieldLogger, configPath string, instanceOverride *string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
 		Short: "Manage lab configuration",
@@ -71,13 +69,24 @@ Regenerates configurations for:
 Note: This does NOT restart services. Use 'xcli lab restart <service>' to apply
 the new configs.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			labCfg, cfgPath, err := config.LoadLabConfig(configPath)
+			labCfg, ws, err := workspace.LoadLabConfig(configPath, true)
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
-			// Create orchestrator
-			orch, err := orchestrator.NewOrchestrator(log, labCfg, cfgPath)
+			printCommandWorkspaceSelection(ws)
+
+			runtime, err := instance.ResolveRuntimeFromWorkspace(cmd.Context(), ws, labCfg, instanceOverrideValue(instanceOverride), instance.RuntimeOptions{
+				ClaimPorts: false,
+				ProbePorts: true,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to resolve lab instance runtime: %w", err)
+			}
+
+			ui.Info(fmt.Sprintf("Instance: %s", runtime.InstanceID))
+
+			orch, err := orchestrator.NewOrchestratorWithRuntime(log, runtime)
 			if err != nil {
 				return fmt.Errorf("failed to create orchestrator: %w", err)
 			}

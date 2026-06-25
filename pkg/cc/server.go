@@ -11,6 +11,7 @@ import (
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/git"
+	"github.com/ethpandaops/xcli/pkg/instance"
 	"github.com/ethpandaops/xcli/pkg/orchestrator"
 	"github.com/ethpandaops/xcli/pkg/tui"
 	"github.com/ethpandaops/xcli/pkg/ui"
@@ -42,6 +43,17 @@ func NewServer(
 	cfgPath string,
 	port int,
 ) (*Server, error) {
+	return NewServerWithRuntime(log, cfg, cfgPath, port, nil)
+}
+
+// NewServerWithRuntime creates a Command Center server bound to a lab instance runtime.
+func NewServerWithRuntime(
+	log logrus.FieldLogger,
+	cfg *config.Config,
+	cfgPath string,
+	port int,
+	runtime *instance.Runtime,
+) (*Server, error) {
 	l := log.WithField("component", "cc")
 	gitChk := git.NewChecker(l)
 
@@ -52,9 +64,11 @@ func NewServer(
 	}
 
 	if cfg.Lab != nil {
-		orch, err := orchestrator.NewOrchestrator(
-			l, cfg.Lab, cfgPath,
-		)
+		if runtime == nil {
+			return nil, fmt.Errorf("lab runtime is required for Command Center")
+		}
+
+		orch, err := orchestrator.NewOrchestratorWithRuntime(l, runtime)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"failed to create lab orchestrator: %w", err,
@@ -66,7 +80,7 @@ func NewServer(
 		// which would seize raw mode/stdin in this long-lived server process.
 		orch.SetRenderer(ui.NewPlainRenderer())
 
-		backend := newLabBackend(l, orch, cfg.Lab, cfgPath, gitChk)
+		backend := newLabBackend(l, orch, cfg.Lab, cfgPath, runtime, gitChk)
 		wrapper := tui.NewOrchestratorWrapper(orch)
 		healthMon := tui.NewHealthMonitor(wrapper)
 		redisAdmin := newRedisAdmin(l, backend.RedisAddr)

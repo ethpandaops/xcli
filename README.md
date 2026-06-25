@@ -61,6 +61,10 @@ xcli cc           # Launch web dashboard (Command Center)
 xcli lab status   # Check status (CLI)
 ```
 
+Each checkout is a distinct lab instance. A single instance uses the familiar
+default ports when they are free. Additional worktrees get isolated Docker
+resources, generated configs, state, and a non-overlapping port slot.
+
 Services:
 
 - Lab Frontend: <http://localhost:5173>
@@ -160,10 +164,30 @@ Keyboard shortcuts:
 xcli lab init                    # Initialize configuration
 xcli lab check                   # Verify environment (repos, Docker, config)
 xcli lab up                      # Start all services (always rebuilds)
-xcli lab down                    # Stop and remove containers/volumes
-xcli lab clean                   # Remove all containers, volumes, and build artifacts
+xcli lab down                    # Stop the selected instance, preserve data
+xcli lab stop                    # Same safe stop as down
+xcli lab clean                   # Safe alias for down
 xcli lab status                  # Show service status
+xcli lab status --all            # Show all known instances
+xcli lab list                    # List persisted instances
+xcli lab show <instance-id>      # Show one instance manifest and live state
+xcli lab destroy --instance <id> # Delete one instance's data and generated state
+xcli lab reset redis --instance <id> # Intentionally clear Redis for one instance
 ```
+
+`down`, `stop`, and `clean` preserve ClickHouse, Redis, Prometheus, and Grafana
+data. `destroy` and `reset redis` are the destructive paths.
+
+Use `--instance <id>` from any directory to target a specific persisted
+instance:
+
+```bash
+xcli lab --instance worktree-a stop
+xcli lab --instance worktree-a destroy --yes
+```
+
+By default, xcli derives the instance id from the config root and config path.
+You can set a stable id with `lab.instance.id` in `.xcli.yaml`.
 
 ### Build & Rebuild
 
@@ -196,6 +220,9 @@ xcli lab logs -f <service>       # Follow logs
 ```
 
 Services: `lab-backend`, `lab-frontend`, `cbt-mainnet`, `cbt-api-mainnet`, etc.
+
+Service commands target the selected instance. Use `xcli lab --instance <id>
+logs lab-backend` to inspect another worktree's stack.
 
 ### Configuration
 
@@ -243,8 +270,11 @@ xcli lab status
 # View logs
 xcli lab logs lab-backend -f
 
-# Complete cleanup (removes all containers, volumes, build artifacts)
-xcli lab clean
+# Diagnose instance paths, ports, traps, and latest rebuild failure
+xcli lab diagnose
+
+# Remove all generated state and data for one instance
+xcli lab destroy --instance <id>
 ```
 
 ### Getting Help
@@ -263,19 +293,23 @@ xcli lab mode --help         # Understand local vs hybrid modes
 `.xcli.yaml` is created by `xcli lab init`. Key settings:
 
 ```yaml
-mode: local  # "local" or "hybrid"
+lab:
+  instance:
+    id: worktree-a  # Optional stable id; otherwise xcli derives one
 
-networks:
-  - name: mainnet
-    enabled: true
-    portOffset: 0
+  mode: local  # "local" or "hybrid"
 
-infrastructure:
-  clickhouse:
-    xatu:
-      mode: local  # "local" or "external"
-  volumes:
-    persist: true  # Keep data between restarts
+  networks:
+    - name: mainnet
+      enabled: true
+      portOffset: 0
+
+  infrastructure:
+    clickhouse:
+      xatu:
+        mode: local  # "local" or "external"
+    volumes:
+      persist: true  # Keep data between restarts
 ```
 
 **Modes:**

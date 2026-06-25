@@ -88,7 +88,7 @@ func NewDownCommand(s Stack) *cobra.Command {
 func NewCleanCommand(s Stack) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdClean,
-		Short: fmt.Sprintf("Remove all %s containers and artifacts", s.Name()),
+		Short: fmt.Sprintf("Stop the %s stack without deleting data", s.Name()),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return s.Clean(cmd.Context())
 		},
@@ -190,12 +190,17 @@ func NewStartCommand(s Stack) *cobra.Command {
 // NewStopCommand creates the stop subcommand for a stack.
 func NewStopCommand(s Stack) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:               "stop <service>",
-		Short:             fmt.Sprintf("Stop a specific %s service", s.Name()),
-		Args:              cobra.ExactArgs(1),
+		Use:               "stop [service]",
+		Short:             fmt.Sprintf("Stop the %s stack or a specific service", s.Name()),
+		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: s.CompleteServices(),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return s.Stop(cmd.Context(), args[0])
+			service := ""
+			if len(args) > 0 {
+				service = args[0]
+			}
+
+			return s.Stop(cmd.Context(), service)
 		},
 	}
 

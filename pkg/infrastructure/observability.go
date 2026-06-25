@@ -11,17 +11,20 @@ import (
 	"strings"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	"github.com/sirupsen/logrus"
 
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
+	"github.com/ethpandaops/xcli/pkg/instance"
 	"github.com/ethpandaops/xcli/pkg/ui"
 )
 
@@ -40,10 +43,18 @@ type ContainerStatus struct {
 
 // ObservabilityManager handles Prometheus and Grafana containers.
 type ObservabilityManager struct {
-	log     logrus.FieldLogger
-	docker  *client.Client
-	cfg     *config.LabConfig
-	xcliDir string
+	log       logrus.FieldLogger
+	docker    *client.Client
+	cfg       *config.LabConfig
+	xcliDir   string
+	resources observabilityResources
+}
+
+type observabilityResources struct {
+	containers map[string]string
+	volumes    map[string]string
+	labels     map[string]string
+	ports      map[string]int
 }
 
 // NewObservabilityManager creates a new observability manager.
@@ -52,17 +63,103 @@ func NewObservabilityManager(
 	cfg *config.LabConfig,
 	xcliDir string,
 ) (*ObservabilityManager, error) {
+	return NewObservabilityManagerWithRuntime(log, cfg, xcliDir, nil)
+}
+
+// NewObservabilityManagerWithRuntime creates a manager using instance-scoped
+// Docker resources when a runtime is supplied.
+func NewObservabilityManagerWithRuntime(
+	log logrus.FieldLogger,
+	cfg *config.LabConfig,
+	xcliDir string,
+	runtime *instance.Runtime,
+) (*ObservabilityManager, error) {
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Docker client: %w", err)
 	}
 
+	if runtime != nil && runtime.Manifest != nil && runtime.Manifest.StateDir != "" {
+		xcliDir = runtime.Manifest.StateDir
+	}
+
 	return &ObservabilityManager{
-		log:     log.WithField("component", "observability"),
-		docker:  dockerClient,
-		cfg:     cfg,
-		xcliDir: xcliDir,
+		log:       log.WithField("component", "observability"),
+		docker:    dockerClient,
+		cfg:       cfg,
+		xcliDir:   xcliDir,
+		resources: newObservabilityResources(cfg, runtime),
 	}, nil
+}
+
+func newObservabilityResources(
+	cfg *config.LabConfig,
+	runtime *instance.Runtime,
+) observabilityResources {
+	resources := observabilityResources{
+		containers: map[string]string{},
+		volumes:    map[string]string{},
+		labels:     map[string]string{},
+		ports: map[string]int{
+			constants.ServicePrometheus: cfg.Infrastructure.Observability.PrometheusPort,
+			constants.ServiceGrafana:    cfg.Infrastructure.Observability.GrafanaPort,
+		},
+	}
+
+	if runtime == nil {
+		return resources
+	}
+
+	dockerPlan := runtime.EffectiveDockerPlan()
+
+	for service, name := range dockerPlan.Containers {
+		if name != "" {
+			resources.containers[service] = name
+		}
+	}
+
+	for service, name := range dockerPlan.Volumes {
+		if name != "" {
+			resources.volumes[service] = name
+		}
+	}
+
+	resources.labels = copyStringMap(dockerPlan.Labels)
+
+	if runtime.Ports.Prometheus != 0 {
+		resources.ports[constants.ServicePrometheus] = runtime.Ports.Prometheus
+	}
+
+	if runtime.Ports.Grafana != 0 {
+		resources.ports[constants.ServiceGrafana] = runtime.Ports.Grafana
+	}
+
+	return resources
+}
+
+func copyStringMap(values map[string]string) map[string]string {
+	copied := make(map[string]string, len(values))
+	for key, value := range values {
+		copied[key] = value
+	}
+
+	return copied
+}
+
+func (m *ObservabilityManager) containerName(service string) string {
+	return m.resources.containers[service]
+}
+
+func (m *ObservabilityManager) volumeName(service string) string {
+	return m.resources.volumes[service]
+}
+
+func (m *ObservabilityManager) servicePort(service string) int {
+	return m.resources.ports[service]
+}
+
+func (m *ObservabilityManager) labels() map[string]string {
+	return copyStringMap(m.resources.labels)
 }
 
 // Start starts Prometheus and Grafana containers.
@@ -104,8 +201,8 @@ func (m *ObservabilityManager) Start(ctx context.Context) error {
 
 	spinner.Success("Observability services are healthy")
 
-	promPort := m.cfg.Infrastructure.Observability.PrometheusPort
-	grafanaPort := m.cfg.Infrastructure.Observability.GrafanaPort
+	promPort := m.servicePort(constants.ServicePrometheus)
+	grafanaPort := m.servicePort(constants.ServiceGrafana)
 
 	m.log.WithFields(logrus.Fields{
 		"prometheus_url": fmt.Sprintf("http://localhost:%d", promPort),
@@ -115,7 +212,7 @@ func (m *ObservabilityManager) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops and removes observability containers.
+// Stop stops and removes observability containers while preserving volumes.
 func (m *ObservabilityManager) Stop(ctx context.Context) error {
 	if !m.cfg.Infrastructure.Observability.Enabled {
 		return nil
@@ -124,29 +221,39 @@ func (m *ObservabilityManager) Stop(ctx context.Context) error {
 	m.log.Info("stopping observability stack")
 
 	// Stop Grafana first
-	if err := m.stopContainer(ctx, constants.ContainerGrafana); err != nil {
+	if err := m.stopContainer(ctx, m.containerName(constants.ServiceGrafana)); err != nil {
 		m.log.WithError(err).Warn("failed to stop Grafana container")
 	}
 
 	// Stop Prometheus
-	if err := m.stopContainer(ctx, constants.ContainerPrometheus); err != nil {
+	if err := m.stopContainer(ctx, m.containerName(constants.ServicePrometheus)); err != nil {
 		m.log.WithError(err).Warn("failed to stop Prometheus container")
 	}
 
-	// Remove volumes if not persisting
-	if !m.cfg.Infrastructure.Volumes.Persist {
-		m.log.Debug("removing observability volumes")
+	m.log.Info("observability stack stopped")
 
-		if err := m.removeVolume(ctx, constants.VolumePrometheus); err != nil {
-			m.log.WithError(err).Warn("failed to remove Prometheus volume")
-		}
+	return nil
+}
 
-		if err := m.removeVolume(ctx, constants.VolumeGrafana); err != nil {
-			m.log.WithError(err).Warn("failed to remove Grafana volume")
-		}
+// Destroy stops observability containers and removes their volumes.
+func (m *ObservabilityManager) Destroy(ctx context.Context) error {
+	if err := m.Stop(ctx); err != nil {
+		return err
 	}
 
-	m.log.Info("observability stack stopped")
+	if !m.cfg.Infrastructure.Observability.Enabled {
+		return nil
+	}
+
+	m.log.Debug("removing observability volumes")
+
+	if err := m.removeVolume(ctx, m.volumeName(constants.ServicePrometheus)); err != nil {
+		m.log.WithError(err).Warn("failed to remove Prometheus volume")
+	}
+
+	if err := m.removeVolume(ctx, m.volumeName(constants.ServiceGrafana)); err != nil {
+		m.log.WithError(err).Warn("failed to remove Grafana volume")
+	}
 
 	return nil
 }
@@ -175,12 +282,12 @@ func (m *ObservabilityManager) StopService(ctx context.Context, service string) 
 	case constants.ServicePrometheus:
 		m.log.Info("stopping Prometheus")
 
-		return m.stopContainer(ctx, constants.ContainerPrometheus)
+		return m.stopContainer(ctx, m.containerName(service))
 
 	case constants.ServiceGrafana:
 		m.log.Info("stopping Grafana")
 
-		return m.stopContainer(ctx, constants.ContainerGrafana)
+		return m.stopContainer(ctx, m.containerName(service))
 
 	default:
 		return fmt.Errorf("unknown observability service: %s", service)
@@ -193,7 +300,7 @@ func (m *ObservabilityManager) RestartService(ctx context.Context, service strin
 	case constants.ServicePrometheus:
 		m.log.Info("restarting Prometheus")
 
-		if err := m.stopContainer(ctx, constants.ContainerPrometheus); err != nil {
+		if err := m.stopContainer(ctx, m.containerName(service)); err != nil {
 			m.log.WithError(err).Debug("failed to stop Prometheus container")
 		}
 
@@ -202,7 +309,7 @@ func (m *ObservabilityManager) RestartService(ctx context.Context, service strin
 	case constants.ServiceGrafana:
 		m.log.Info("restarting Grafana")
 
-		if err := m.stopContainer(ctx, constants.ContainerGrafana); err != nil {
+		if err := m.stopContainer(ctx, m.containerName(service)); err != nil {
 			m.log.WithError(err).Debug("failed to stop Grafana container")
 		}
 
@@ -218,26 +325,26 @@ func (m *ObservabilityManager) Status(ctx context.Context) (map[string]Container
 	status := make(map[string]ContainerStatus, 2)
 
 	// Check Prometheus
-	promStatus, err := m.getContainerStatus(ctx, constants.ContainerPrometheus)
+	promStatus, err := m.getContainerStatus(ctx, constants.ServicePrometheus)
 	if err != nil {
 		promStatus = ContainerStatus{
 			Name:    constants.ServicePrometheus,
 			State:   "not found",
 			Running: false,
-			Port:    m.cfg.Infrastructure.Observability.PrometheusPort,
+			Port:    m.servicePort(constants.ServicePrometheus),
 		}
 	}
 
 	status[constants.ServicePrometheus] = promStatus
 
 	// Check Grafana
-	grafanaStatus, err := m.getContainerStatus(ctx, constants.ContainerGrafana)
+	grafanaStatus, err := m.getContainerStatus(ctx, constants.ServiceGrafana)
 	if err != nil {
 		grafanaStatus = ContainerStatus{
 			Name:    constants.ServiceGrafana,
 			State:   "not found",
 			Running: false,
-			Port:    m.cfg.Infrastructure.Observability.GrafanaPort,
+			Port:    m.servicePort(constants.ServiceGrafana),
 		}
 	}
 
@@ -257,7 +364,8 @@ func (m *ObservabilityManager) Close() error {
 
 // startPrometheus starts the Prometheus container.
 func (m *ObservabilityManager) startPrometheus(ctx context.Context) error {
-	containerName := constants.ContainerPrometheus
+	containerName := m.containerName(constants.ServicePrometheus)
+	volumeName := m.volumeName(constants.ServicePrometheus)
 
 	// Check if container already exists and is running
 	if running, err := m.isContainerRunning(ctx, containerName); err == nil && running {
@@ -278,7 +386,11 @@ func (m *ObservabilityManager) startPrometheus(ctx context.Context) error {
 
 	// Prepare config path
 	configPath := filepath.Join(m.xcliDir, "configs", "prometheus.yml")
-	promPort := m.cfg.Infrastructure.Observability.PrometheusPort
+
+	promPort := m.servicePort(constants.ServicePrometheus)
+	if err := m.ensureVolume(ctx, volumeName); err != nil {
+		return fmt.Errorf("failed to create Prometheus volume: %w", err)
+	}
 
 	// Create container
 	containerConfig := &container.Config{
@@ -291,6 +403,7 @@ func (m *ObservabilityManager) startPrometheus(ctx context.Context) error {
 		ExposedPorts: nat.PortSet{
 			"9090/tcp": struct{}{},
 		},
+		Labels: m.labels(),
 	}
 
 	hostConfig := &container.HostConfig{
@@ -300,7 +413,7 @@ func (m *ObservabilityManager) startPrometheus(ctx context.Context) error {
 		Mounts: []mount.Mount{
 			{
 				Type:   mount.TypeVolume,
-				Source: constants.VolumePrometheus,
+				Source: volumeName,
 				Target: "/prometheus",
 			},
 		},
@@ -339,7 +452,8 @@ func (m *ObservabilityManager) startPrometheus(ctx context.Context) error {
 
 // startGrafana starts the Grafana container.
 func (m *ObservabilityManager) startGrafana(ctx context.Context) error {
-	containerName := constants.ContainerGrafana
+	containerName := m.containerName(constants.ServiceGrafana)
+	volumeName := m.volumeName(constants.ServiceGrafana)
 
 	// Check if container already exists and is running
 	if running, err := m.isContainerRunning(ctx, containerName); err == nil && running {
@@ -361,7 +475,11 @@ func (m *ObservabilityManager) startGrafana(ctx context.Context) error {
 	// Prepare paths
 	provisioningPath := filepath.Join(m.xcliDir, "configs", "grafana", "provisioning")
 	dashboardsPath := filepath.Join(m.xcliDir, "configs", "grafana", "dashboards")
-	grafanaPort := m.cfg.Infrastructure.Observability.GrafanaPort
+
+	grafanaPort := m.servicePort(constants.ServiceGrafana)
+	if err := m.ensureVolume(ctx, volumeName); err != nil {
+		return fmt.Errorf("failed to create Grafana volume: %w", err)
+	}
 
 	// Create container
 	containerConfig := &container.Config{
@@ -375,6 +493,7 @@ func (m *ObservabilityManager) startGrafana(ctx context.Context) error {
 		ExposedPorts: nat.PortSet{
 			"3000/tcp": struct{}{},
 		},
+		Labels: m.labels(),
 	}
 
 	hostConfig := &container.HostConfig{
@@ -385,7 +504,7 @@ func (m *ObservabilityManager) startGrafana(ctx context.Context) error {
 		Mounts: []mount.Mount{
 			{
 				Type:   mount.TypeVolume,
-				Source: constants.VolumeGrafana,
+				Source: volumeName,
 				Target: "/var/lib/grafana",
 			},
 		},
@@ -431,8 +550,8 @@ func (m *ObservabilityManager) waitForHealth(ctx context.Context, timeout time.D
 	defer ticker.Stop()
 
 	ports := []int{
-		m.cfg.Infrastructure.Observability.PrometheusPort,
-		m.cfg.Infrastructure.Observability.GrafanaPort,
+		m.servicePort(constants.ServicePrometheus),
+		m.servicePort(constants.ServiceGrafana),
 	}
 
 	for {
@@ -502,6 +621,10 @@ func (m *ObservabilityManager) isContainerRunning(ctx context.Context, name stri
 	for _, c := range containerList {
 		for _, n := range c.Names {
 			if strings.TrimPrefix(n, "/") == name {
+				if err := validateDockerLabels("container", name, c.Labels, m.labels()); err != nil {
+					return false, err
+				}
+
 				return true, nil
 			}
 		}
@@ -549,7 +672,9 @@ func (m *ObservabilityManager) stopContainer(ctx context.Context, name string) e
 }
 
 // getContainerStatus gets the status of a container.
-func (m *ObservabilityManager) getContainerStatus(ctx context.Context, name string) (ContainerStatus, error) {
+func (m *ObservabilityManager) getContainerStatus(ctx context.Context, service string) (ContainerStatus, error) {
+	name := m.containerName(service)
+
 	containerList, err := m.docker.ContainerList(ctx, container.ListOptions{
 		All: true,
 		Filters: filters.NewArgs(
@@ -563,26 +688,60 @@ func (m *ObservabilityManager) getContainerStatus(ctx context.Context, name stri
 	for _, c := range containerList {
 		for _, n := range c.Names {
 			if strings.TrimPrefix(n, "/") == name {
-				var port int
-
-				switch name {
-				case constants.ContainerPrometheus:
-					port = m.cfg.Infrastructure.Observability.PrometheusPort
-				case constants.ContainerGrafana:
-					port = m.cfg.Infrastructure.Observability.GrafanaPort
-				}
-
 				return ContainerStatus{
-					Name:    name,
+					Name:    service,
 					State:   c.State,
 					Running: c.State == "running",
-					Port:    port,
+					Port:    m.servicePort(service),
 				}, nil
 			}
 		}
 	}
 
 	return ContainerStatus{}, fmt.Errorf("container %s not found", name)
+}
+
+func (m *ObservabilityManager) ensureVolume(ctx context.Context, name string) error {
+	if name == "" {
+		return fmt.Errorf("volume name is required")
+	}
+
+	labels := m.labels()
+
+	vol, err := m.docker.VolumeInspect(ctx, name)
+	if err == nil {
+		return validateDockerLabels("volume", name, vol.Labels, labels)
+	}
+
+	if !cerrdefs.IsNotFound(err) {
+		return fmt.Errorf("failed to inspect volume %s: %w", name, err)
+	}
+
+	_, err = m.docker.VolumeCreate(ctx, volume.CreateOptions{
+		Name:   name,
+		Labels: labels,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create volume %s: %w", name, err)
+	}
+
+	return nil
+}
+
+func validateDockerLabels(resourceType, name string, actual, expected map[string]string) error {
+	for key, expectedValue := range expected {
+		if actual[key] != expectedValue {
+			return fmt.Errorf(
+				"%s %s exists without expected label %s=%s",
+				resourceType,
+				name,
+				key,
+				expectedValue,
+			)
+		}
+	}
+
+	return nil
 }
 
 // removeVolume removes a Docker volume.

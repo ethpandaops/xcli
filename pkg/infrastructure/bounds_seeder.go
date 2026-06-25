@@ -6,8 +6,10 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 
+	"github.com/ethpandaops/xcli/pkg/instance"
 	"github.com/sirupsen/logrus"
 )
 
@@ -17,9 +19,6 @@ const (
 	// clickhouse-raw migration; it was previously xatu-cbt in the xatu namespace.
 	prodK8sContext = "platform-analytics-hel1-production"
 	prodNamespace  = "clickhouse"
-
-	// localRedisContainer is the local Docker container name for xatu-cbt Redis.
-	localRedisContainer = "xatu-cbt-redis"
 
 	// redisBoundsKeyPrefix is the Redis key prefix for external model bounds.
 	redisBoundsKeyPrefix = "cbt:external:"
@@ -34,11 +33,18 @@ const (
 	cmdRedisCLI = "redis-cli"
 	// flagN is the "-n" flag (redis-cli database number / kubectl namespace).
 	flagN = "-n"
+	// flagH is the redis-cli "-h" host flag.
+	flagH = "-h"
+	// flagP is the redis-cli "-p" port flag.
+	flagP = "-p"
+	// localhostIP is the loopback address used to reach local Redis.
+	localhostIP = "127.0.0.1"
 )
 
 // BoundsSeeder handles seeding CBT external bounds from production Redis.
 type BoundsSeeder struct {
-	log logrus.FieldLogger
+	log     logrus.FieldLogger
+	runtime *instance.Runtime
 }
 
 // redisBound represents a key-value pair from Redis.
@@ -49,8 +55,14 @@ type redisBound struct {
 
 // NewBoundsSeeder creates a new bounds seeder.
 func NewBoundsSeeder(log logrus.FieldLogger) *BoundsSeeder {
+	return NewBoundsSeederWithRuntime(log, nil)
+}
+
+// NewBoundsSeederWithRuntime creates a bounds seeder for one lab instance.
+func NewBoundsSeederWithRuntime(log logrus.FieldLogger, runtime *instance.Runtime) *BoundsSeeder {
 	return &BoundsSeeder{
-		log: log.WithField("component", "bounds_seeder"),
+		log:     log.WithField("component", "bounds_seeder"),
+		runtime: runtime,
 	}
 }
 
@@ -103,14 +115,8 @@ func (s *BoundsSeeder) SeedFromProduction(ctx context.Context, network string, r
 
 // CheckNeedsSeeding checks if local Redis has any external bounds for the given network.
 func (s *BoundsSeeder) CheckNeedsSeeding(ctx context.Context, redisDB int) (bool, error) {
-	args := []string{
-		cmdExec, localRedisContainer,
-		cmdRedisCLI,
-		flagN, fmt.Sprintf("%d", redisDB),
-		"KEYS", redisBoundsKeyPrefix + "*",
-	}
-
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	//nolint:gosec // G204: args are internally constructed, not user input
+	cmd := exec.CommandContext(ctx, cmdRedisCLI, s.localRedisArgs(redisDB, "KEYS", redisBoundsKeyPrefix+"*")...)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -238,14 +244,8 @@ func (s *BoundsSeeder) bulkInsertLocal(ctx context.Context, redisDB int, bounds 
 			len(b.Key), b.Key, len(b.Value), b.Value)
 	}
 
-	args := []string{
-		cmdExec, "-i", localRedisContainer,
-		cmdRedisCLI,
-		flagN, fmt.Sprintf("%d", redisDB),
-		"--pipe",
-	}
-
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	//nolint:gosec // G204: args are internally constructed, not user input
+	cmd := exec.CommandContext(ctx, cmdRedisCLI, s.localRedisArgs(redisDB, "--pipe")...)
 	cmd.Stdin = &protocol
 
 	output, err := cmd.CombinedOutput()
@@ -256,6 +256,27 @@ func (s *BoundsSeeder) bulkInsertLocal(ctx context.Context, redisDB int, bounds 
 	s.log.WithField("output", strings.TrimSpace(string(output))).Debug("Redis pipe output")
 
 	return nil
+}
+
+func (s *BoundsSeeder) localRedisArgs(redisDB int, args ...string) []string {
+	redisPort := instance.DefaultPortPlan().Redis
+	if s.runtime != nil {
+		if s.runtime.Ports.Redis > 0 {
+			redisPort = s.runtime.Ports.Redis
+		} else if s.runtime.Manifest != nil && s.runtime.Manifest.Ports.Redis > 0 {
+			redisPort = s.runtime.Manifest.Ports.Redis
+		}
+	}
+
+	result := make([]string, 0, 6+len(args))
+	result = append(result,
+		flagH, localhostIP,
+		flagP, strconv.Itoa(redisPort),
+		flagN, strconv.Itoa(redisDB),
+	)
+	result = append(result, args...)
+
+	return result
 }
 
 // prodRedisDetails returns the production Redis pod name and password k8s secret name for a network.

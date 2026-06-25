@@ -16,6 +16,7 @@ import (
 	"dario.cat/mergo"
 	"github.com/ethpandaops/xcli/pkg/config"
 	"github.com/ethpandaops/xcli/pkg/constants"
+	"github.com/ethpandaops/xcli/pkg/instance"
 	"github.com/ethpandaops/xcli/pkg/seeddata"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
@@ -23,13 +24,6 @@ import (
 
 //go:embed templates/*
 var templatesFS embed.FS
-
-const (
-	// cbtMetricsPortBase is the base port for CBT engine metrics endpoints.
-	cbtMetricsPortBase = 9100
-	// cbtAPIMetricsPortBase is the base port for CBT API metrics endpoints.
-	cbtAPIMetricsPortBase = 9200
-)
 
 const (
 	keyPort                      = "Port"
@@ -41,13 +35,13 @@ const (
 	envExternalModelMinTimestamp = "EXTERNAL_MODEL_MIN_TIMESTAMP"
 	envExternalModelMinBlock     = "EXTERNAL_MODEL_MIN_BLOCK"
 	envModelsScriptsPath         = "MODELS_SCRIPTS_PATH"
-	modelsScriptsPath            = "../xatu-cbt/models/scripts"
 )
 
 // Generator generates service configuration files.
 type Generator struct {
-	log logrus.FieldLogger
-	cfg *config.LabConfig
+	log     logrus.FieldLogger
+	cfg     *config.LabConfig
+	runtime *instance.Runtime
 }
 
 // NewGenerator creates a new Generator instance.
@@ -58,16 +52,89 @@ func NewGenerator(log logrus.FieldLogger, cfg *config.LabConfig) *Generator {
 	}
 }
 
+// NewRuntimeGenerator creates a Generator bound to a resolved instance runtime.
+func NewRuntimeGenerator(log logrus.FieldLogger, runtime *instance.Runtime) *Generator {
+	var cfg *config.LabConfig
+	if runtime != nil {
+		cfg = runtime.LabConfig
+	}
+
+	return &Generator{
+		log:     log.WithField("component", "config-generator"),
+		cfg:     cfg,
+		runtime: runtime,
+	}
+}
+
+func (g *Generator) networkPorts(network string) instance.NetworkPortPlan {
+	return g.portPlan().Networks[network]
+}
+
+func (g *Generator) clickHouseCBTHTTPPort() int {
+	return g.portPlan().ClickHouseCBT01HTTP
+}
+
+func (g *Generator) clickHouseCBTNativePort() int {
+	return g.portPlan().ClickHouseCBT01TCP
+}
+
+func (g *Generator) redisPort() int {
+	return g.portPlan().Redis
+}
+
+func (g *Generator) labBackendPort() int {
+	return g.portPlan().LabBackend
+}
+
+func (g *Generator) labFrontendPort() int {
+	return g.portPlan().LabFrontend
+}
+
+func (g *Generator) prometheusPort() int {
+	return g.portPlan().Prometheus
+}
+
+func (g *Generator) portPlan() instance.PortPlan {
+	fallback := instance.DefaultPortPlan()
+
+	if g.cfg != nil {
+		if plan, err := instance.BuildPortPlan(g.cfg, 0); err == nil {
+			fallback = plan
+		}
+	}
+
+	if g.runtime == nil {
+		return fallback
+	}
+
+	plan := g.runtime.Ports
+	if len(plan.AllPorts()) == 0 && g.runtime.Manifest != nil {
+		plan = g.runtime.Manifest.Ports
+	}
+
+	return plan.WithDefaults(fallback)
+}
+
+func (g *Generator) xatuCBTModelsPath(kind string) string {
+	if g.runtime != nil && g.runtime.LabConfig != nil && g.runtime.LabConfig.Repos.XatuCBT != "" {
+		return filepath.Join(g.runtime.LabConfig.Repos.XatuCBT, keyModels, kind)
+	}
+
+	if g.cfg != nil && g.cfg.Repos.XatuCBT != "" {
+		return filepath.Join(g.cfg.Repos.XatuCBT, keyModels, kind)
+	}
+
+	return filepath.Join(constants.RepoXatuCBT, keyModels, kind)
+}
+
 // GenerateCBTConfig generates CBT configuration for a network.
 // It generates a base config from template, then deep merges auto-generated
 // defaults and user overrides on top. User overrides take ultimate precedence.
 func (g *Generator) GenerateCBTConfig(network string, userOverridesPath string) (string, error) {
-	metricsPort := cbtMetricsPortBase
 	redisDB := 0
 
 	for i, net := range g.cfg.EnabledNetworks() {
 		if net.Name == network {
-			metricsPort = cbtMetricsPortBase + i
 			redisDB = i // mainnet=0, sepolia=1, holesky=2, etc.
 
 			break
@@ -85,7 +152,7 @@ func (g *Generator) GenerateCBTConfig(network string, userOverridesPath string) 
 		externalDatabase = g.cfg.Infrastructure.ClickHouse.Xatu.ExternalDatabase
 	}
 
-	frontendPort := g.cfg.GetCBTFrontendPort(network)
+	networkPorts := g.networkPorts(network)
 
 	var genesisTimestamp uint64
 	if timestamp, ok := constants.NetworkGenesisTimestamps[network]; ok {
@@ -94,11 +161,15 @@ func (g *Generator) GenerateCBTConfig(network string, userOverridesPath string) 
 
 	data := map[string]any{
 		"Network":                    network,
-		"MetricsPort":                metricsPort,
+		"ClickHouseHTTPPort":         g.clickHouseCBTHTTPPort(),
+		"MetricsPort":                networkPorts.CBTMetrics,
 		"RedisDB":                    redisDB,
-		"FrontendPort":               frontendPort,
+		"RedisPort":                  g.redisPort(),
+		"FrontendPort":               networkPorts.CBTFrontend,
 		"GenesisTimestamp":           genesisTimestamp,
 		"ExternalClickHouseDatabase": externalDatabase,
+		"ExternalModelsPath":         g.xatuCBTModelsPath("external"),
+		"TransformationModelsPath":   g.xatuCBTModelsPath("transformations"),
 	}
 
 	tmpl, err := template.New("cbt-config").ParseFS(templatesFS, "templates/cbt.yaml.tmpl")
@@ -167,21 +238,13 @@ func (g *Generator) GenerateCBTConfig(network string, userOverridesPath string) 
 
 // GenerateCBTAPIConfig generates cbt-api configuration for a network.
 func (g *Generator) GenerateCBTAPIConfig(network string) (string, error) {
-	port := g.cfg.GetCBTAPIPort(network)
-	metricsPort := cbtAPIMetricsPortBase
-
-	for i, net := range g.cfg.EnabledNetworks() {
-		if net.Name == network {
-			metricsPort = cbtAPIMetricsPortBase + i
-
-			break
-		}
-	}
+	networkPorts := g.networkPorts(network)
 
 	data := map[string]any{
-		"Network":     network,
-		keyPort:       port,
-		"MetricsPort": metricsPort,
+		"Network":              network,
+		keyPort:                networkPorts.CBTAPI,
+		"MetricsPort":          networkPorts.CBTAPIMetrics,
+		"ClickHouseNativePort": g.clickHouseCBTNativePort(),
 	}
 
 	tmpl, err := template.New("cbt-api-config").ParseFS(templatesFS, "templates/cbt-api.yaml.tmpl")
@@ -225,7 +288,7 @@ func (g *Generator) GenerateLabBackendConfig(
 	for _, net := range g.cfg.Networks {
 		entry := map[string]any{
 			"Name":    net.Name,
-			keyPort:   g.cfg.GetCBTAPIPort(net.Name),
+			keyPort:   g.networkPorts(net.Name).CBTAPI,
 			"Enabled": net.Enabled,
 		}
 
@@ -244,8 +307,9 @@ func (g *Generator) GenerateLabBackendConfig(
 
 	data := map[string]any{
 		"Networks":     networks,
-		keyPort:        g.cfg.Ports.LabBackend,
-		"FrontendPort": g.cfg.Ports.LabFrontend,
+		keyPort:        g.labBackendPort(),
+		"FrontendPort": g.labFrontendPort(),
+		"RedisPort":    g.redisPort(),
 	}
 
 	tmpl, err := template.New("lab-backend-config").ParseFS(
@@ -279,7 +343,7 @@ func (g *Generator) generateAutoDefaults(network string) (map[string]any, error)
 			keyNetwork:                   network,
 			envExternalModelMinTimestamp: fmt.Sprintf("%d", externalModelMinTimestamp),
 			envExternalModelMinBlock:     fmt.Sprintf("%d", externalModelMinBlock),
-			envModelsScriptsPath:         modelsScriptsPath,
+			envModelsScriptsPath:         g.xatuCBTModelsPath("scripts"),
 		},
 	}
 

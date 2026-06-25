@@ -35,14 +35,14 @@ const (
 	valAuto       = "auto"
 )
 
-// grafanaDatasourceConfig is the static Grafana datasource provisioning YAML.
-const grafanaDatasourceConfig = `apiVersion: 1
+// grafanaDatasourceConfigTemplate is the Grafana datasource provisioning YAML.
+const grafanaDatasourceConfigTemplate = `apiVersion: 1
 datasources:
   - name: Prometheus
     type: prometheus
     uid: prometheus
     access: proxy
-    url: http://host.docker.internal:9090
+    url: http://host.docker.internal:%d
     isDefault: true
     editable: false
 `
@@ -94,8 +94,8 @@ func (g *Generator) GeneratePrometheusConfig(outputDir string) (string, error) {
 	targets := make([]PrometheusTarget, 0, 10)
 
 	// Add CBT engine targets for each enabled network
-	for i, net := range g.cfg.EnabledNetworks() {
-		metricsPort := cbtMetricsPortBase + i
+	for _, net := range g.cfg.EnabledNetworks() {
+		metricsPort := g.networkPorts(net.Name).CBTMetrics
 		targets = append(targets, PrometheusTarget{
 			JobName: fmt.Sprintf("cbt-%s", net.Name),
 			Address: fmt.Sprintf("host.docker.internal:%d", metricsPort),
@@ -103,8 +103,8 @@ func (g *Generator) GeneratePrometheusConfig(outputDir string) (string, error) {
 	}
 
 	// Add cbt-api targets for each enabled network
-	for i, net := range g.cfg.EnabledNetworks() {
-		metricsPort := cbtAPIMetricsPortBase + i
+	for _, net := range g.cfg.EnabledNetworks() {
+		metricsPort := g.networkPorts(net.Name).CBTAPIMetrics
 		targets = append(targets, PrometheusTarget{
 			JobName: fmt.Sprintf("cbt-api-%s", net.Name),
 			Address: fmt.Sprintf("host.docker.internal:%d", metricsPort),
@@ -114,7 +114,7 @@ func (g *Generator) GeneratePrometheusConfig(outputDir string) (string, error) {
 	// Add lab-backend target (assuming it exposes metrics on /metrics)
 	targets = append(targets, PrometheusTarget{
 		JobName: "lab-backend",
-		Address: fmt.Sprintf("host.docker.internal:%d", g.cfg.Ports.LabBackend),
+		Address: fmt.Sprintf("host.docker.internal:%d", g.labBackendPort()),
 		Path:    "/metrics",
 	})
 
@@ -166,8 +166,9 @@ func (g *Generator) GenerateGrafanaProvisioning(outputDir, xcliDir string) error
 	// Generate datasource provisioning file
 	datasourcePath := filepath.Join(outputDir, "grafana", "provisioning", "datasources", "datasource.yml")
 
-	//nolint:gosec // Config file permissions are intentionally 0644 for readability
-	if err := os.WriteFile(datasourcePath, []byte(grafanaDatasourceConfig), 0644); err != nil {
+	datasourceConfig := fmt.Sprintf(grafanaDatasourceConfigTemplate, g.prometheusPort())
+	//nolint:gosec // G306: config file intentionally world-readable
+	if err := os.WriteFile(datasourcePath, []byte(datasourceConfig), 0644); err != nil {
 		return fmt.Errorf("failed to write datasource.yml: %w", err)
 	}
 
