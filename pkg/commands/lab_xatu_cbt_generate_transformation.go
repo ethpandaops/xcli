@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -153,6 +154,8 @@ func runGenerateTransformationTest(
 	// Extract options for easier access
 	model := opts.model
 	network := opts.network
+	from := opts.from
+	to := opts.to
 	duration := opts.duration
 	upload := opts.upload
 	aiAssertions := opts.aiAssertions
@@ -410,6 +413,14 @@ func runGenerateTransformationTest(
 				analysisSpinner.Success(fmt.Sprintf("Strategy generated (confidence: %.0f%%)", discoveryResult.OverallConfidence*100))
 			}
 		}
+	}
+
+	// Apply an explicit --from/--to window over the discovered range, if the
+	// user supplied one. Discovery anchors a duration-sized window at the head
+	// of available data, which cannot capture sparse historical events.
+	if from != "" && to != "" {
+		applyExplicitRange(discoveryResult, from, to)
+		ui.Info(fmt.Sprintf("Applied explicit range override: %s → %s", from, to))
 	}
 
 	// Validate that Claude's strategies cover all expected models
@@ -1415,4 +1426,34 @@ func runSingleModelGeneration(
 	logInfo("Done")
 
 	return nil
+}
+
+// applyExplicitRange overrides the discovered range with an explicit
+// user-supplied window. Numeric bounds are applied to block/slot/epoch
+// strategies; non-numeric bounds are applied to time strategies. Only
+// strategies whose column type matches the bound kind are overridden, so
+// mixed-axis models keep their heuristic value on the non-overridden axis.
+func applyExplicitRange(result *seeddata.DiscoveryResult, from, to string) {
+	_, parseErr := strconv.ParseInt(from, 10, 64)
+	isNumeric := parseErr == nil
+
+	result.FromValue = from
+	result.ToValue = to
+
+	for i := range result.Strategies {
+		strategy := &result.Strategies[i]
+
+		switch strategy.ColumnType {
+		case seeddata.RangeColumnTypeBlock, seeddata.RangeColumnTypeSlot, seeddata.RangeColumnTypeEpoch:
+			if isNumeric {
+				strategy.FromValue = from
+				strategy.ToValue = to
+			}
+		case seeddata.RangeColumnTypeTime:
+			if !isNumeric {
+				strategy.FromValue = from
+				strategy.ToValue = to
+			}
+		}
+	}
 }
