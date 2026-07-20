@@ -2,237 +2,15 @@ package ai
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"maps"
-	"os/exec"
 	"strings"
-	"sync"
-	"time"
-
-	"github.com/sirupsen/logrus"
-	claudesdk "github.com/wagiedev/claude-agent-sdk-go"
 )
 
-const defaultTimeout = 30 * time.Minute
-
-// ProviderDebugError carries structured diagnostics for provider failures.
-type ProviderDebugError struct {
-	Cause error
-	Info  map[string]any
-}
-
-func (e *ProviderDebugError) Error() string {
-	if e == nil || e.Cause == nil {
-		return "provider error"
-	}
-
-	return e.Cause.Error()
-}
-
-func (e *ProviderDebugError) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-
-	return e.Cause
-}
-
-func (e *ProviderDebugError) DebugInfo() map[string]any {
-	if e == nil || len(e.Info) == 0 {
-		return map[string]any{}
-	}
-
-	out := make(map[string]any, len(e.Info))
-	maps.Copy(out, e.Info)
-
-	return out
-}
-
-type claudeEngine struct {
-	log       logrus.FieldLogger
-	timeout   time.Duration
-	available bool
-}
-
-func newClaudeEngine(log logrus.FieldLogger) *claudeEngine {
-	_, err := exec.LookPath("claude")
-
-	return &claudeEngine{
-		log:       log.WithField("component", "ai-provider-claude"),
-		timeout:   defaultTimeout,
-		available: err == nil,
-	}
-}
-
-func (e *claudeEngine) Provider() ProviderID {
-	return ProviderClaude
-}
-
-func (e *claudeEngine) Capabilities() Capabilities {
-	return Capabilities{Streaming: true, Interrupt: true, Sessions: true}
-}
-
-func (e *claudeEngine) IsAvailable() bool {
-	return e.available
-}
-
-func (e *claudeEngine) Ask(ctx context.Context, prompt string) (string, error) {
-	if !e.available {
-		return "", fmt.Errorf("provider %s is not available", e.Provider())
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, e.timeout)
-	defer cancel()
-
-	var (
-		assistantText strings.Builder
-		resultText    string
-	)
-
-	for msg, err := range claudesdk.Query(ctx, prompt) {
-		if err != nil {
-			return "", err
-		}
-
-		switch m := msg.(type) {
-		case *claudesdk.AssistantMessage:
-			for _, block := range m.Content {
-				if textBlock, ok := block.(*claudesdk.TextBlock); ok && strings.TrimSpace(textBlock.Text) != "" {
-					if assistantText.Len() > 0 {
-						assistantText.WriteString("\n")
-					}
-
-					assistantText.WriteString(textBlock.Text)
-				}
-			}
-		case *claudesdk.ResultMessage:
-			if m.Result != nil && strings.TrimSpace(*m.Result) != "" {
-				resultText = *m.Result
-			}
-		}
-	}
-
-	if strings.TrimSpace(resultText) != "" {
-		return resultText, nil
-	}
-
-	out := strings.TrimSpace(assistantText.String())
-	if out == "" {
-		return "", fmt.Errorf("empty provider response")
-	}
-
-	return out, nil
-}
-
-func (e *claudeEngine) StartSession(ctx context.Context) (Session, error) {
-	if !e.available {
-		return nil, fmt.Errorf("provider %s is not available", e.Provider())
-	}
-
-	client := claudesdk.NewClient()
-	sessionCtx, sessionCancel := context.WithCancel(context.Background())
-	session := &claudeSession{
-		id:              newSessionID(),
-		log:             e.log,
-		client:          client,
-		timeout:         e.timeout,
-		sessionCancel:   sessionCancel,
-		stderrLineLimit: 200,
-	}
-
-	startErrCh := make(chan error, 1)
-
-	go func() {
-		startErrCh <- client.Start(
-			sessionCtx,
-			claudesdk.WithIncludePartialMessages(true),
-			claudesdk.WithPermissionMode("bypassPermissions"),
-			claudesdk.WithStderr(session.pushStderr),
-		)
-	}()
-
-	select {
-	case err := <-startErrCh:
-		if err != nil {
-			sessionCancel()
-
-			return nil, err
-		}
-	case <-ctx.Done():
-		sessionCancel()
-
-		return nil, ctx.Err()
-	}
-
-	return session, nil
-}
-
-type claudeSession struct {
-	id              string
-	log             logrus.FieldLogger
-	client          claudesdk.Client
-	timeout         time.Duration
-	sessionCancel   context.CancelFunc
-	mu              sync.Mutex
-	stderrMu        sync.Mutex
-	stderrLines     []string
-	stderrLineLimit int
-	closed          bool
-}
-
-func (s *claudeSession) ID() string {
-	return s.id
-}
-
-func (s *claudeSession) AskStream(ctx context.Context, prompt string, onChunk func(StreamChunk)) (string, error) {
-	if s.isClosed() {
-		return "", fmt.Errorf("session is closed")
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, s.timeout)
-	defer cancel()
-
-	state := &askStreamState{}
-
-	debugInfo := func() map[string]any {
-		return state.debugInfo(s, prompt)
-	}
-
-	if err := s.client.Query(ctx, prompt); err != nil {
-		return "", &ProviderDebugError{Cause: err, Info: debugInfo()}
-	}
-
-	for msg, err := range s.client.ReceiveResponse(ctx) {
-		if err != nil {
-			loopBreak, retErr := state.handleReceiveError(err, debugInfo)
-			if retErr != nil {
-				return "", retErr
-			}
-
-			if loopBreak {
-				break
-			}
-
-			continue
-		}
-
-		if out, done, retErr := state.handleMessage(msg, onChunk, debugInfo); done {
-			if retErr != nil {
-				return "", retErr
-			}
-
-			return out, nil
-		}
-	}
-
-	return state.finalResponse(debugInfo)
-}
-
+// askStreamState accumulates a turn's output and diagnostics as protocol
+// messages arrive.
 type askStreamState struct {
 	seq              int
 	assistantText    strings.Builder
@@ -308,7 +86,7 @@ func (st *askStreamState) handleMessage(
 	st.msgCount++
 
 	switch m := msg.(type) {
-	case *claudesdk.StreamEvent:
+	case *streamEvent:
 		st.lastMessageType = "stream_event"
 		st.streamEventCount++
 
@@ -328,17 +106,16 @@ func (st *askStreamState) handleMessage(
 				st.streamChars += len(parts.Text)
 			}
 		}
-	case *claudesdk.AssistantMessage:
+	case *assistantMessage:
 		st.lastMessageType = "assistant"
 		st.assistantCount++
 
 		if m.Error != nil {
-			st.assistantErr = string(*m.Error)
+			st.assistantErr = *m.Error
 		}
 
 		for _, block := range m.Content {
-			textBlock, ok := block.(*claudesdk.TextBlock)
-			if !ok || strings.TrimSpace(textBlock.Text) == "" {
+			if strings.TrimSpace(block.Text) == "" {
 				continue
 			}
 
@@ -346,23 +123,23 @@ func (st *askStreamState) handleMessage(
 				st.assistantText.WriteString("\n")
 			}
 
-			st.assistantText.WriteString(textBlock.Text)
-			st.assistantChars += len(textBlock.Text)
+			st.assistantText.WriteString(block.Text)
+			st.assistantChars += len(block.Text)
 
-			// Some CLI/SDK runs only surface thinking in stream events and provide
+			// Some CLI runs only surface thinking in stream events and provide
 			// answer text via assistant messages before final result. Emit fallback
 			// answer chunks so the UI streams visible answer text during the turn.
 			if onChunk != nil && st.streamChars == 0 {
 				st.seq++
 				onChunk(StreamChunk{
 					Kind:      StreamChunkAnswer,
-					Text:      textBlock.Text,
+					Text:      block.Text,
 					EventType: "assistant_message",
 					Seq:       st.seq,
 				})
 			}
 		}
-	case *claudesdk.ResultMessage:
+	case *resultMessage:
 		st.lastMessageType = "result"
 		st.resultCount++
 		st.resultSubtype = m.Subtype
@@ -448,89 +225,8 @@ func (st *askStreamState) finalResponse(debugInfo func() map[string]any) (string
 	}
 }
 
-func (s *claudeSession) Interrupt(ctx context.Context) error {
-	if s.isClosed() {
-		return nil
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-
-	return s.client.Interrupt(ctx)
-}
-
-func (s *claudeSession) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.closed {
-		return nil
-	}
-
-	s.closed = true
-	if s.sessionCancel != nil {
-		s.sessionCancel()
-	}
-
-	return s.client.Close()
-}
-
-func (s *claudeSession) isClosed() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	return s.closed
-}
-
-func (s *claudeSession) pushStderr(line string) {
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "" {
-		return
-	}
-
-	s.stderrMu.Lock()
-	defer s.stderrMu.Unlock()
-
-	s.stderrLines = append(s.stderrLines, trimmed)
-	if s.stderrLineLimit <= 0 {
-		return
-	}
-
-	if len(s.stderrLines) > s.stderrLineLimit {
-		s.stderrLines = s.stderrLines[len(s.stderrLines)-s.stderrLineLimit:]
-	}
-}
-
-func (s *claudeSession) stderrCount() int {
-	s.stderrMu.Lock()
-	defer s.stderrMu.Unlock()
-
-	return len(s.stderrLines)
-}
-
-func (s *claudeSession) stderrTail(n int) []string {
-	s.stderrMu.Lock()
-	defer s.stderrMu.Unlock()
-
-	if n <= 0 || len(s.stderrLines) == 0 {
-		return nil
-	}
-
-	if len(s.stderrLines) <= n {
-		out := make([]string, len(s.stderrLines))
-		copy(out, s.stderrLines)
-
-		return out
-	}
-
-	out := make([]string, n)
-	copy(out, s.stderrLines[len(s.stderrLines)-n:])
-
-	return out
-}
-
 func streamEventChunks(
-	msg *claudesdk.StreamEvent,
+	msg *streamEvent,
 	seq int,
 	st *askStreamState,
 	onChunk func(StreamChunk),
@@ -560,6 +256,7 @@ func streamEventChunks(
 	if parts.EventType == "content_block_stop" && st.currentToolName != "" {
 		summary := formatToolSummary(st.currentToolName, st.toolInputBuf.String())
 		st.currentToolName = ""
+
 		st.toolInputBuf.Reset()
 
 		n++
@@ -615,7 +312,7 @@ type streamEventParts struct {
 
 const toolSummaryMaxLen = 120
 
-func parseStreamEvent(msg *claudesdk.StreamEvent) (streamEventParts, bool) {
+func parseStreamEvent(msg *streamEvent) (streamEventParts, bool) {
 	eventType, _ := msg.Event["type"].(string)
 	parts := streamEventParts{
 		EventType: eventType,
@@ -717,13 +414,4 @@ func formatToolSummary(toolName, inputJSON string) string {
 	}
 
 	return fmt.Sprintf("%s complete", toolName)
-}
-
-func newSessionID() string {
-	buf := make([]byte, 8)
-	if _, err := rand.Read(buf); err != nil {
-		return fmt.Sprintf("sess-%d", time.Now().UnixNano())
-	}
-
-	return "sess-" + hex.EncodeToString(buf)
 }
