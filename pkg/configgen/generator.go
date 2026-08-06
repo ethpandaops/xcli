@@ -154,9 +154,19 @@ func (g *Generator) GenerateCBTConfig(network string, userOverridesPath string) 
 
 	networkPorts := g.networkPorts(network)
 
+	// Well-known networks resolve from constants; custom networks (devnets)
+	// declare genesisTimestamp on their entry in .xcli.yaml.
 	var genesisTimestamp uint64
 	if timestamp, ok := constants.NetworkGenesisTimestamps[network]; ok {
 		genesisTimestamp = timestamp
+	}
+
+	for _, net := range g.cfg.Networks {
+		if net.Name == network && net.GenesisTimestamp != 0 {
+			genesisTimestamp = net.GenesisTimestamp
+
+			break
+		}
 	}
 
 	data := map[string]any{
@@ -329,7 +339,18 @@ func (g *Generator) GenerateLabBackendConfig(
 
 // generateAutoDefaults creates xcli-generated defaults for models (env, overrides).
 func (g *Generator) generateAutoDefaults(network string) (map[string]any, error) {
-	externalModelMinTimestamp := time.Now().Add(-1 * time.Hour).Unix()
+	backfill := time.Hour
+
+	if g.cfg.CBT.DefaultBackfillDuration != "" {
+		parsed, err := time.ParseDuration(g.cfg.CBT.DefaultBackfillDuration)
+		if err != nil {
+			return nil, fmt.Errorf("invalid cbt.defaultBackfillDuration %q: %w", g.cfg.CBT.DefaultBackfillDuration, err)
+		}
+
+		backfill = parsed
+	}
+
+	externalModelMinTimestamp := time.Now().Add(-backfill).Unix()
 
 	// Set sane default for mainnet
 	externalModelMinBlock := 0

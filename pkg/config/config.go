@@ -66,6 +66,16 @@ type LabConfig struct {
 	Ports          LabPortsConfig       `yaml:"ports"`
 	Dev            LabDevConfig         `yaml:"dev"`
 	TUI            TUIConfig            `yaml:"tui"`
+	CBT            LabCBTConfig         `yaml:"cbt,omitempty"`
+}
+
+// LabCBTConfig contains CBT engine defaults applied to generated configs.
+type LabCBTConfig struct {
+	// DefaultBackfillDuration bounds how far back external models scan
+	// (EXTERNAL_MODEL_MIN_TIMESTAMP = now - duration). Defaults to 1h.
+	// Canonical (cannon-derived) tables lag hours behind head, so short
+	// windows can leave canonical-sourced models with no data in range.
+	DefaultBackfillDuration string `yaml:"defaultBackfillDuration,omitempty"`
 }
 
 // LabInstanceConfig contains per-instance identity settings.

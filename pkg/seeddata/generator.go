@@ -528,7 +528,19 @@ func (g *Generator) buildClickHouseHTTPURL() (string, error) {
 // If the model's frontmatter specifies a database and table, it uses those.
 // Otherwise it falls back to "default.modelName" for backward compatibility.
 func (g *Generator) resolveTableRef(model string) string {
-	return ResolveExternalTableRef(model, g.cfg.Repos.XatuCBT)
+	ref := ResolveExternalTableRef(model, g.cfg.Repos.XatuCBT)
+
+	// Frontmatter-declared databases win. Otherwise prefer the instance's
+	// configured external database — per-devnet raw tables live in databases
+	// named after the network, not in "default".
+	if strings.HasPrefix(ref, "default.") {
+		if db := g.cfg.Infrastructure.ClickHouse.Xatu.ExternalDatabase; db != "" && db != "default" {
+			// Devnet database names contain dashes, so quote the identifier.
+			return "`" + db + "`." + strings.TrimPrefix(ref, "default.")
+		}
+	}
+
+	return ref
 }
 
 // formatSQLValue formats a value for use in SQL.
