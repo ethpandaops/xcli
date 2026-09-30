@@ -237,7 +237,11 @@ func (m *Manager) BuildCBTAPIWithResult(ctx context.Context, force bool) *diagno
 	m.log.WithField("repo", constants.RepoCBTAPI).Info("building project")
 
 	// Generate OpenAPI and other code (requires proto to be run first)
-	genResult := m.runMakeWithResult(ctx, m.cfg.Repos.CBTAPI, "generate", diagnostic.PhaseBuild, constants.RepoCBTAPI)
+	genCmd := exec.CommandContext(ctx, "make", "generate")
+	genCmd.Dir = m.cfg.Repos.CBTAPI
+	genCmd.Env = append(os.Environ(), fmt.Sprintf("CONFIG_FILE=%s", m.cbtAPIConfigPath()))
+
+	genResult := executil.RunCmdWithResult(genCmd, m.verbose, diagnostic.PhaseBuild, constants.RepoCBTAPI)
 	if !genResult.Success {
 		return genResult
 	}
@@ -404,16 +408,20 @@ func (m *Manager) GenerateProtosWithResult(ctx context.Context) *diagnostic.Buil
 		m.log.WithError(err).Warn("failed to clean cbt-api generated files, continuing anyway")
 	}
 
-	// Use the generated config file from the state directory
-	// stateDir is already an absolute path, so the config path will also be absolute
-	configPath := filepath.Join(m.stateDir, "configs", fmt.Sprintf("cbt-api-%s.yaml", network.Name))
-
 	cmd := exec.CommandContext(ctx, "make", "proto")
 	cmd.Dir = m.cfg.Repos.CBTAPI
 
-	cmd.Env = append(os.Environ(), fmt.Sprintf("CONFIG_FILE=%s", configPath))
+	cmd.Env = append(os.Environ(), fmt.Sprintf("CONFIG_FILE=%s", m.cbtAPIConfigPath()))
 
 	return executil.RunCmdWithResult(cmd, m.verbose, diagnostic.PhaseProtoGen, constants.RepoCBTAPI)
+}
+
+// cbtAPIConfigPath returns the generated cbt-api config of the first enabled network.
+// Table schemas are network-agnostic, so one network's config drives code generation.
+func (m *Manager) cbtAPIConfigPath() string {
+	network := m.cfg.EnabledNetworks()[0]
+
+	return filepath.Join(m.stateDir, "configs", fmt.Sprintf("cbt-api-%s.yaml", network.Name))
 }
 
 // CleanCBTAPIGenerated removes all generated files from cbt-api.
