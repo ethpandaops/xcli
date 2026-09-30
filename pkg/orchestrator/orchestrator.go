@@ -2061,7 +2061,6 @@ func (o *Orchestrator) startLabFrontend(ctx context.Context) error {
 		ctx,
 		"pnpm",
 		"dev",
-		"--",
 		"--host",
 		"0.0.0.0",
 		"--port",
