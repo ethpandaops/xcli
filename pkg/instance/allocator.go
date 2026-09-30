@@ -17,6 +17,8 @@ const defaultMaxAllocationSlots = 100
 
 const reservationGracePeriod = 10 * time.Minute
 
+const portProbeTimeout = 200 * time.Millisecond
+
 // Allocator assigns preferred port slots under the global registry lock.
 type Allocator struct {
 	registry   *Registry
@@ -241,8 +243,19 @@ func boundPorts(ports []int) []int {
 	return bound
 }
 
+// isPortFree reports whether nothing is listening on port. A loopback bind alone
+// is not enough: with SO_REUSEADDR, macOS lets it succeed while another process
+// holds the port on the wildcard address, so an accepting listener is probed first.
 func isPortFree(port int) bool {
-	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+
+	if conn, err := net.DialTimeout("tcp", addr, portProbeTimeout); err == nil {
+		_ = conn.Close()
+
+		return false
+	}
+
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return false
 	}

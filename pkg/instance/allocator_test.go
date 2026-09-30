@@ -114,6 +114,31 @@ func TestAllocatorSkipsBoundPorts(t *testing.T) {
 	require.NotZero(t, plan.Slot)
 }
 
+func TestAllocatorSkipsPortsHeldOnWildcardAddress(t *testing.T) {
+	port, closeListener := listenOnFreePortAt(t, "", 19080, 20080)
+	if port == 0 {
+		t.Skip("wildcard bind is not permitted in this environment")
+	}
+	defer closeListener()
+
+	require.False(t, isPortFree(port))
+
+	registry := NewRegistry(filepath.Join(t.TempDir(), "lab", "instances"))
+	allocator := NewAllocator(registry, true)
+	labCfg := config.DefaultLab()
+	labCfg.Ports.LabBackend = port
+
+	manifest := testManifest(t, "wildcard")
+	plan, err := allocator.Allocate(context.Background(), AllocationRequest{
+		InstanceID: manifest.InstanceID,
+		LabConfig:  labCfg,
+		Manifest:   manifest,
+		Claim:      true,
+	})
+	require.NoError(t, err)
+	require.NotZero(t, plan.Slot)
+}
+
 func testManifest(t *testing.T, id string) *Manifest {
 	t.Helper()
 
@@ -138,8 +163,14 @@ func testManifest(t *testing.T, id string) *Manifest {
 func listenOnFreePort(t *testing.T, start int, end int) (int, func()) {
 	t.Helper()
 
+	return listenOnFreePortAt(t, "127.0.0.1", start, end)
+}
+
+func listenOnFreePortAt(t *testing.T, host string, start int, end int) (int, func()) {
+	t.Helper()
+
 	for port := start; port < end; port++ {
-		listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
 		if err != nil {
 			continue
 		}
